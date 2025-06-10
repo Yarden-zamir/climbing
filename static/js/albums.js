@@ -48,6 +48,7 @@ const populateCard = async (card, meta) => {
       <div class="album-card-content">
         <h3 dir="auto"></h3>
         <p dir="auto"></p>
+        <div class="album-date"></div>
       </div>
     `;
 
@@ -59,9 +60,13 @@ const populateCard = async (card, meta) => {
 
 	const titleEl = card.querySelector("h3");
 	const descriptionEl = card.querySelector("p");
+	const dateEl = card.querySelector(".album-date");
 
 	await typewriter(titleEl, meta.title);
 	await typewriter(descriptionEl, meta.description);
+
+	// Set date (no animation)
+	dateEl.textContent = meta.date || "";
 };
 
 	const fetchAlbumMeta = async (albumUrl) => {

@@ -139,8 +139,10 @@ nav a.active::after {
 .album-card-content {
 	padding: 1rem;
 	min-height: 7rem;
+	display: flex;
+	flex-direction: column;
+	/* height: 100%; */
 }
-
 .album-card-content h3,
 .album-card-content p {
 	/* Initial state for text animation */
@@ -311,6 +313,11 @@ nav a.active::after {
 
 /* ... (keep all styles from .album-card.loading to the end) ... */
 
+/* .img-container img {
+	opacity: 0;
+	filter: blur(16px);
+	transition: opacity 0.75s cubic-bezier(.4,0,.2,1), filter 0.75s cubic-bezier(.4,0,.2,1);
+} */
 
 
 .img-container {
@@ -335,4 +342,20 @@ nav a.active::after {
 .img-container img.loaded {
 	opacity: 1;
 	filter: blur(0);
+}
+.album-date {
+	margin-top: auto;
+	font-size: 0.85rem;
+	color: #888;
+	letter-spacing: 0.03em;
+	text-align: right;
+}
+
+.page-fade {
+	opacity: 1;
+	transition: opacity 0.5s cubic-bezier(.4,0,.2,1);
+}
+.page-fade.fade-out {
+	opacity: 0;
+	pointer-events: none;
 }

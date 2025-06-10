@@ -37,6 +37,7 @@ def parse_meta_tags(html: str, url: str):
         get_meta_tag("og:title")
         or (soup.title.string if soup.title else "Untitled")
     )
+    title, date = title.split(" · ")
     description = (
         get_meta_tag("og:description") or "No description available."
     )
@@ -50,6 +51,7 @@ def parse_meta_tags(html: str, url: str):
         "description": description,
         "imageUrl": image_url,
         "url": url,
+        "date": date,
     }
 
 
