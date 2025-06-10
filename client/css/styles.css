@@ -1,0 +1,164 @@
+/* General Body & Typography */
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+		Helvetica, Arial, sans-serif;
+	margin: 0;
+	background-color: #121212;
+	color: #e0e0e0;
+	padding-top: 60px; /* Space for the fixed nav */
+}
+
+h1 {
+	text-align: center;
+	margin-bottom: 2rem;
+}
+
+/* Navigation */
+nav {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	background-color: rgba(24, 24, 24, 0.8);
+	backdrop-filter: blur(10px);
+	padding: 1rem;
+	text-align: center;
+	z-index: 1000;
+	border-bottom: 1px solid #333;
+}
+
+nav a {
+	color: #e0e0e0;
+	text-decoration: none;
+	margin: 0 1rem;
+	font-weight: 500;
+	transition: color 0.3s ease;
+}
+
+nav a:hover,
+nav a.active {
+	color: #bb86fc;
+}
+
+/* Main Page Iframe */
+.main-iframe {
+	display: block;
+	width: 100vw;
+	height: calc(100vh - 60px); /* Full height minus nav */
+	border: none;
+}
+
+/* Albums Page Grid */
+.albums-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+	gap: 1.5rem;
+	padding: 1.5rem;
+	max-width: 1200px;
+	margin: 0 auto;
+}
+
+/* Album Card Styling */
+.album-card {
+	background-color: #1e1e1e;
+	border-radius: 8px;
+	overflow: hidden;
+	text-decoration: none;
+	color: #e0e0e0;
+	box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+	transition: transform 0.3s ease, box-shadow 0.3s ease;
+	opacity: 0;
+	animation: card-fade-in 0.6s ease-out forwards;
+}
+
+.album-card:hover {
+	transform: translateY(-5px);
+	box-shadow: 0 8px 25px rgba(187, 134, 252, 0.3);
+}
+
+/* Content inside the card (initially hidden) */
+.album-card img,
+.album-card-content {
+	opacity: 0;
+	transition: opacity 0.5s ease-in-out;
+}
+
+/* When loaded, fade in the content */
+.album-card.loaded img,
+.album-card.loaded .album-card-content {
+	opacity: 1;
+}
+
+.album-card img {
+	width: 100%;
+	height: 200px;
+	object-fit: cover;
+	display: block;
+	background-color: #333; /* BG for when image is loading */
+}
+
+.album-card-content {
+	padding: 1rem;
+}
+
+.album-card-content h3 {
+	margin: 0 0 0.5rem 0;
+	font-size: 1.2rem;
+	color: #bb86fc;
+}
+
+.album-card-content p {
+	margin: 0;
+	font-size: 0.9rem;
+	color: #a0a0a0;
+	line-height: 1.4;
+}
+
+/* 💀 Skeleton Loader Styles */
+.album-card.loading .placeholder {
+	background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+	background-size: 200% 100%;
+	animation: pulse 1.5s infinite ease-in-out;
+	border-radius: 4px;
+}
+
+.album-card.loading .placeholder-img {
+	height: 200px;
+	width: 100%;
+}
+
+.album-card.loading .placeholder-content {
+	padding: 1rem;
+}
+
+.album-card.loading .placeholder-text {
+	height: 1.2rem;
+	margin-bottom: 0.75rem;
+}
+
+.album-card.loading .placeholder-text.short {
+	width: 60%;
+	height: 0.9rem;
+	margin-bottom: 0.5rem;
+}
+
+/* Keyframe Animations */
+@keyframes card-fade-in {
+	from {
+		opacity: 0;
+		transform: translateY(20px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes pulse {
+	0% {
+		background-position: 200% 0;
+	}
+	100% {
+		background-position: -200% 0;
+	}
+}
