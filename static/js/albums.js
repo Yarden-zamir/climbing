@@ -1,6 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
 	const container = document.getElementById("albums-container");
-	const SERVER_URL = "http://localhost:8002";
+	// ❌ The SERVER_URL constant is no longer needed.
 
 	const createPlaceholderCard = (index) => {
 		const card = document.createElement("div");
@@ -28,7 +28,8 @@ document.addEventListener("DOMContentLoaded", () => {
 		linkCard.target = "_blank";
 		linkCard.rel = "noopener noreferrer";
 
-		const proxyImageUrl = `${SERVER_URL}/get-image?url=${encodeURIComponent(
+		// ✅ Use a relative path for the proxy URL.
+		const proxyImageUrl = `/get-image?url=${encodeURIComponent(
 			meta.imageUrl
 		)}`;
 
@@ -43,9 +44,8 @@ document.addEventListener("DOMContentLoaded", () => {
 	};
 
 	const fetchAlbumMeta = async (albumUrl) => {
-		const apiUrl = `${SERVER_URL}/get-meta?url=${encodeURIComponent(
-			albumUrl
-		)}`;
+		// ✅ Use a relative path for the API call.
+		const apiUrl = `/get-meta?url=${encodeURIComponent(albumUrl)}`;
 		try {
 			const response = await fetch(apiUrl);
 			if (!response.ok) throw new Error("Server error");
@@ -58,6 +58,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	const loadAlbums = async () => {
 		try {
+			// ✅ Fetch albums.txt from a relative path.
 			const response = await fetch("albums.txt");
 			if (!response.ok) throw new Error("Could not load albums.txt");
 
