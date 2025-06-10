@@ -1,10 +1,27 @@
 document.addEventListener("DOMContentLoaded", () => {
 	const container = document.getElementById("albums-container");
-	// ❌ The SERVER_URL constant is no longer needed.
+
+	const typewriter = (element, text, speed = 1) => {
+		return new Promise((resolve) => {
+			let i = 0;
+			element.innerHTML = "";
+			function type() {
+				if (i < text.length) {
+					element.innerHTML += text.charAt(i);
+					i++;
+					setTimeout(type, speed);
+				} else {
+					resolve();
+				}
+			}
+			type();
+		});
+	};
 
 	const createPlaceholderCard = (index) => {
-		const card = document.createElement("div");
+		const card = document.createElement("a");
 		card.className = "album-card loading";
+		card.href = "#";
 		card.style.animationDelay = `${index * 100}ms`;
 		card.innerHTML = `
       <div class="placeholder placeholder-img"></div>
@@ -17,34 +34,37 @@ document.addEventListener("DOMContentLoaded", () => {
 		return card;
 	};
 
-	const populateCard = (card, meta) => {
-		card.classList.remove("loading");
-		card.classList.add("loaded");
+const populateCard = async (card, meta) => {
+	card.href = meta.url;
+	card.target = "_blank";
+	card.rel = "noopener noreferrer";
 
-		const linkCard = document.createElement("a");
-		linkCard.href = meta.url;
-		linkCard.className = card.className;
-		linkCard.style.animationDelay = card.style.animationDelay;
-		linkCard.target = "_blank";
-		linkCard.rel = "noopener noreferrer";
+	const proxyImageUrl = `/get-image?url=${encodeURIComponent(meta.imageUrl)}`;
 
-		// ✅ Use a relative path for the proxy URL.
-		const proxyImageUrl = `/get-image?url=${encodeURIComponent(
-			meta.imageUrl
-		)}`;
-
-		linkCard.innerHTML = `
-      <img src="${proxyImageUrl}" alt="${meta.title}" loading="lazy" onerror="this.style.display='none'">
+	card.innerHTML = `
+      <div class="img-container">
+        <img src="${proxyImageUrl}" alt="${meta.title}" loading="lazy" onerror="this.style.display='none'">
+      </div>
       <div class="album-card-content">
-        <h3>${meta.title}</h3>
-        <p>${meta.description}</p>
+        <h3 dir="auto"></h3>
+        <p dir="auto"></p>
       </div>
     `;
-		card.replaceWith(linkCard);
-	};
+
+	card.classList.remove("loading");
+	card.classList.add("loaded");
+
+	const img = card.querySelector("img");
+	img.onload = () => img.classList.add("loaded");
+
+	const titleEl = card.querySelector("h3");
+	const descriptionEl = card.querySelector("p");
+
+	await typewriter(titleEl, meta.title);
+	await typewriter(descriptionEl, meta.description);
+};
 
 	const fetchAlbumMeta = async (albumUrl) => {
-		// ✅ Use a relative path for the API call.
 		const apiUrl = `/get-meta?url=${encodeURIComponent(albumUrl)}`;
 		try {
 			const response = await fetch(apiUrl);
@@ -58,7 +78,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
 	const loadAlbums = async () => {
 		try {
-			// ✅ Fetch albums.txt from a relative path.
 			const response = await fetch("albums.txt");
 			if (!response.ok) throw new Error("Could not load albums.txt");
 
