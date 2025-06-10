@@ -2,7 +2,6 @@ document.addEventListener("DOMContentLoaded", () => {
 	const container = document.getElementById("albums-container");
 	const SERVER_URL = "http://localhost:8002";
 
-	// 1️⃣ Creates a placeholder card with a loading animation
 	const createPlaceholderCard = (index) => {
 		const card = document.createElement("div");
 		card.className = "album-card loading";
@@ -18,12 +17,10 @@ document.addEventListener("DOMContentLoaded", () => {
 		return card;
 	};
 
-	// 2️⃣ Populates a card with the fetched metadata
 	const populateCard = (card, meta) => {
 		card.classList.remove("loading");
 		card.classList.add("loaded");
 
-		// Change the element to a link
 		const linkCard = document.createElement("a");
 		linkCard.href = meta.url;
 		linkCard.className = card.className;
@@ -31,18 +28,20 @@ document.addEventListener("DOMContentLoaded", () => {
 		linkCard.target = "_blank";
 		linkCard.rel = "noopener noreferrer";
 
+		const proxyImageUrl = `${SERVER_URL}/get-image?url=${encodeURIComponent(
+			meta.imageUrl
+		)}`;
+
 		linkCard.innerHTML = `
-      <img src="${meta.imageUrl}" alt="${meta.title}" loading="lazy" onerror="this.style.display='none'">
+      <img src="${proxyImageUrl}" alt="${meta.title}" loading="lazy" onerror="this.style.display='none'">
       <div class="album-card-content">
         <h3>${meta.title}</h3>
         <p>${meta.description}</p>
       </div>
     `;
-		// Replace the placeholder div with the final link card
 		card.replaceWith(linkCard);
 	};
 
-	// 3️⃣ Fetches metadata for a single album URL
 	const fetchAlbumMeta = async (albumUrl) => {
 		const apiUrl = `${SERVER_URL}/get-meta?url=${encodeURIComponent(
 			albumUrl
@@ -53,12 +52,10 @@ document.addEventListener("DOMContentLoaded", () => {
 			return await response.json();
 		} catch (error) {
 			console.error(`Failed to fetch meta for ${albumUrl}:`, error);
-			// Return a specific error object to handle it later
 			return { error: true, url: albumUrl };
 		}
 	};
 
-	// 4️⃣ Main function to orchestrate the loading process
 	const loadAlbums = async () => {
 		try {
 			const response = await fetch("albums.txt");
@@ -67,26 +64,20 @@ document.addEventListener("DOMContentLoaded", () => {
 			const text = await response.text();
 			const urls = text.split("\n").filter((line) => line.trim() !== "");
 
-			// Create and display all placeholder cards immediately
 			const placeholders = urls.map((_, index) => {
 				const card = createPlaceholderCard(index);
 				container.appendChild(card);
 				return card;
 			});
 
-			// Create an array of fetch promises to run in parallel
 			const metaPromises = urls.map((url) => fetchAlbumMeta(url));
-
-			// Wait for all fetch requests to complete
 			const allMetas = await Promise.all(metaPromises);
 
-			// Populate each placeholder with its corresponding data
 			allMetas.forEach((meta, index) => {
 				const placeholder = placeholders[index];
 				if (meta && !meta.error && meta.imageUrl) {
 					populateCard(placeholder, meta);
 				} else {
-					// If fetching failed for one, remove its placeholder
 					placeholder.remove();
 				}
 			});

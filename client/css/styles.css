@@ -1,16 +1,29 @@
+/* Import Google Font */
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap");
+
 /* General Body & Typography */
 body {
-	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-		Helvetica, Arial, sans-serif;
+	font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI",
+		Roboto, Helvetica, Arial, sans-serif;
 	margin: 0;
 	background-color: #121212;
 	color: #e0e0e0;
-	padding-top: 60px; /* Space for the fixed nav */
+	padding-top: 70px; /* Adjusted for taller nav */
 }
 
+/* ✨ Fancy Animated Heading */
 h1 {
+	font-size: 3.5rem;
+	font-weight: 700;
+	letter-spacing: 1px;
+	background: linear-gradient(90deg, #bb86fc, #cf6679, #03dac6);
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	animation: heading-glow 1s ease-out 0.3s forwards;
+	opacity: 0;
 	text-align: center;
-	margin-bottom: 2rem;
+	margin: 2rem 0 3rem 0;
 }
 
 /* Navigation */
@@ -19,32 +32,62 @@ nav {
 	top: 0;
 	left: 0;
 	width: 100%;
-	background-color: rgba(24, 24, 24, 0.8);
-	backdrop-filter: blur(10px);
-	padding: 1rem;
+	background-color: rgba(18, 18, 18, 0.75);
+	backdrop-filter: blur(12px);
+	padding: 1.2rem 1rem;
 	text-align: center;
 	z-index: 1000;
-	border-bottom: 1px solid #333;
+	border-bottom: 1px solid #2a2a2a;
 }
 
+/* ✨ Animated Nav Links */
 nav a {
-	color: #e0e0e0;
+	color: #a0a0a0;
 	text-decoration: none;
-	margin: 0 1rem;
+	margin: 0 1.5rem;
 	font-weight: 500;
+	padding: 5px 0;
+	position: relative;
 	transition: color 0.3s ease;
 }
 
-nav a:hover,
+nav a::after {
+	content: "";
+	position: absolute;
+	width: 100%;
+	height: 2px;
+	bottom: -2px;
+	left: 0;
+	background-color: #bb86fc;
+	transform: scaleX(0);
+	transform-origin: bottom right;
+	transition: transform 0.3s ease-out;
+}
+
+nav a:hover {
+	color: #ffffff;
+}
+
+nav a:hover::after {
+	transform: scaleX(1);
+	transform-origin: bottom left;
+}
+
 nav a.active {
-	color: #bb86fc;
+	color: #ffffff;
+}
+
+nav a.active::after {
+	transform: scaleX(1);
+	transform-origin: bottom left;
+	background-color: #03dac6; /* Different color for active link */
 }
 
 /* Main Page Iframe */
 .main-iframe {
 	display: block;
 	width: 100vw;
-	height: calc(100vh - 60px); /* Full height minus nav */
+	height: calc(100vh - 70px); /* Adjusted for taller nav */
 	border: none;
 }
 
@@ -54,7 +97,7 @@ nav a.active {
 	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 	gap: 1.5rem;
 	padding: 1.5rem;
-	max-width: 1200px;
+	max-width: 1500px;
 	margin: 0 auto;
 }
 
@@ -76,14 +119,12 @@ nav a.active {
 	box-shadow: 0 8px 25px rgba(187, 134, 252, 0.3);
 }
 
-/* Content inside the card (initially hidden) */
 .album-card img,
 .album-card-content {
 	opacity: 0;
 	transition: opacity 0.5s ease-in-out;
 }
 
-/* When loaded, fade in the content */
 .album-card.loaded img,
 .album-card.loaded .album-card-content {
 	opacity: 1;
@@ -91,10 +132,10 @@ nav a.active {
 
 .album-card img {
 	width: 100%;
-	height: 200px;
+	aspect-ratio: 3 / 4;
 	object-fit: cover;
 	display: block;
-	background-color: #333; /* BG for when image is loading */
+	background-color: #333;
 }
 
 .album-card-content {
@@ -114,7 +155,7 @@ nav a.active {
 	line-height: 1.4;
 }
 
-/* 💀 Skeleton Loader Styles */
+/* Skeleton Loader Styles */
 .album-card.loading .placeholder {
 	background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
 	background-size: 200% 100%;
@@ -123,7 +164,7 @@ nav a.active {
 }
 
 .album-card.loading .placeholder-img {
-	height: 200px;
+	aspect-ratio: 1 / 1;
 	width: 100%;
 }
 
@@ -143,6 +184,20 @@ nav a.active {
 }
 
 /* Keyframe Animations */
+@keyframes heading-glow {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+		text-shadow: none;
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+		text-shadow: 0 0 10px rgba(187, 134, 252, 0.3),
+			0 0 20px rgba(3, 218, 198, 0.2);
+	}
+}
+
 @keyframes card-fade-in {
 	from {
 		opacity: 0;
