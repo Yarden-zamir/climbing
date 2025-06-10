@@ -65,11 +65,13 @@ async def get_meta(url: str = Query(...)):
 
 @app.get("/get-image")
 async def get_image(url: str = Query(...)):
-    """Acts as a proxy to fetch an image."""
     async with httpx.AsyncClient() as client:
         response = await fetch_url(client, url)
         content_type = response.headers.get("content-type", "application/octet-stream")
-        return Response(content=response.content, media_type=content_type)
+        headers = {
+            "Cache-Control": "public, max-age=604800, immutable"
+        }
+        return Response(content=response.content, media_type=content_type, headers=headers)
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
