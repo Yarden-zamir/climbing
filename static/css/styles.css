@@ -8,10 +8,10 @@ body {
 	margin: 0;
 	background-color: #121212;
 	color: #e0e0e0;
-	padding-top: 70px; /* Adjusted for taller nav */
+	padding-top: 70px;
 }
 
-/* ✨ Fancy Animated Heading */
+/* Fancy Animated Heading */
 h1 {
 	font-size: 3.5rem;
 	font-weight: 700;
@@ -40,7 +40,6 @@ nav {
 	border-bottom: 1px solid #2a2a2a;
 }
 
-/* ✨ Animated Nav Links */
 nav a {
 	color: #a0a0a0;
 	text-decoration: none;
@@ -80,14 +79,14 @@ nav a.active {
 nav a.active::after {
 	transform: scaleX(1);
 	transform-origin: bottom left;
-	background-color: #03dac6; /* Different color for active link */
+	background-color: #03dac6;
 }
 
 /* Main Page Iframe */
 .main-iframe {
 	display: block;
 	width: 100vw;
-	height: calc(100vh - 70px); /* Adjusted for taller nav */
+	height: calc(100vh - 70px);
 	border: none;
 }
 
@@ -97,7 +96,7 @@ nav a.active::after {
 	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 	gap: 1.5rem;
 	padding: 1.5rem;
-	max-width: 1500px;
+	max-width: 1200px;
 	margin: 0 auto;
 }
 
@@ -110,8 +109,7 @@ nav a.active::after {
 	color: #e0e0e0;
 	box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 	transition: transform 0.3s ease, box-shadow 0.3s ease;
-	opacity: 0;
-	animation: card-fade-in 0.6s ease-out forwards;
+	opacity: 1;
 }
 
 .album-card:hover {
@@ -119,43 +117,57 @@ nav a.active::after {
 	box-shadow: 0 8px 25px rgba(187, 134, 252, 0.3);
 }
 
-.album-card img,
-.album-card-content {
-	opacity: 0;
-	transition: opacity 0.5s ease-in-out;
-}
-
-.album-card.loaded img,
-.album-card.loaded .album-card-content {
-	opacity: 1;
-}
-
+/* ✨ START: Modern Content Animation */
 .album-card img {
 	width: 100%;
 	aspect-ratio: 3 / 4;
 	object-fit: cover;
 	display: block;
 	background-color: #333;
+	/* Initial state for animation */
+	opacity: 0;
+	transform: scale(1.1);
+	transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+}
+
+.album-card.loaded img {
+	/* Final state for animation */
+	opacity: 1;
+	transform: scale(1);
 }
 
 .album-card-content {
 	padding: 1rem;
+	min-height: 7rem;
 }
 
-.album-card-content h3 {
-	margin: 0 0 0.5rem 0;
-	font-size: 1.2rem;
-	color: #bb86fc;
-}
-
+.album-card-content h3,
 .album-card-content p {
-	margin: 0;
-	font-size: 0.9rem;
-	color: #a0a0a0;
-	line-height: 1.4;
+	/* Initial state for text animation */
+	opacity: 0;
+	transform: translateY(10px);
+	transition: opacity 0.5s ease-out, transform 0.5s ease-out;
 }
+
+.album-card.loaded .album-card-content h3,
+.album-card.loaded .album-card-content p {
+	/* Final state for text animation */
+	opacity: 1;
+	transform: translateY(0);
+}
+
+.album-card.loaded .album-card-content p {
+	/* Stagger the paragraph animation */
+	transition-delay: 0.15s;
+}
+/* ✨ END: Modern Content Animation */
 
 /* Skeleton Loader Styles */
+.album-card.loading {
+	opacity: 0;
+	animation: card-fade-in 0.6s ease-out forwards;
+}
+
 .album-card.loading .placeholder {
 	background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
 	background-size: 200% 100%;
@@ -164,12 +176,13 @@ nav a.active::after {
 }
 
 .album-card.loading .placeholder-img {
-	aspect-ratio: 1 / 1;
+	aspect-ratio: 3 / 4;
 	width: 100%;
 }
 
 .album-card.loading .placeholder-content {
 	padding: 1rem;
+	min-height: 7rem;
 }
 
 .album-card.loading .placeholder-text {
