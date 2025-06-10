@@ -230,3 +230,95 @@ nav a.active::after {
 		background-position: -200% 0;
 	}
 }
+
+/* ... (keep all styles from h1 to .album-card:hover) ... */
+
+/* Album Card Styling */
+.album-card {
+	background-color: #1e1e1e;
+	border-radius: 8px;
+	overflow: hidden;
+	text-decoration: none;
+	color: #e0e0e0;
+	box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+	transition: transform 0.3s ease, box-shadow 0.3s ease;
+	opacity: 1;
+	position: relative; /* Needed for the image overlay */
+}
+
+.album-card:hover {
+	transform: translateY(-5px);
+	box-shadow: 0 8px 25px rgba(187, 134, 252, 0.3);
+}
+
+/* ✨ START: New Image Overlay Animation */
+.album-card .img-container {
+	width: 100%;
+	aspect-ratio: 3 / 4;
+	overflow: hidden; /* Hides the overlay as it moves out */
+	position: relative;
+	background-color: #333;
+}
+
+.album-card img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+	transform: scale(1.15); /* Start slightly zoomed in */
+	transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.album-card.loaded img {
+	transform: scale(1); /* Zoom out to normal size */
+}
+
+.album-card .img-container::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background-color: #2a2a2a;
+	transform: translateX(0); /* Start covering the image */
+	transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.album-card.loaded .img-container::after {
+	transform: translateX(101%); /* Slide away to the right */
+}
+/* ✨ END: New Image Overlay Animation */
+
+.album-card-content {
+	padding: 1rem;
+	min-height: 7rem;
+}
+
+.album-card-content h3 {
+	margin: 0 0 0.5rem 0;
+	font-size: 1.2rem;
+	color: #bb86fc;
+	min-height: 1.5rem; /* Reserve space to prevent layout shift */
+}
+
+.album-card-content p {
+	margin: 0;
+	font-size: 0.9rem;
+	color: #a0a0a0;
+	line-height: 1.4;
+}
+
+/* ... (keep all styles from .album-card.loading to the end) ... */
+
+.img-container img {
+	opacity: 0;
+	filter: blur(16px);
+	transition: opacity 0.75s cubic-bezier(.4,0,.2,1), filter 0.75s cubic-bezier(.4,0,.2,1);
+}
+
+.img-container img.loaded {
+	opacity: 1;
+	filter: blur(0);
+}
+
