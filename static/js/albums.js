@@ -83,7 +83,7 @@ const populateCard = async (card, meta) => {
 
 	const loadAlbums = async () => {
 		try {
-			const response = await fetch("albums.txt");
+			const response = await fetch("static/albums.txt");
 			if (!response.ok) throw new Error("Could not load albums.txt");
 
 			const text = await response.text();
