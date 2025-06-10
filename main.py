@@ -64,7 +64,7 @@ async def get_meta(url: str = Query(...)):
         response = await fetch_url(client, url)
         meta_data = parse_meta_tags(response.text, url)
         headers = {
-            "Cache-Control": "public, max-age=604800, immutable"
+            "Cache-Control": "public, max-age=5,stale-while-revalidate=86400, immutable"
         } 
         return Response(content=json.dumps(meta_data), media_type="application/json", headers=headers)
 
