@@ -1,22 +1,30 @@
 document.addEventListener("DOMContentLoaded", () => {
 	const container = document.getElementById("albums-container");
 
-	const typewriter = (element, text, speed = 1) => {
-		return new Promise((resolve) => {
-			let i = 0;
-			element.innerHTML = "";
-			function type() {
-				if (i < text.length) {
-					element.innerHTML += text.charAt(i);
-					i++;
-					setTimeout(type, speed);
-				} else {
-					resolve();
-				}
+const typewriter = (element, text, speed = 20) => {
+	return new Promise((resolve) => {
+		if (speed <= 0) {
+			element.innerHTML = text;
+			resolve();
+			return;
+		}
+		let i = 0;
+		element.innerHTML = "";
+		function type() {
+			// Type 1-3 chars per frame for long text
+			let charsThisFrame = Math.max(1, Math.floor(16 / speed));
+			for (let j = 0; j < charsThisFrame && i < text.length; ++j, ++i) {
+				element.innerHTML += text.charAt(i);
 			}
-			type();
-		});
-	};
+			if (i < text.length) {
+				requestAnimationFrame(type);
+			} else {
+				resolve();
+			}
+		}
+		type();
+	});
+};
 
 	const createPlaceholderCard = (index) => {
 		const card = document.createElement("a");
