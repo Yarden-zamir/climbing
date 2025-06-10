@@ -1,3 +1,4 @@
+import json
 import httpx
 import re
 from fastapi import FastAPI, HTTPException, Query, Response
@@ -62,7 +63,10 @@ async def get_meta(url: str = Query(...)):
     async with httpx.AsyncClient() as client:
         response = await fetch_url(client, url)
         meta_data = parse_meta_tags(response.text, url)
-        return meta_data
+        headers = {
+            "Cache-Control": "public, max-age=604800, immutable"
+        } 
+        return Response(content=json.dumps(meta_data), media_type="application/json", headers=headers)
 
 
 @app.get("/get-image")
