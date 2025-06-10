@@ -1,10 +1,11 @@
+from fastapi.responses import HTMLResponse
 import json
 import httpx
 import re
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.staticfiles import StaticFiles  # Import StaticFiles
 from bs4 import BeautifulSoup
-
+from fastapi.responses import FileResponse
 # Initialize FastAPI app
 app = FastAPI()
 
@@ -80,4 +81,16 @@ async def get_image(url: str = Query(...)):
         return Response(content=response.content, media_type=content_type, headers=headers)
 
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    with open("static/index.html") as f:
+        return HTMLResponse(content=f.read(), status_code=200)
+
+
+@app.get("/albums", response_class=HTMLResponse)
+async def read_albums():
+    with open("static/albums.html") as f:
+        return HTMLResponse(content=f.read(), status_code=200)
+
+# app.mount("/", StaticFiles(directory="static", html=True), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")

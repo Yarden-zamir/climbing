@@ -8,20 +8,20 @@
 	<link rel="preconnect" href="https://fonts.googleapis.com" />
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 	<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet" />
-	<link rel="stylesheet" href="css/styles.css" />
+	<link rel="stylesheet" href="static/css/styles.css" />
 </head>
 
 <body>
 	<nav>
-		<a href="index.html">Home</a>
-		<a href="albums.html" class="active">Albums</a>
+		<a href="/">Home</a>
+		<a href="albums" class="active">Albums</a>
 	</nav>
 	<main class="page-fade">
 		<div id="albums-container" class="albums-grid">
 			<!-- Album cards will be injected here by JavaScript -->
 		</div>
 	</main>
-	<script src="js/albums.js"></script>
+	<script src="static/js/albums.js"></script>
 	<script>
 		document.addEventListener("DOMContentLoaded", () => {
 			document.querySelectorAll('nav a').forEach(link => {
