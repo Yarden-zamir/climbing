@@ -1,4 +1,9 @@
-from fastapi.responses import HTMLResponse
+from PIL.ExifTags import TAGS
+from PIL import Image
+from pathlib import Path
+from fastapi.responses import JSONResponse
+import datetime
+from fastapi.responses import HTMLResponse, JSONResponse
 import json
 import httpx
 import re
@@ -8,7 +13,6 @@ from bs4 import BeautifulSoup
 from fastapi.responses import FileResponse
 # Initialize FastAPI app
 app = FastAPI()
-
 
 async def fetch_url(client: httpx.AsyncClient, url: str):
     """Generic helper to fetch a URL and handle errors."""
@@ -92,5 +96,41 @@ async def read_albums():
     with open("static/albums.html") as f:
         return HTMLResponse(content=f.read(), status_code=200)
 
+
+@app.get("/memes", response_class=HTMLResponse)
+async def read_memes():
+    with open("static/memes.html") as f:
+        return HTMLResponse(content=f.read(), status_code=200)
+
+
+@app.get("/api/memes")
+def get_memes():
+    photos_dir = Path("static/photos")
+    images = []
+    for img_path in sorted(photos_dir.glob("*")):
+        if img_path.suffix.lower() not in [".jpg", ".jpeg", ".png", ".webp"]:
+            continue
+        date_str = ""
+        try:
+            with Image.open(img_path) as img:
+                exif = img._getexif()
+                if exif:
+                    for tag, value in exif.items():
+                        tag_name = TAGS.get(tag, tag)
+                        if tag_name in ("DateTimeOriginal", "DateTime"):
+                            # Format: "YYYY:MM:DD HH:MM:SS"
+                            date_str = value.split(" ")[0].replace(":", "-")
+                            break
+        except Exception:
+            pass
+        if not date_str:
+            # fallback: file modified date
+            date_str = datetime.datetime.fromtimestamp(img_path.stat().st_mtime).strftime("%Y-%m-%d")
+        images.append({
+            "url": f"/static/photos/{img_path.name}",
+            "date": date_str,
+            "name": img_path.name
+        })
+    return JSONResponse(images)
 # app.mount("/", StaticFiles(directory="static", html=True), name="static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
