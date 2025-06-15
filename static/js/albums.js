@@ -59,7 +59,16 @@ const populateCard = async (card, meta) => {
         <div class="album-date"></div>
       </div>
     `;
+	const match = meta.date?.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s(\d+)/);
+	if (match) {
+		const MS_PER_DAY = 1000 * 60 * 60 * 24;
+		const albumDate = new Date(`${match[1]} ${match[2]}, ${new Date().getFullYear()}`);
+		const diffDays = (new Date() - albumDate) / MS_PER_DAY;
 
+		if (diffDays >= 0 && diffDays <= 3) {
+			card.classList.add("new-album");
+		}
+	}
 	card.classList.remove("loading");
 	card.classList.add("loaded");
 

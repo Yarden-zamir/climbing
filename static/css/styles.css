@@ -126,7 +126,7 @@ nav a.active::after {
 	background-color: #333;
 	/* Initial state for animation */
 	opacity: 0;
-	transform: scale(1.1);
+	/* transform: scale(1.1); */
 	transition: opacity 0.6s ease-out, transform 0.6s ease-out;
 }
 
@@ -267,7 +267,6 @@ nav a.active::after {
 	height: 100%;
 	object-fit: cover;
 	display: block;
-	transform: scale(1.15); /* Start slightly zoomed in */
 	transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -275,7 +274,7 @@ nav a.active::after {
 	transform: scale(1); /* Zoom out to normal size */
 }
 
-.album-card .img-container::after {
+/* .album-card .img-container::after {
 	content: "";
 	position: absolute;
 	top: 0;
@@ -284,12 +283,13 @@ nav a.active::after {
 	height: 100%;
 	background-color: #2a2a2a;
 	transform: translateX(0); /* Start covering the image */
+	/*
 	transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
+} */
 
-.album-card.loaded .img-container::after {
+/* .album-card.loaded .img-container::after {
 	transform: translateX(101%); /* Slide away to the right */
-}
+/* } */
 /* ✨ END: New Image Overlay Animation */
 
 .album-card-content {
@@ -358,4 +358,132 @@ nav a.active::after {
 .page-fade.fade-out {
 	opacity: 0;
 	pointer-events: none;
+}
+
+/* --- Add these new styles at the end of your CSS file --- */
+
+/* Masonry Grid Container on Memes Page */
+#memes-container {
+	display: block; /* Override the default grid display */
+	position: relative;
+}
+
+/* ✅ Define the width of each grid item */
+#memes-container .grid-item {
+	width: calc(33.333% - 1rem); /* 3 columns with a gap */
+	margin-bottom: 1.5rem;
+	float: left; /* Required for Masonry's positioning */
+	padding: 0 0.5rem;
+	box-sizing: border-box;
+}
+
+/* Override fixed aspect ratio ONLY for memes page */
+#memes-container .album-card img {
+	aspect-ratio: auto;
+	height: auto;
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 900px) {
+	#memes-container .grid-item {
+		width: calc(50% - 1rem); /* 2 columns */
+	}
+}
+
+@media (max-width: 600px) {
+	#memes-container .grid-item {
+		width: 100%; /* 1 column */
+		padding: 0;
+	}
+}
+/* --- Add these new styles at the end of your CSS file --- */
+
+/* --- Replace your existing Masonry styles with this block --- */
+
+/* Masonry Grid Container on Memes Page */
+#memes-container {
+	display: block;
+	position: relative;
+}
+
+/* Define the width of each grid item */
+#memes-container .grid-item {
+	width: calc(33.333% - 1rem);
+	margin-bottom: 1.5rem;
+	float: left;
+	padding: 0 0.5rem;
+	box-sizing: border-box;
+}
+
+/* ✅ MORE SPECIFIC RULE: This will now correctly override the default */
+#memes-container .album-card .img-container {
+	aspect-ratio: auto; /* Display original aspect ratio */
+	height: auto;
+}
+
+/* We don't need a separate rule for the image itself anymore */
+/* #memes-container .album-card img { ... } */
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 900px) {
+	#memes-container .grid-item {
+		width: calc(50% - 1rem);
+	}
+}
+
+@media (max-width: 600px) {
+	#memes-container .grid-item {
+		width: 100%;
+		padding: 0;
+	}
+}
+
+
+/* --- Add these new styles at the end of your CSS file --- */
+
+/* "NEW" Badge Styling */
+.album-card.new-album::before {
+	content: "NEW";
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	background-color: #03dac6; /* Teal accent color from your theme */
+	color: #121212;
+	padding: 4px 8px;
+	border-radius: 4px;
+	font-size: 0.75rem;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	z-index: 10;
+	/* Animation to fade the badge in */
+	animation: new-badge-fade-in 0.5s ease-out 0.5s forwards;
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* Glowing Border Animation */
+.album-card.new-album {
+	/* The animation will be applied to the box-shadow */
+	animation: new-glow 2s infinite alternate ease-in-out;
+}
+
+/* Keyframes for the glowing border */
+@keyframes new-glow {
+	from {
+		box-shadow: 0 0 5px rgba(3, 218, 198, 0.2),
+			0 0 10px rgba(3, 218, 198, 0.2),
+			0 4px 15px rgba(0, 0, 0, 0.5);
+	}
+	to {
+		box-shadow: 0 0 15px rgba(3, 218, 198, 0.6),
+			0 0 25px rgba(3, 218, 198, 0.4),
+			0 4px 15px rgba(0, 0, 0, 0.5);
+	}
+}
+
+/* Keyframes for the badge fade-in */
+@keyframes new-badge-fade-in {
+	to {
+		opacity: 1;
+	}
 }

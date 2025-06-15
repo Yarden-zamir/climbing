@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Memes</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap"
+			rel="stylesheet"
+		/>
+		<link rel="stylesheet" href="static/css/styles.css" />
+	</head>
+	<body>
+		<nav>
+			<a href="/">Climbing</a>
+			<a href="/albums">Albums</a>
+			<a href="/memes" class="active">Memes</a>
+		</nav>
+		<main class="page-fade">
+			<div id="memes-container" class="albums-grid">
+				<!-- Meme cards will be injected here by JavaScript -->
+			</div>
+		</main>
+
+		<!-- ✅ Add Masonry and imagesLoaded libraries -->
+		<script src="https://unpkg.com/masonry-layout@4/dist/masonry.pkgd.min.js"></script>
+		<script src="https://unpkg.com/imagesloaded@5/imagesloaded.pkgd.min.js"></script>
+
+		<script src="static/js/memes.js"></script>
+		<script>
+			// Page transition script
+			document.addEventListener("DOMContentLoaded", () => {
+				document.querySelectorAll("nav a").forEach((link) => {
+					link.addEventListener("click", function (e) {
+						const href = this.getAttribute("href");
+						if (
+							href &&
+							!href.startsWith("#") &&
+							!this.classList.contains("active")
+						) {
+							e.preventDefault();
+							const main = document.querySelector("main.page-fade");
+							main.classList.add("fade-out");
+							setTimeout(() => {
+								window.location.href = href;
+							}, 400);
+						}
+					});
+				});
+			});
+		</script>
+	</body>
+</html>
