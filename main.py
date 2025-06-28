@@ -14,7 +14,17 @@ from bs4 import BeautifulSoup
 from fastapi.responses import FileResponse
 # Initialize FastAPI app
 app = FastAPI()
-
+def inject_css_version(html_path):
+    with open(html_path) as f:
+        html = f.read()
+    # Use file mtime as version
+    css_path = "static/css/styles.css"
+    version = int(Path(css_path).stat().st_mtime)
+    html = html.replace(
+        'href="/static/css/styles.css"',
+        f'href="/static/css/styles.css?v={version}"'
+    )
+    return html
 async def fetch_url(client: httpx.AsyncClient, url: str):
     """Generic helper to fetch a URL and handle errors."""
     try:
@@ -111,25 +121,25 @@ async def get_image(url: str = Query(...)):
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     with open("static/index.html") as f:
-        return HTMLResponse(content=f.read(), status_code=200)
+        return HTMLResponse(content=inject_css_version(f.read()), status_code=200)
 
 
 @app.get("/albums", response_class=HTMLResponse)
 async def read_albums():
     with open("static/albums.html") as f:
-        return HTMLResponse(content=f.read(), status_code=200)
+        return HTMLResponse(content=inject_css_version(f.read()), status_code=200)
 
 
 @app.get("/memes", response_class=HTMLResponse)
 async def read_memes():
     with open("static/memes.html") as f:
-        return HTMLResponse(content=f.read(), status_code=200)
+        return HTMLResponse(content=inject_css_version(f.read()), status_code=200)
 
 
 @app.get("/crew", response_class=HTMLResponse)
 async def read_crew():
     with open("static/crew.html") as f:
-        return HTMLResponse(content=f.read(), status_code=200)
+        return HTMLResponse(content=inject_css_version(f.read()), status_code=200)
 
 @app.get("/api/memes")
 def get_memes():
