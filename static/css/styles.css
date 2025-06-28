@@ -758,25 +758,3 @@ nav a {
 
 
 
-
-
-
-.album-card-content {
-    position: relative;
-}
-.album-crew-btn {
-    background: none;
-    border: none;
-    outline: none;
-    color: #03dac6;
-    border-radius: 6px;
-    padding: 0.2em 0.7em;
-    transition: background 0.2s;
-}
-.album-crew-btn:hover {
-    background: #03dac622;
-}
-.album-crew-popup {
-    min-width: 160px;
-    max-width: 220px;
-}
