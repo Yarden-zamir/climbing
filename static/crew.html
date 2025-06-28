@@ -1,75 +1,73 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+            <link id="favicon" rel="icon" type="image/x-icon" href="static/favicon/favicon.ico">
+
     <meta charset="UTF-8" />
     <title>Crew Progress</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/static/css/styles.css" />
     <style>
-        .crew-table { width: 100%; border-collapse: collapse; margin: 2rem auto; background: #181818; border-radius: 12px; overflow: hidden; }
-        .crew-table th, .crew-table td { padding: 1rem; text-align: left; }
-        .crew-table th { background: #222; color: #03dac6; cursor: pointer; user-select: none; }
-        .crew-table tr:nth-child(even) { background: #232323; }
-        .crew-face { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 2px solid #bb86fc; }
-        .skill-badge { display: inline-block; background: #333; color: #bb86fc; border-radius: 6px; padding: 0.2em 0.7em; margin: 0 0.2em 0.2em 0; font-size: 0.95em; font-weight: 600; }
-        .level-badge { background: linear-gradient(90deg, #bb86fc, #03dac6); color: #121212; border-radius: 8px; padding: 0.3em 1em; font-weight: bold; font-size: 1.1em; display: inline-block; min-width: 60px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
-        .address { color: #cf6679; font-size: 0.95em; }
+        .crew-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 2rem auto;
+            background: #181818;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .crew-table th, .crew-table td {
+            padding: 1rem;
+            text-align: left;
+        }
+        .crew-table th {
+            background: #222;
+            color: #03dac6;
+            cursor: pointer;
+            user-select: none;
+        }
+        .crew-table tr:nth-child(even) {
+            background: #232323;
+        }
+        .crew-face {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid #bb86fc;
+        }
+        .skill-badge {
+            display: inline-block;
+            background: #333;
+            color: #bb86fc;
+            border-radius: 6px;
+            padding: 0.2em 0.7em;
+            margin: 0 0.2em 0.2em 0;
+            font-size: 0.95em;
+            font-weight: 600;
+        }
+        .level-badge {
+            background: linear-gradient(90deg, #bb86fc, #03dac6);
+            color: #121212;
+            border-radius: 8px;
+            padding: 0.3em 1em;
+            font-weight: bold;
+            font-size: 1.1em;
+            display: inline-block;
+            min-width: 60px;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: middle;
+        }
+        .address {
+            color: #cf6679;
+            font-size: 0.95em;
+        }
         .sortable:after { content: " ⇅"; font-size: 0.8em; color: #666; }
         .sorted-asc:after { content: " ↑"; }
         .sorted-desc:after { content: " ↓"; }
-        @media (max-width: 700px) {
-            .crew-table, .crew-table thead, .crew-table tbody, .crew-table tr, .crew-table th, .crew-table td {
-                display: block;
-                width: 100%;
-                box-sizing: border-box;
-            }
-            .crew-table {
-                border-radius: 0;
-                margin: 0;
-                background: none;
-            }
-            .crew-table thead {
-                display: none;
-            }
-            .crew-table tr {
-                margin-bottom: 1.5rem;
-                background: #232323;
-                border-radius: 10px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-                padding: 1rem 0.5rem;
-            }
-            .crew-table td {
-                padding: 0.7rem 1rem;
-                text-align: left;
-                border: none;
-                position: relative;
-            }
-            .crew-table td:before {
-                content: attr(data-label);
-                font-weight: 700;
-                color: #03dac6;
-                display: block;
-                margin-bottom: 0.3em;
-                font-size: 0.98em;
-            }
-            .crew-face {
-                width: 48px;
-                height: 48px;
-                margin-bottom: 0.7em;
-            }
-            .level-badge {
-                font-size: 1em;
-                padding: 0.2em 0.7em;
-            }
-            .skill-badge {
-                font-size: 0.92em;
-                padding: 0.15em 0.5em;
-            }
-            h1 {
-                font-size: 2rem;
-                margin: 1.2rem 0 1.5rem 0;
-            }
-        }
         @media (max-width: 900px) and (min-width: 701px) {
             .crew-table td {
                 padding: 0.7rem 0.3rem;
@@ -83,6 +81,7 @@
                 white-space: nowrap;
             }
         }
+        
     </style>
 </head>
 <body>
@@ -102,7 +101,6 @@
         let sortDir = -1;
 
         function computeSkillOrder(data) {
-            // Collect all unique skills, sort alphabetically (case-insensitive)
             const allSkills = new Set();
             data.forEach(c => (c.skills || []).forEach(s => allSkills.add(s)));
             skillOrder = Array.from(allSkills).sort((a, b) =>
@@ -172,7 +170,7 @@
                     <tbody>
                         ${data.map(c => `
                             <tr>
-                                <td data-label=""><img src="${c.face}" class="crew-face" alt="${c.name}"></td>
+                                <td data-label="Face"><img src="${c.face}" class="crew-face" alt="${c.name}"></td>
                                 <td data-label="Name">${c.name}</td>
                                 <td data-label="Location"><span class="address">${c.location.join(", ")}</span></td>
                                 <td data-label="Skills">
@@ -189,7 +187,6 @@
                 </table>
             `;
 
-            // Ticking animation for stats
             function animateCount(id, target, duration = 1200, minStep = 1) {
                 const el = document.getElementById(id);
                 let start = 0;
