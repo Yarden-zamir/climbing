@@ -1,3 +1,4 @@
+from starlette.middleware.base import BaseHTTPMiddleware
 from PIL.ExifTags import TAGS
 from PIL import Image
 from pathlib import Path
@@ -162,3 +163,14 @@ def get_memes():
 # app.mount("/", StaticFiles(directory="static", html=True), name="static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/climbers", StaticFiles(directory="climbers"), name="climbers")
+
+
+class NoCacheCSSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.url.path.endswith(".css"):
+            response.headers["Cache-Control"] = "no-cache, max-age=0"
+        return response
+
+
+app.add_middleware(NoCacheCSSMiddleware)
