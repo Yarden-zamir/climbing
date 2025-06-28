@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Crew Progress</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/static/css/styles.css" />
+    <style>
+        .crew-table { width: 100%; border-collapse: collapse; margin: 2rem auto; background: #181818; border-radius: 12px; overflow: hidden; }
+        .crew-table th, .crew-table td { padding: 1rem; text-align: left; }
+        .crew-table th { background: #222; color: #03dac6; cursor: pointer; user-select: none; }
+        .crew-table tr:nth-child(even) { background: #232323; }
+        .crew-face { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 2px solid #bb86fc; }
+        .skill-badge { display: inline-block; background: #333; color: #bb86fc; border-radius: 6px; padding: 0.2em 0.7em; margin: 0 0.2em 0.2em 0; font-size: 0.95em; font-weight: 600; }
+        .level-badge { background: linear-gradient(90deg, #bb86fc, #03dac6); color: #121212; border-radius: 8px; padding: 0.3em 1em; font-weight: bold; font-size: 1.1em; display: inline-block; min-width: 60px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+        .address { color: #cf6679; font-size: 0.95em; }
+        .sortable:after { content: " ⇅"; font-size: 0.8em; color: #666; }
+        .sorted-asc:after { content: " ↑"; }
+        .sorted-desc:after { content: " ↓"; }
+        @media (max-width: 700px) {
+            .crew-table, .crew-table thead, .crew-table tbody, .crew-table tr, .crew-table th, .crew-table td {
+                display: block;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            .crew-table {
+                border-radius: 0;
+                margin: 0;
+                background: none;
+            }
+            .crew-table thead {
+                display: none;
+            }
+            .crew-table tr {
+                margin-bottom: 1.5rem;
+                background: #232323;
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                padding: 1rem 0.5rem;
+            }
+            .crew-table td {
+                padding: 0.7rem 1rem;
+                text-align: left;
+                border: none;
+                position: relative;
+            }
+            .crew-table td:before {
+                content: attr(data-label);
+                font-weight: 700;
+                color: #03dac6;
+                display: block;
+                margin-bottom: 0.3em;
+                font-size: 0.98em;
+            }
+            .crew-face {
+                width: 48px;
+                height: 48px;
+                margin-bottom: 0.7em;
+            }
+            .level-badge {
+                font-size: 1em;
+                padding: 0.2em 0.7em;
+            }
+            .skill-badge {
+                font-size: 0.92em;
+                padding: 0.15em 0.5em;
+            }
+            h1 {
+                font-size: 2rem;
+                margin: 1.2rem 0 1.5rem 0;
+            }
+        }
+        @media (max-width: 900px) and (min-width: 701px) {
+            .crew-table td {
+                padding: 0.7rem 0.3rem;
+            }
+            .level-badge {
+                display: inline-block;
+                min-width: 60px;
+                text-align: center;
+                font-size: 1em;
+                padding: 0.2em 0.7em;
+                white-space: nowrap;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">Climbing</a>
+        <a href="/albums">Albums</a>
+        <a href="/memes">Memes</a>
+        <a href="/html/crew.html" class="active">Crew</a>
+    </nav>
+    <main class="page-fade">
+        <div id="crew-table-container"></div>
+    </main>
+    <script>
+        let crewData = [];
+        let skillOrder = [];
+        let sortKey = "level";
+        let sortDir = -1;
+
+        function computeSkillOrder(data) {
+            // Collect all unique skills, sort alphabetically (case-insensitive)
+            const allSkills = new Set();
+            data.forEach(c => (c.skills || []).forEach(s => allSkills.add(s)));
+            skillOrder = Array.from(allSkills).sort((a, b) =>
+                a.toLowerCase().localeCompare(b.toLowerCase())
+            );
+        }
+
+        function renderTable(data) {
+            const container = document.getElementById("crew-table-container");
+            const crewCount = data.length;
+            const crewLevel = data.reduce((sum, c) => sum + (c.level || 0), 0);
+
+            container.innerHTML = `
+                <div style="
+                    display: flex;
+                    gap: 2.5rem;
+                    align-items: center;
+                    margin-bottom: 2.2rem;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                ">
+                    <div id="crew-count-anim" style="
+                        font-size: 2.2em;
+                        font-weight: 800;
+                        color: #fff;
+                        background: linear-gradient(90deg, #03dac6 40%, #bb86fc 100%);
+                        background-clip: text;
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        letter-spacing: 0.04em;
+                        text-shadow: 0 2px 16px #03dac655;
+                        border-radius: 12px;
+                        padding: 0.2em 1.2em;
+                        box-shadow: 0 2px 16px #03dac622;
+                        transition: background 0.5s;
+                    ">
+                        Crew: <span id="crew-count-num">0</span>
+                    </div>
+                    <div id="crew-level-anim" style="
+                        font-size: 2.2em;
+                        font-weight: 800;
+                        color: #fff;
+                        background: linear-gradient(90deg, #bb86fc 40%, #03dac6 100%);
+                        background-clip: text;
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        letter-spacing: 0.04em;
+                        text-shadow: 0 2px 16px #bb86fc55;
+                        border-radius: 12px;
+                        padding: 0.2em 1.2em;
+                        box-shadow: 0 2px 16px #bb86fc22;
+                        transition: background 0.5s;
+                    ">
+                        Crew Level: <span id="crew-level-num">0</span>
+                    </div>
+                </div>
+                <table class="crew-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th class="sortable" data-key="name">Name</th>
+                            <th class="sortable" data-key="location">Location</th>
+                            <th class="sortable" data-key="skills">Skills</th>
+                            <th class="sortable" data-key="level">Level</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.map(c => `
+                            <tr>
+                                <td data-label="Face"><img src="${c.face}" class="crew-face" alt="${c.name}"></td>
+                                <td data-label="Name">${c.name}</td>
+                                <td data-label="Location"><span class="address">${c.location.join(", ")}</span></td>
+                                <td data-label="Skills">
+                                    ${skillOrder.map(skill =>
+                                        c.skills.includes(skill)
+                                            ? `<span class="skill-badge">${skill}</span>`
+                                            : ""
+                                    ).join("")}
+                                </td>
+                                <td data-label="Level"><span class="level-badge">Lv. ${c.level}</span></td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            `;
+
+            // Ticking animation for stats
+            function animateCount(id, target, duration = 1200, minStep = 1) {
+                const el = document.getElementById(id);
+                let start = 0;
+                let startTime = null;
+                function easeOutExpo(t) {
+                    return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
+                }
+                function tick(ts) {
+                    if (!startTime) startTime = ts;
+                    const elapsed = ts - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    const eased = easeOutExpo(progress);
+                    let val = Math.round(eased * target);
+                    if (val < start) val = start;
+                    if (val > target) val = target;
+                    el.textContent = val;
+                    if (progress < 1) {
+                        requestAnimationFrame(tick);
+                    } else {
+                        el.textContent = target;
+                    }
+                }
+                requestAnimationFrame(tick);
+            }
+            animateCount("crew-count-num", crewCount, 900 + crewCount * 30);
+            animateCount("crew-level-num", crewLevel, 1200 + crewLevel * 8);
+
+            document.querySelectorAll(".crew-table th.sortable").forEach(th => {
+                th.classList.remove("sorted-asc", "sorted-desc");
+                if (th.dataset.key === sortKey) {
+                    th.classList.add(sortDir === 1 ? "sorted-asc" : "sorted-desc");
+                }
+                th.onclick = () => {
+                    if (sortKey === th.dataset.key) sortDir *= -1;
+                    else { sortKey = th.dataset.key; sortDir = -1; }
+                    sortAndRender();
+                };
+            });
+        }
+
+        function sortAndRender() {
+            let sorted = [...crewData];
+            sorted.sort((a, b) => {
+                let vA = a[sortKey], vB = b[sortKey];
+                if (sortKey === "skills") vA = a.skills.length, vB = b.skills.length;
+                if (sortKey === "location") vA = a.location[0] || "", vB = b.location[0] || "";
+                if (typeof vA === "string") return sortDir * vA.localeCompare(vB);
+                return sortDir * (vA - vB);
+            });
+            renderTable(sorted);
+        }
+
+        fetch("/api/crew")
+            .then(r => r.json())
+            .then(data => {
+                crewData = data;
+                computeSkillOrder(crewData);
+                sortAndRender();
+            });
+    </script>
+</body>
+</html>

@@ -61,6 +61,28 @@ def parse_meta_tags(html: str, url: str):
     }
 
 
+@app.get("/api/crew")
+def get_crew():
+    climbers_dir = Path("climbers")
+    crew = []
+    for climber_dir in climbers_dir.iterdir():
+        if not climber_dir.is_dir():
+            continue
+        details_path = climber_dir / "details.json"
+        face_path = climber_dir / "face.png"
+        if not details_path.exists() or not face_path.exists():
+            continue
+        with open(details_path) as f:
+            details = json.load(f)
+        crew.append({
+            "name": climber_dir.name.replace("-", " ").title(),
+            "face": f"/climbers/{climber_dir.name}/face.png",
+            "location": details.get("Location", []),
+            "skills": details.get("skills", []),
+            "level": 1+len(details.get("skills", [])),
+        })
+    return JSONResponse(crew)
+
 # --- API Routes ---
 @app.get("/get-meta")
 async def get_meta(url: str = Query(...)):
@@ -103,6 +125,11 @@ async def read_memes():
         return HTMLResponse(content=f.read(), status_code=200)
 
 
+@app.get("/crew", response_class=HTMLResponse)
+async def read_crew():
+    with open("static/crew.html") as f:
+        return HTMLResponse(content=f.read(), status_code=200)
+
 @app.get("/api/memes")
 def get_memes():
     photos_dir = Path("static/photos")
@@ -134,3 +161,4 @@ def get_memes():
     return JSONResponse(images)
 # app.mount("/", StaticFiles(directory="static", html=True), name="static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/climbers", StaticFiles(directory="climbers"), name="climbers")
