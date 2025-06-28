@@ -1,3 +1,4 @@
+import math
 from starlette.middleware.base import BaseHTTPMiddleware
 from PIL.ExifTags import TAGS
 from PIL import Image
@@ -72,9 +73,25 @@ def parse_meta_tags(html: str, url: str):
     }
 
 
+
 @app.get("/api/crew")
 def get_crew():
     climbers_dir = Path("climbers")
+    albums_path = Path("static/albums.json")
+    # Load albums.json
+    if albums_path.exists():
+        with open(albums_path) as f:
+            albums = json.load(f)
+    else:
+        albums = {}
+
+    # Count climbs per climber (normalize names for matching)
+    climb_counts = {}
+    for album in albums.values():
+        for name in album.get("crew", []):
+            norm = name.strip().lower()
+            climb_counts[norm] = climb_counts.get(norm, 0) + 1
+
     crew = []
     for climber_dir in climbers_dir.iterdir():
         if not climber_dir.is_dir():
@@ -85,12 +102,22 @@ def get_crew():
             continue
         with open(details_path) as f:
             details = json.load(f)
+        name = climber_dir.name.replace("-", " ").title()
+        norm = name.strip().lower()
+        climbs = climb_counts.get(norm, 0)
+        skills = details.get("skills", [])
+        level_from_skills = len(skills)
+        level_from_climbs = climbs // 5
+        total_level = 1 + level_from_skills + level_from_climbs
         crew.append({
-            "name": climber_dir.name.replace("-", " ").title(),
+            "name": name,
             "face": f"/climbers/{climber_dir.name}/face.png",
             "location": details.get("Location", []),
-            "skills": details.get("skills", []),
-            "level": 1+len(details.get("skills", [])),
+            "skills": skills,
+            "climbs": climbs,
+            "level_from_climbs": level_from_climbs,
+            "level_from_skills": level_from_skills,
+            "level": total_level,
         })
     return JSONResponse(crew)
 

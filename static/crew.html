@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-            <link id="favicon" rel="icon" type="image/x-icon" href="static/favicon/favicon.ico">
-
+    <link id="favicon" rel="icon" type="image/x-icon" href="static/favicon/favicon.ico">
     <meta charset="UTF-8" />
     <title>Crew Progress</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -25,9 +24,6 @@
             color: #03dac6;
             cursor: pointer;
             user-select: none;
-        }
-        .crew-table tr:nth-child(even) {
-            background: #232323;
         }
         .crew-face {
             width: 64px;
@@ -68,6 +64,72 @@
         .sortable:after { content: " ⇅"; font-size: 0.8em; color: #666; }
         .sorted-asc:after { content: " ↑"; }
         .sorted-desc:after { content: " ↓"; }
+
+        @media (max-width: 700px) {
+            .crew-table thead {
+                display: none;
+            }
+            .crew-table {
+                width: 100%;
+                border-radius: 0;
+                margin: 0;
+                background: none;
+            }
+            .crew-table tr {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                background: #232323;
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                margin-bottom: 1.1em;
+                padding: 0.7em 0.5em;
+                width: 100%;
+            }
+            .crew-table td {
+                display: flex;
+                align-items: center;
+                border: none;
+                background: none;
+                box-shadow: none;
+                margin: 0 0.3em 0.3em 0;
+                padding: 0.2em 0.3em;
+                min-width: 0;
+                font-size: 1em;
+            }
+            .crew-table td[data-label="Face"] {
+                flex: 0 0 auto;
+                margin-right: 0.7em;
+                padding-right: 0;
+                order: 0;
+            }
+            .crew-table td[data-label="Name"] {
+                flex: 1 1 50%;
+                font-weight: 600;
+                font-size: 1.08em;
+                min-width: 80px;
+                margin-right: 0.5em;
+                align-items: center;
+                order: 1;
+            }
+            .crew-table td[data-label="Level"] {
+                flex: 0 0 auto;
+                margin-left: 0;
+                font-size: 1em;
+                align-items: center;
+                order: 2;
+            }
+            .crew-table td[data-label="Skills"] {
+                flex: 1 1 100%;
+                margin-top: 0.5em;
+                flex-wrap: wrap;
+                font-size: 0.97em;
+                order: 3;
+            }
+            .crew-table td[data-label="Location"] {
+                display: none !important;
+            }
+        }
         @media (max-width: 900px) and (min-width: 701px) {
             .crew-table td {
                 padding: 0.7rem 0.3rem;
@@ -81,7 +143,6 @@
                 white-space: nowrap;
             }
         }
-        
     </style>
 </head>
 <body>
@@ -92,6 +153,7 @@
         <a href="/crew" class="active">Crew</a>
     </nav>
     <main class="page-fade">
+        <h1>Crew Progress</h1>
         <div id="crew-table-container"></div>
     </main>
     <script>
@@ -165,25 +227,35 @@
                             <th class="sortable" data-key="location">Location</th>
                             <th class="sortable" data-key="skills">Skills</th>
                             <th class="sortable" data-key="level">Level</th>
+                                    <th class="sortable" data-key="climbs">Climbs</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        ${data.map(c => `
-                            <tr>
-                                <td data-label="Face"><img src="${c.face}" class="crew-face" alt="${c.name}"></td>
-                                <td data-label="Name">${c.name}</td>
-                                <td data-label="Location"><span class="address">${c.location.join(", ")}</span></td>
-                                <td data-label="Skills">
-                                    ${skillOrder.map(skill =>
-                                        c.skills.includes(skill)
-                                            ? `<span class="skill-badge">${skill}</span>`
-                                            : ""
-                                    ).join("")}
-                                </td>
-                                <td data-label="Level"><span class="level-badge">Lv. ${c.level}</span></td>
-                            </tr>
-                        `).join("")}
-                    </tbody>
+<tbody>
+    ${data.map((c, idx) => `
+        <tr>
+            <td data-label="Face"><img src="${c.face}" class="crew-face" alt="${c.name}"></td>
+            <td data-label="Name">${c.name}</td>
+            <td data-label="Location"><span class="address">${c.location.join(", ")}</span></td>
+            <td data-label="Skills">
+                ${skillOrder.map(skill =>
+                    c.skills.includes(skill)
+                        ? `<span class="skill-badge">${skill}</span>`
+                        : ""
+                ).join("")}
+            </td>
+            <td data-label="Level">
+                <span class="level-badge" data-idx="${idx}" tabindex="0">
+                    Lv. ${c.level}
+                </span>
+            </td>
+            <td data-label="Climbs">
+                <span class="climbs-badge" title="Climbs with crew">
+                    ${c.climbs}
+                </span>
+            </td>
+        </tr>
+    `).join("")}
+</tbody>
                 </table>
             `;
 
@@ -225,6 +297,65 @@
                     sortAndRender();
                 };
             });
+
+            highlightCrew(); // Call after rendering
+
+            // Progress bar popup logic
+document.querySelectorAll('.level-badge').forEach(badge => {
+    badge.addEventListener('click', function (e) {
+        document.querySelectorAll('.progress-popup').forEach(p => p.remove());
+        const idx = +badge.getAttribute('data-idx');
+        const c = data[idx];
+        // For the stacked bar
+        const total = c.level;
+        const crewW = (1 / total) * 100;
+        const skillsW = (c.level_from_skills / total) * 100;
+        const climbsW = (c.level_from_climbs / total) * 100;
+        // For the next-level progress bar
+        const climbsInCurrent = c.climbs % 5;
+        const nextPct = (climbsInCurrent / 5) * 100;
+        // Build popup
+        const popup = document.createElement('div');
+        popup.className = 'progress-popup';
+popup.innerHTML = `
+    <div class="progress-next-label">Progress</div>
+    <div class="progress-next-bar">
+        <div class="progress-next-bar-inner" style="width:${nextPct}%"></div>
+        <div class="progress-next-bar-text">${nextPct}%</div>
+    </div>
+    <div class="progress-bar-label">Leveling Breakdown</div>
+    <div class="progress-bar">
+        <div class="progress-bar-inner crew" style="width:${crewW}%"></div>
+        <div class="progress-bar-inner skills" style="width:${skillsW}%"></div>
+        <div class="progress-bar-inner climbs" style="width:${climbsW}%"></div>
+        <div class="progress-bar-text">Lv. ${c.level}</div>
+    </div>
+    <div class="progress-breakdown">
+        <span class="crew">1 from part of the crew</span>
+        <span class="skills">${c.level_from_skills} from skills</span>
+        <span class="climbs">${c.level_from_climbs} from climbs</span>
+    </div>
+`;
+        badge.parentElement.style.position = "relative";
+        badge.parentElement.appendChild(popup);
+        function closePopup(ev) {
+            if (!popup.contains(ev.target) && ev.target !== badge) {
+                popup.remove();
+                document.removeEventListener('mousedown', closePopup);
+                document.removeEventListener('keydown', escClose);
+            }
+        }
+        function escClose(ev) {
+            if (ev.key === "Escape") {
+                popup.remove();
+                document.removeEventListener('mousedown', closePopup);
+                document.removeEventListener('keydown', escClose);
+            }
+        }
+        document.addEventListener('mousedown', closePopup);
+        document.addEventListener('keydown', escClose);
+    });
+});
         }
 
         function sortAndRender() {
@@ -233,10 +364,27 @@
                 let vA = a[sortKey], vB = b[sortKey];
                 if (sortKey === "skills") vA = a.skills.length, vB = b.skills.length;
                 if (sortKey === "location") vA = a.location[0] || "", vB = b.location[0] || "";
+                if (sortKey === "climbs") vA = a.climbs, vB = b.climbs;
                 if (typeof vA === "string") return sortDir * vA.localeCompare(vB);
                 return sortDir * (vA - vB);
             });
             renderTable(sorted);
+        }
+
+        function highlightCrew() {
+            const params = new URLSearchParams(window.location.search);
+            const highlight = params.get("highlight");
+            if (!highlight) return;
+            const norm = s => s.toLowerCase().replace(/[\s\-_]+/g, "");
+            const rows = document.querySelectorAll(".crew-table tbody tr");
+            for (const row of rows) {
+                const nameCell = row.querySelector('td[data-label="Name"]');
+                if (nameCell && norm(nameCell.textContent) === norm(highlight)) {
+                    row.classList.add("highlighted-crew");
+                    row.scrollIntoView({ behavior: "smooth", block: "center" });
+                    break;
+                }
+            }
         }
 
         fetch("/api/crew")

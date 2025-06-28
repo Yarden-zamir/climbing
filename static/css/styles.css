@@ -13,17 +13,17 @@ body {
 
 /* Fancy Animated Heading */
 h1 {
-	font-size: 3.5rem;
+	font-size: 2.4rem;
 	font-weight: 700;
 	letter-spacing: 1px;
 	background: linear-gradient(90deg, #bb86fc, #cf6679, #03dac6);
 	-webkit-background-clip: text;
 	background-clip: text;
 	-webkit-text-fill-color: transparent;
-	animation: heading-glow 1s ease-out 0.3s forwards;
+	animation: heading-glow 0.1s ease-out 0.1s forwards;
 	opacity: 0;
 	text-align: center;
-	margin: 2rem 0 3rem 0;
+	/* margin: 2rem 0 3rem 0; */
 }
 
 /* Navigation */
@@ -602,4 +602,181 @@ nav a {
     /* Optional: ensure order for name and face */
     .crew-table td[data-label="Face"] { order: 0; }
     .crew-table td[data-label="Name"] { order: 1; }
+}
+.highlighted-crew {
+	outline: 2px solid #03dac6;
+    box-shadow: 0 0 0 3px #03dac655;
+    background: linear-gradient(230deg, #232323 55%, #03dac622 100%) !important; 
+    transition: outline 0.3s, box-shadow 0.3s, background 0.3s;
+    z-index: 2;
+}
+.crew-table tr:nth-child(even) {
+	background: #232323;
+}
+
+.progress-popup {
+    position: absolute;
+    left: 50%;
+    top: 110%;
+    transform: translateX(-50%);
+    background: #232323;
+    border: 2px solid #03dac6;
+    border-radius: 10px;
+    padding: 1em 1.5em;
+    min-width: 220px;
+    box-shadow: 0 8px 32px #000a;
+    z-index: 10;
+    animation: fadeIn 0.2s;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(10px);}
+    to { opacity: 1; transform: translateX(-50%) translateY(0);}
+}
+.progress-bar-label {
+    font-size: 1em;
+    font-weight: 600;
+    margin-bottom: 0.3em;
+    color: #03dac6;
+	text-align: center;
+}
+.progress-bar {
+    width: 100%;
+    height: 18px;
+    background: #181818;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 0.7em;
+    border: 1.5px solid #03dac6;
+    position: relative;
+    display: flex;
+}
+.progress-bar-inner.crew {
+    background: linear-gradient(90deg, #03dac6, #03dac6);
+}
+.progress-bar-inner.skills {
+    background: linear-gradient(90deg, #bb86fc, #bb86fc);
+}
+.progress-bar-inner.climbs {
+    background: linear-gradient(90deg, #ffb300, #ff5252);
+}
+.progress-bar-inner {
+    height: 100%;
+    transition: width 0.4s cubic-bezier(.4,0,.2,1);
+}
+.progress-bar-text {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 100%;
+    text-align: center;
+    color: #fff;
+    font-size: 0.98em;
+    font-weight: 600;
+    transform: translateX(-50%);
+    line-height: 18px;
+    pointer-events: none;
+    text-shadow: 0 1px 4px #000b;
+}
+.progress-breakdown {
+    margin-top: 0.7em;
+    color: #fff;
+    font-size: 1em;
+    text-align: center;
+}
+.progress-breakdown span {
+    display: inline-block;
+    margin: 0 0.5em;
+    font-weight: 600;
+}
+.progress-breakdown .crew { color: #03dac6; }
+.progress-breakdown .skills { color: #bb86fc; }
+.progress-breakdown .climbs { color: #ffae52; }
+.climbs-badge {
+    background: linear-gradient(90deg, #bb86fc, #ff5252);
+    color: #fff;
+    border-radius: 8px;
+    padding: 0.3em 1em;
+    font-weight: bold;
+    font-size: 1.1em;
+    display: inline-block;
+    min-width: 60px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+}
+@media (max-width: 700px) {
+    .crew-table td[data-label="Climbs"] {
+        flex: 0 0 auto;
+        margin-left: 0.5em;
+        align-items: center;
+        order: 2;
+    }
+}
+
+.progress-next-label {
+    font-size: 1em;
+    font-weight: 600;
+    margin: 0.7em 0 0.3em 0;
+    color: #ffae52;
+    text-align: center;
+}
+.progress-next-bar {
+    width: 100%;
+    height: 14px;
+    background: #181818;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1.5px solid #ffae52;
+    position: relative;
+    margin-bottom: 0.2em;
+}
+.progress-next-bar-inner {
+    height: 100%;
+    background: linear-gradient(90deg, #ffae52, #ff5252);
+    border-radius: 8px;
+    transition: width 0.4s cubic-bezier(.4,0,.2,1);
+}
+.progress-next-bar-text {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 100%;
+    text-align: center;
+    color: #fff;
+    font-size: 0.95em;
+    font-weight: 600;
+    transform: translateX(-50%);
+    line-height: 14px;
+    pointer-events: none;
+    text-shadow: 0 1px 4px #000b;
+}
+
+
+
+
+
+
+
+
+
+.album-card-content {
+    position: relative;
+}
+.album-crew-btn {
+    background: none;
+    border: none;
+    outline: none;
+    color: #03dac6;
+    border-radius: 6px;
+    padding: 0.2em 0.7em;
+    transition: background 0.2s;
+}
+.album-crew-btn:hover {
+    background: #03dac622;
+}
+.album-crew-popup {
+    min-width: 160px;
+    max-width: 220px;
 }
