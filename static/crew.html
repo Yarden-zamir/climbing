@@ -164,7 +164,7 @@
         function renderTable(data) {
             const container = document.getElementById("crew-table-container");
             const crewCount = data.length;
-            const crewLevel = data.reduce((sum, c) => sum + (c.level || 0), 0);
+            const crewLevel = data.reduce((sum, c) => sum + (Math.trunc(c.level) || 0), 0);
 
             container.innerHTML = `
                 <div style="
