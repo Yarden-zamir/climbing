@@ -236,7 +236,7 @@
             </td>
             <td data-label="Level">
                 <span class="level-badge" data-idx="${idx}" tabindex="0">
-                    Lv. ${c.level}
+                    Lv. ${Math.trunc(c.level)}
                 </span>
             </td>
             <td data-label="Climbs">
@@ -322,9 +322,9 @@ popup.innerHTML = `
         <div class="progress-bar-text">Lv. ${c.level}</div>
     </div>
     <div class="progress-breakdown">
-        <span class="crew">1 from being crew</span>
-        <span class="skills">${c.level_from_skills} from skills</span>
-        <span class="climbs">${c.level_from_climbs} from climbs</span>
+        <span class="crew">1 level from being crew</span>
+        <span class="skills">${c.level_from_skills} levels from ${c.skills.length} skills</span>
+        <span class="climbs">${c.level_from_climbs} levels from ${c.climbs} climbs</span>
     </div>
 `;
         badge.parentElement.style.position = "relative";

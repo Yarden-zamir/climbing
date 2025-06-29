@@ -107,7 +107,7 @@ def get_crew():
         climbs = climb_counts.get(norm, 0)
         skills = details.get("skills", [])
         level_from_skills = len(skills)
-        level_from_climbs = climbs // 5
+        level_from_climbs = climbs / 5
         total_level = 1 + level_from_skills + level_from_climbs
         crew.append({
             "name": name,
