@@ -155,11 +155,33 @@ nav a {
 	box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 	transition: transform 0.3s ease, box-shadow 0.3s ease;
 	opacity: 1;
+	position: relative; /* Needed for the image overlay */
 }
 
-.album-card:hover {
+.album-card:hover,
+.album-card.hover {
 	transform: translateY(-5px);
 	box-shadow: 0 8px 25px rgba(187, 134, 252, 0.3);
+}
+
+.album-card:hover .album-crew-stack,
+.album-card.hover .album-crew-stack,
+.album-crew-stack:focus-within {
+	z-index: 10;
+}
+
+.album-card:hover .album-crew-face-link,
+.album-card.hover .album-crew-face-link,
+.album-crew-stack:focus-within .album-crew-face-link {
+	margin-left: 4px;
+	z-index: 2;
+}
+
+.album-card:hover .album-crew-face,
+.album-card.hover .album-crew-face,
+.album-crew-stack:focus-within .album-crew-face {
+	transform: scale(1.18);
+	box-shadow: 0 4px 16px #bb86fc88;
 }
 
 /* ✨ START: Modern Content Animation */
@@ -751,6 +773,69 @@ nav a {
     line-height: 14px;
     pointer-events: none;
     text-shadow: 0 1px 4px #000b;
+}
+
+/* --- Album Crew Face Stack --- */
+.album-crew-stack {
+  position: absolute;
+  left: 0.7em;
+  bottom: 0.7em;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  z-index: 2;
+  height: 32px;
+  width: auto;
+  min-width: 0;
+  max-width: 120px;
+  pointer-events: auto;
+  /* Only as wide as the faces, not the card */
+}
+.album-crew-face-link {
+  display: block;
+  position: relative;
+  z-index: 1;
+  margin-left: -12px;
+  transition: margin 0.25s, z-index 0.25s;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px #0008;
+  aspect-ratio: 1/1;
+  width: 32px;
+  height: 32px;
+}
+.album-crew-face-link:first-child {
+  margin-left: 0;
+}
+.album-crew-face {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  aspect-ratio: 1/1;
+  object-fit: cover;
+  border: 2px solid #bb86fc;
+  background: #222;
+  transition: transform 0.25s, box-shadow 0.25s;
+  box-shadow: 0 2px 8px #0006;
+  display: block;
+}
+.album-card:hover .album-crew-face-link,
+.album-crew-stack:focus-within .album-crew-face-link {
+  margin-left: 4px;
+  z-index: 2;
+}
+.album-card:hover .album-crew-face,
+.album-crew-stack:focus-within .album-crew-face {
+  transform: scale(1.18);
+  box-shadow: 0 4px 16px #bb86fc88;
+}
+.album-crew-face-link:focus .album-crew-face,
+.album-crew-face-link:hover .album-crew-face {
+  transform: scale(1.25);
+  box-shadow: 0 6px 24px #03dac688;
+  border-color: #03dac6;
+}
+.album-card-content {
+  padding-bottom: 2.5em;
 }
 
 

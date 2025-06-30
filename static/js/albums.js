@@ -84,6 +84,27 @@ const populateCard = async (card, meta) => {
 
 	// Set date (no animation)
 	dateEl.textContent = meta.date || "";
+
+	// --- Crew Faces Stack ---
+	if (meta.crew && Array.isArray(meta.crew) && meta.crew.length > 0) {
+		const faceStack = document.createElement('div');
+		faceStack.className = 'album-crew-stack';
+		meta.crew.forEach((climber, i) => {
+			const faceLink = document.createElement('a');
+			faceLink.href = `/crew?highlight=${encodeURIComponent(climber)}`;
+			faceLink.className = 'album-crew-face-link';
+			faceLink.title = climber;
+			faceLink.tabIndex = 0;
+			const faceImg = document.createElement('img');
+			faceImg.src = `/climbers/${encodeURIComponent(climber)}/face.png`;
+			faceImg.alt = climber;
+			faceImg.className = 'album-crew-face';
+			faceLink.appendChild(faceImg);
+			faceStack.appendChild(faceLink);
+		});
+		card.style.position = 'relative';
+		card.appendChild(faceStack);
+	}
 };
 
 	const fetchAlbumMeta = async (albumUrl) => {
@@ -97,6 +118,24 @@ const populateCard = async (card, meta) => {
 			return { error: true, url: albumUrl };
 		}
 	};
+
+// --- Mobile card highlight on scroll into view ---
+function enableMobileCardHighlight() {
+	if (window.matchMedia('(max-width: 700px)').matches) {
+		const observer = new window.IntersectionObserver((entries) => {
+			entries.forEach(entry => {
+				if (entry.isIntersecting) {
+					entry.target.classList.add('hover');
+				} else {
+					entry.target.classList.remove('hover');
+				}
+			});
+		}, { threshold: 0.5 });
+		document.querySelectorAll('.album-card').forEach(card => {
+			observer.observe(card);
+		});
+	}
+}
 
 	const loadAlbums = async () => {
 		try {
@@ -112,17 +151,29 @@ const populateCard = async (card, meta) => {
 				return card;
 			});
 
+			// Fetch crew participation data
+			let crewData = {};
+			try {
+				const crewRes = await fetch("static/albums.json");
+				if (crewRes.ok) crewData = await crewRes.json();
+			} catch (e) { crewData = {}; }
+
 			const metaPromises = urls.map((url) => fetchAlbumMeta(url));
 			const allMetas = await Promise.all(metaPromises);
 
 			allMetas.forEach((meta, index) => {
 				const placeholder = placeholders[index];
 				if (meta && !meta.error && meta.imageUrl) {
+					// Attach crew info if available
+					if (crewData[meta.url] && crewData[meta.url].crew) {
+						meta.crew = crewData[meta.url].crew;
+					}
 					populateCard(placeholder, meta);
 				} else {
 					placeholder.remove();
 				}
 			});
+			enableMobileCardHighlight();
 		} catch (error) {
 			container.innerHTML = `<p style="color: #cf6679;">${error.message}</p>`;
 			console.error("Error loading albums:", error);
