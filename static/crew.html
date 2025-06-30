@@ -223,7 +223,7 @@
                     </thead>
 <tbody>
     ${data.map((c, idx) => `
-        <tr>
+        <tr data-climber-name="${encodeURIComponent(c.name)}">
             <td data-label="Face"><img src="${c.face}" class="crew-face" alt="${c.name}"></td>
             <td data-label="Name">${c.name}</td>
             <td data-label="Location"><span class="address">${c.location.join(", ")}</span></td>
@@ -241,7 +241,7 @@
             </td>
             <td data-label="Climbs">
                 <span class="climbs-badge" title="Climbs with crew">
-                    ${c.climbs}
+                    Clb. ${c.climbs}
                 </span>
             </td>
         </tr>
@@ -347,6 +347,24 @@ popup.innerHTML = `
         document.addEventListener('keydown', escClose);
     });
 });
+            // Add click handler to each row for highlight
+            document.querySelectorAll('.crew-table tbody tr').forEach(row => {
+                row.addEventListener('click', function (e) {
+                    // Avoid interfering with popup clicks
+                    if (e.target.closest('.progress-popup') || e.target.classList.contains('level-badge')) return;
+                    const climberName = row.getAttribute('data-climber-name');
+                    if (climberName) {
+                        const url = new URL(window.location);
+                        url.searchParams.set('highlight', decodeURIComponent(climberName));
+                        history.pushState({}, '', url.toString());
+                        // Remove previous highlights
+                        document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('highlighted-crew'));
+                        // Highlight this row
+                        row.classList.add('highlighted-crew');
+                        row.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }
+                });
+            });
         }
 
         function sortAndRender() {
