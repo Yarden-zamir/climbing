@@ -61,6 +61,16 @@
             color: #cf6679;
             font-size: 0.95em;
         }
+        .climbs-link {
+            color: #ffae52;
+            text-decoration: underline;
+            border-bottom: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+        .climbs-link:hover {
+            color: #ffae52;
+            border-bottom-color: #bb86fc;
+        }
         .sortable:after { content: " ⇅"; font-size: 0.8em; color: #666; }
         .sorted-asc:after { content: " ↑"; }
         .sorted-desc:after { content: " ↓"; }
@@ -357,7 +367,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 <div class="progress-breakdown">
                     <span class="crew">1 level from being crew</span>
                     <span class="skills">${c.level_from_skills} levels from ${c.skills.length} skills</span>
-                    <span class="climbs">${c.climbs / 5} levels from ${c.climbs} climbs</span>
+                    <span class="climbs">${c.climbs / 5} levels from <a href="/albums?people=${encodeURIComponent(c.name)}" class="climbs-link">${c.climbs} climbs</a></span>
                 </div>
             </div>
         `;
