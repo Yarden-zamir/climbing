@@ -301,6 +301,451 @@
 			box-shadow: 0 0 15px rgba(3, 218, 198, 0.2);
 		}
 		
+		/* Add Album FAB */
+		.add-album-fab {
+			position: fixed;
+			bottom: 2rem;
+			right: 5rem;
+			width: 64px;
+			height: 64px;
+			background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+			border: none;
+			border-radius: 50%;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			box-shadow: 0 6px 20px rgba(255, 174, 82, 0.4);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		
+		.add-album-fab:hover {
+			transform: scale(1.1);
+			box-shadow: 0 8px 30px rgba(255, 174, 82, 0.6);
+		}
+		
+		.add-album-fab:active {
+			transform: scale(0.95);
+		}
+		
+		.add-album-fab::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -100%;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+			transition: left 0.5s;
+		}
+		
+		.add-album-fab:hover::before {
+			left: 100%;
+		}
+		
+		.add-album-fab-icon {
+			font-size: 1.5rem;
+			transition: transform 0.3s ease;
+			color: white;
+			z-index: 2;
+		}
+		
+		.add-album-fab.active .add-album-fab-icon {
+			transform: rotate(45deg);
+		}
+
+		/* Add Album Modal */
+		.add-album-modal-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(0, 0, 0, 0.8);
+			z-index: 2000;
+			display: none;
+			align-items: center;
+			justify-content: center;
+			backdrop-filter: blur(5px);
+		}
+		
+		.add-album-modal-overlay.active {
+			display: flex;
+		}
+		
+		.add-album-modal {
+			background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+			border-radius: 20px;
+			border: 1px solid #333;
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+			width: 90%;
+			max-width: 600px;
+			max-height: 90vh;
+			overflow-y: auto;
+			transform: scale(0.9);
+			opacity: 0;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+		
+		.add-album-modal.active {
+			transform: scale(1);
+			opacity: 1;
+		}
+		
+		.add-album-modal-header {
+			padding: 2rem;
+			border-bottom: 1px solid #333;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		
+		.add-album-modal-title {
+			font-size: 1.5rem;
+			font-weight: 700;
+			color: #fff;
+			margin: 0;
+			background: linear-gradient(90deg, #ffae52, #ff6b35);
+			background-clip: text;
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+		
+		.add-album-modal-close {
+			background: none;
+			border: none;
+			color: #888;
+			font-size: 2rem;
+			cursor: pointer;
+			padding: 0.5rem;
+			border-radius: 50%;
+			transition: all 0.2s ease;
+		}
+		
+		.add-album-modal-close:hover {
+			background: #333;
+			color: #fff;
+		}
+		
+		.add-album-form {
+			padding: 2rem;
+		}
+		
+		.form-group {
+			margin-bottom: 1.5rem;
+		}
+		
+		.form-label {
+			display: block;
+			color: #fff;
+			font-weight: 600;
+			margin-bottom: 0.5rem;
+			font-size: 1rem;
+		}
+		
+		.form-input {
+			width: 100%;
+			padding: 1rem;
+			background: #333;
+			border: 2px solid #444;
+			border-radius: 12px;
+			color: #fff;
+			font-size: 1rem;
+			transition: all 0.3s ease;
+			box-sizing: border-box;
+		}
+		
+		.form-input:focus {
+			outline: none;
+			border-color: #ffae52;
+			box-shadow: 0 0 0 3px rgba(255, 174, 82, 0.2);
+		}
+		
+		.form-input.error {
+			border-color: #cf6679;
+			box-shadow: 0 0 0 3px rgba(207, 102, 121, 0.2);
+		}
+		
+		.form-error {
+			color: #cf6679;
+			font-size: 0.9rem;
+			margin-top: 0.5rem;
+		}
+		
+		.form-success {
+			color: #03dac6;
+			font-size: 0.9rem;
+			margin-top: 0.5rem;
+		}
+		
+		.crew-selector {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+			gap: 0.5rem;
+			max-height: 200px;
+			overflow-y: auto;
+			padding: 1rem;
+			background: #222;
+			border-radius: 12px;
+			border: 2px solid #444;
+		}
+		
+		.crew-option {
+			display: flex;
+			align-items: center;
+			gap: 0.7rem;
+			padding: 0.5rem;
+			border-radius: 8px;
+			cursor: pointer;
+			transition: all 0.2s ease;
+			background: transparent;
+		}
+		
+		.crew-option:hover {
+			background: #333;
+		}
+		
+		.crew-option.selected {
+			background: #ffae5222;
+			border: 2px solid #ffae52;
+		}
+		
+		.crew-option input[type="checkbox"] {
+			display: none;
+		}
+		
+		.crew-option .crew-face {
+			width: 32px;
+			height: 32px;
+			border-radius: 50%;
+			object-fit: cover;
+			border: 2px solid #555;
+		}
+		
+		.crew-option.selected .crew-face {
+			border-color: #ffae52;
+		}
+		
+		.crew-option-name {
+			color: #e0e0e0;
+			font-size: 0.95rem;
+			font-weight: 500;
+		}
+		
+		.crew-option.selected .crew-option-name {
+			color: #ffae52;
+		}
+		
+		.new-person-form {
+			background: #222;
+			border-radius: 12px;
+			padding: 1rem;
+			margin-top: 1rem;
+			border: 2px solid #444;
+		}
+		
+		.new-person-input {
+			display: flex;
+			gap: 0.5rem;
+			margin-bottom: 1rem;
+		}
+		
+		.new-person-input input {
+			flex: 1;
+		}
+		
+		.skills-input-container {
+			position: relative;
+			margin-bottom: 1rem;
+		}
+		
+		.skills-input {
+			width: 100%;
+			padding: 0.7rem;
+			background: #333;
+			border: 2px solid #444;
+			border-radius: 8px;
+			color: #fff;
+			font-size: 0.95rem;
+		}
+		
+		.skills-input:focus {
+			outline: none;
+			border-color: #ffae52;
+		}
+		
+		.skills-autocomplete {
+			position: absolute;
+			top: 100%;
+			left: 0;
+			right: 0;
+			background: #333;
+			border: 2px solid #444;
+			border-top: none;
+			border-radius: 0 0 8px 8px;
+			max-height: 150px;
+			overflow-y: auto;
+			z-index: 1000;
+			display: none;
+		}
+		
+		.skills-autocomplete-item {
+			padding: 0.7rem;
+			cursor: pointer;
+			color: #e0e0e0;
+			transition: background 0.2s ease;
+		}
+		
+		.skills-autocomplete-item:hover,
+		.skills-autocomplete-item.selected {
+			background: #ffae52;
+			color: #1a1a1a;
+		}
+		
+		.selected-skills {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.5rem;
+			margin-top: 0.5rem;
+		}
+		
+		.skill-tag {
+			background: #ffae52;
+			color: #1a1a1a;
+			padding: 0.3rem 0.8rem;
+			border-radius: 20px;
+			font-size: 0.9rem;
+			font-weight: 600;
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+		}
+		
+		.skill-tag-remove {
+			background: none;
+			border: none;
+			color: #1a1a1a;
+			cursor: pointer;
+			font-weight: bold;
+			padding: 0;
+		}
+		
+		.image-upload-container {
+			margin-bottom: 1rem;
+		}
+		
+		.image-upload-area {
+			border: 2px dashed #444;
+			border-radius: 8px;
+			padding: 1.5rem;
+			text-align: center;
+			cursor: pointer;
+			transition: all 0.3s ease;
+			background: #333;
+		}
+		
+		.image-upload-area:hover {
+			border-color: #ffae52;
+			background: #383838;
+		}
+		
+		.image-upload-area.dragover {
+			border-color: #ffae52;
+			background: #ffae5222;
+		}
+		
+		.image-preview {
+			max-width: 100px;
+			max-height: 100px;
+			border-radius: 50%;
+			object-fit: cover;
+			border: 3px solid #ffae52;
+			margin-bottom: 0.5rem;
+		}
+		
+		.upload-text {
+			color: #ccc;
+			font-size: 0.9rem;
+		}
+		
+		.upload-file-input {
+			display: none;
+		}
+		
+		.add-person-btn {
+			background: #ffae52;
+			color: #1a1a1a;
+			border: none;
+			padding: 0.5rem 1rem;
+			border-radius: 8px;
+			cursor: pointer;
+			font-weight: 600;
+			transition: all 0.2s ease;
+		}
+		
+		.add-person-btn:hover {
+			background: #ff9630;
+		}
+		
+		.submit-btn {
+			width: 100%;
+			padding: 1rem;
+			background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+			color: #1a1a1a;
+			border: none;
+			border-radius: 12px;
+			font-size: 1.1rem;
+			font-weight: 700;
+			cursor: pointer;
+			transition: all 0.3s ease;
+			margin-top: 1rem;
+		}
+		
+		.submit-btn:hover:not(:disabled) {
+			transform: translateY(-2px);
+			box-shadow: 0 8px 25px rgba(255, 174, 82, 0.4);
+		}
+		
+		.submit-btn:disabled {
+			opacity: 0.6;
+			cursor: not-allowed;
+		}
+		
+		.album-preview {
+			background: #222;
+			border-radius: 12px;
+			padding: 1rem;
+			margin-top: 1rem;
+			border: 2px solid #333;
+		}
+		
+		.album-preview.loading {
+			opacity: 0.6;
+		}
+		
+		.album-preview-image {
+			width: 100%;
+			max-height: 200px;
+			object-fit: cover;
+			border-radius: 8px;
+			margin-bottom: 1rem;
+		}
+		
+		.album-preview-title {
+			font-size: 1.2rem;
+			font-weight: 600;
+			color: #fff;
+			margin-bottom: 0.5rem;
+		}
+		
+		.album-preview-description {
+			color: #ccc;
+			font-size: 0.95rem;
+			line-height: 1.4;
+		}
+
 		/* Mobile adjustments */
 		@media (max-width: 700px) {
 			.filter-fab {
@@ -314,7 +759,16 @@
 				font-size: 1.3rem;
 			}
 			
-
+			.add-album-fab {
+				bottom: 1.5rem;
+				right: 4rem;
+				width: 56px;
+				height: 56px;
+			}
+			
+			.add-album-fab-icon {
+				font-size: 1.3rem;
+			}
 			
 			.filter-popup {
 				bottom: 5rem;
@@ -330,6 +784,20 @@
 			
 			.filter-popup-header {
 				padding: 1rem;
+			}
+			
+			.add-album-modal {
+				width: 95%;
+				margin: 1rem;
+			}
+			
+			.add-album-modal-header,
+			.add-album-form {
+				padding: 1.5rem;
+			}
+			
+			.crew-selector {
+				grid-template-columns: 1fr;
 			}
 		}
 	</style>
@@ -347,9 +815,13 @@
 			<!-- Album cards will be injected here by JavaScript -->
 		</div>
 		
-		<!-- Floating Action Button -->
+		<!-- Floating Action Buttons -->
 		<button class="filter-fab" id="filter-fab">
 			<span class="filter-fab-icon">🔍</span>
+		</button>
+		
+		<button class="add-album-fab" id="add-album-fab">
+			<span class="add-album-fab-icon">➕</span>
 		</button>
 		
 		<!-- Filter Popup Overlay -->
@@ -374,6 +846,104 @@
 				</div>
 			</div>
 		</div>
+		
+		<!-- Add Album Modal -->
+		<div class="add-album-modal-overlay" id="add-album-modal-overlay">
+			<div class="add-album-modal" id="add-album-modal">
+				<div class="add-album-modal-header">
+					<h2 class="add-album-modal-title">Add New Album</h2>
+					<button class="add-album-modal-close" id="add-album-modal-close">×</button>
+				</div>
+				<form class="add-album-form" id="add-album-form">
+					<div class="form-group">
+						<label class="form-label" for="album-url">Google Photos Album URL</label>
+						<input 
+							type="url" 
+							id="album-url" 
+							class="form-input" 
+							placeholder="https://photos.app.goo.gl/..."
+							required
+						>
+						<div id="url-error" class="form-error" style="display: none;"></div>
+						<div id="url-success" class="form-success" style="display: none;"></div>
+					</div>
+					
+					<div id="album-preview" class="album-preview" style="display: none;">
+						<!-- Album preview will be populated here -->
+					</div>
+					
+					<div class="form-group">
+						<label class="form-label">Select Crew Members</label>
+						<div id="crew-selector" class="crew-selector">
+							<!-- Crew options will be populated here -->
+						</div>
+					</div>
+					
+					<div class="form-group">
+						<label class="form-label">Add New Person (Optional)</label>
+						<div class="new-person-form" id="new-person-form" style="display: none;">
+							<div class="new-person-input">
+															<input 
+								type="text" 
+								id="new-person-name" 
+								class="form-input" 
+								placeholder="Full name"
+							>
+							</div>
+							
+							<div class="image-upload-container">
+								<label class="form-label">Profile Image</label>
+								<div class="image-upload-area" id="image-upload-area">
+									<input type="file" id="image-upload-input" class="upload-file-input" accept="image/*">
+									<div id="upload-content">
+										<div class="upload-text">
+											📷 Click or drag to upload profile image<br>
+											<small>(JPG, PNG, max 5MB)</small>
+										</div>
+									</div>
+								</div>
+							</div>
+							
+							<div class="skills-input-container">
+								<label class="form-label">Skills</label>
+								<input 
+									type="text" 
+									id="skills-input" 
+									class="skills-input" 
+									placeholder="Type to search and add skills..."
+									autocomplete="off"
+								>
+								<div class="skills-autocomplete" id="skills-autocomplete">
+									<!-- Autocomplete suggestions will appear here -->
+								</div>
+								<div class="selected-skills" id="selected-skills">
+									<!-- Selected skills will appear here -->
+								</div>
+							</div>
+							
+							<div style="display: flex; gap: 0.5rem;">
+								<button type="button" class="add-person-btn" id="add-person-btn">Add Person</button>
+								<button type="button" class="add-person-btn" id="cancel-person-btn" style="background: #666;">Cancel</button>
+							</div>
+						</div>
+						
+						<button type="button" class="add-person-btn" id="show-new-person-btn">+ Add New Person</button>
+						
+						<div id="new-people-list" style="margin-top: 1rem;">
+							<!-- New people will be listed here -->
+						</div>
+					</div>
+					
+					<button type="submit" class="submit-btn" id="submit-album-btn" disabled>
+						Add Album
+					</button>
+					
+					<div id="submission-status" style="margin-top: 1rem; text-align: center;">
+						<!-- Submission status will appear here -->
+					</div>
+				</form>
+			</div>
+		</div>
 	</main>
 	<script src="static/js/albums.js"></script>
 	<script>
@@ -391,7 +961,637 @@
 					}
 				});
 			});
+			
+			// Initialize add album functionality
+			initAddAlbumModal();
 		});
+		
+		// Add Album Modal Functionality
+		function initAddAlbumModal() {
+			const addAlbumFab = document.getElementById('add-album-fab');
+			const modalOverlay = document.getElementById('add-album-modal-overlay');
+			const modal = document.getElementById('add-album-modal');
+			const closeBtn = document.getElementById('add-album-modal-close');
+			const form = document.getElementById('add-album-form');
+			const urlInput = document.getElementById('album-url');
+			const submitBtn = document.getElementById('submit-album-btn');
+			
+			let crewData = [];
+			let selectedCrew = new Set();
+			let newPeople = [];
+			let urlValidationTimeout;
+			let allSkills = [];
+			let selectedSkills = [];
+			let currentPersonImage = null;
+			
+			// Fetch crew data and skills
+			Promise.all([
+				fetch('/api/crew').then(r => r.json()),
+				fetch('/api/skills').then(r => r.json())
+			]).then(([crew, skills]) => {
+				crewData = crew;
+				allSkills = skills;
+				populateCrewSelector();
+				initNewPersonForm();
+			});
+			
+			// Open modal
+			addAlbumFab.addEventListener('click', () => {
+				modalOverlay.classList.add('active');
+				setTimeout(() => modal.classList.add('active'), 50);
+			});
+			
+			// Close modal
+			const closeModal = () => {
+				modal.classList.remove('active');
+				setTimeout(() => {
+					modalOverlay.classList.remove('active');
+					resetForm();
+				}, 300);
+			};
+			
+			closeBtn.addEventListener('click', closeModal);
+			modalOverlay.addEventListener('click', (e) => {
+				if (e.target === modalOverlay) closeModal();
+			});
+			
+			// URL validation
+			urlInput.addEventListener('input', () => {
+				clearTimeout(urlValidationTimeout);
+				const url = urlInput.value.trim();
+				
+				if (!url) {
+					hideUrlFeedback();
+					updateSubmitButton();
+					return;
+				}
+				
+				urlValidationTimeout = setTimeout(() => validateUrl(url), 500);
+			});
+			
+			async function validateUrl(url) {
+				showUrlLoading();
+				
+				try {
+					const response = await fetch(`/api/albums/validate-url?url=${encodeURIComponent(url)}`);
+					const data = await response.json();
+					
+					if (data.valid) {
+						if (data.exists) {
+							showUrlError('This album already exists in the collection');
+						} else {
+							showUrlSuccess('Album found and accessible!');
+							showAlbumPreview(data.metadata);
+						}
+					} else {
+						showUrlError(data.error || 'Invalid URL');
+					}
+				} catch (error) {
+					showUrlError('Failed to validate URL');
+				}
+				
+				updateSubmitButton();
+			}
+			
+			function showUrlLoading() {
+				const errorEl = document.getElementById('url-error');
+				const successEl = document.getElementById('url-success');
+				errorEl.style.display = 'none';
+				successEl.style.display = 'block';
+				successEl.textContent = 'Validating...';
+				successEl.style.color = '#ffae52';
+			}
+			
+			function showUrlError(message) {
+				const errorEl = document.getElementById('url-error');
+				const successEl = document.getElementById('url-success');
+				urlInput.classList.add('error');
+				urlInput.classList.remove('success');
+				errorEl.textContent = message;
+				errorEl.style.display = 'block';
+				successEl.style.display = 'none';
+				hideAlbumPreview();
+			}
+			
+			function showUrlSuccess(message) {
+				const errorEl = document.getElementById('url-error');
+				const successEl = document.getElementById('url-success');
+				urlInput.classList.remove('error');
+				urlInput.classList.add('success');
+				successEl.textContent = message;
+				successEl.style.display = 'block';
+				successEl.style.color = '#03dac6';
+				errorEl.style.display = 'none';
+			}
+			
+			function hideUrlFeedback() {
+				const errorEl = document.getElementById('url-error');
+				const successEl = document.getElementById('url-success');
+				urlInput.classList.remove('error', 'success');
+				errorEl.style.display = 'none';
+				successEl.style.display = 'none';
+				hideAlbumPreview();
+			}
+			
+			function showAlbumPreview(metadata) {
+				const preview = document.getElementById('album-preview');
+				const proxyImageUrl = `/get-image?url=${encodeURIComponent(metadata.imageUrl)}`;
+				
+				preview.innerHTML = `
+					<img src="${proxyImageUrl}" alt="${metadata.title}" class="album-preview-image" onerror="this.style.display='none'">
+					<div class="album-preview-title">${metadata.title}</div>
+					<div class="album-preview-description">${metadata.description}</div>
+				`;
+				preview.style.display = 'block';
+			}
+			
+			function hideAlbumPreview() {
+				document.getElementById('album-preview').style.display = 'none';
+			}
+			
+			function populateCrewSelector() {
+				const selector = document.getElementById('crew-selector');
+				selector.innerHTML = '';
+				
+				crewData.forEach(person => {
+					const option = document.createElement('div');
+					option.className = 'crew-option';
+					option.innerHTML = `
+						<input type="checkbox" value="${person.name}" id="crew-${person.name.replace(/\s+/g, '-')}">
+						<img src="${person.face}" alt="${person.name}" class="crew-face" onerror="this.style.display='none'">
+						<span class="crew-option-name">${person.name}</span>
+					`;
+					
+					option.addEventListener('click', () => {
+						const checkbox = option.querySelector('input');
+						checkbox.checked = !checkbox.checked;
+						
+						if (checkbox.checked) {
+							selectedCrew.add(person.name);
+							option.classList.add('selected');
+						} else {
+							selectedCrew.delete(person.name);
+							option.classList.remove('selected');
+						}
+						
+						updateSubmitButton();
+					});
+					
+					selector.appendChild(option);
+				});
+			}
+			
+			// New person form functionality
+			function initNewPersonForm() {
+				const showBtn = document.getElementById('show-new-person-btn');
+				const cancelBtn = document.getElementById('cancel-person-btn');
+				const addBtn = document.getElementById('add-person-btn');
+				const form = document.getElementById('new-person-form');
+				const nameInput = document.getElementById('new-person-name');
+				const skillsInput = document.getElementById('skills-input');
+				const imageUploadArea = document.getElementById('image-upload-area');
+				const imageUploadInput = document.getElementById('image-upload-input');
+				
+				// Show/hide form
+				showBtn.addEventListener('click', () => {
+					showBtn.style.display = 'none';
+					form.style.display = 'block';
+					// Add required attribute when form is visible
+					nameInput.setAttribute('required', '');
+				});
+				
+				cancelBtn.addEventListener('click', () => {
+					resetNewPersonForm();
+					form.style.display = 'none';
+					showBtn.style.display = 'block';
+					// Remove required attribute when form is hidden
+					nameInput.removeAttribute('required');
+				});
+				
+				// Skills autocomplete
+				initSkillsAutocomplete();
+				
+				// Image upload
+				initImageUpload();
+				
+				// Add person
+				addBtn.addEventListener('click', () => {
+					const name = nameInput.value.trim();
+					
+					if (!name) {
+						alert('Please enter a name');
+						return;
+					}
+					
+					// Check if person already exists
+					if (crewData.some(p => p.name.toLowerCase() === name.toLowerCase()) || 
+						newPeople.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+						alert('This person already exists');
+						return;
+					}
+					
+					const newPerson = {
+						name: name,
+						skills: [...selectedSkills],
+						image: currentPersonImage
+					};
+					
+					newPeople.push(newPerson);
+					selectedCrew.add(name);
+					
+					updateNewPeopleList();
+					updateSubmitButton();
+					
+					// Reset and hide form
+					resetNewPersonForm();
+					form.style.display = 'none';
+					showBtn.style.display = 'block';
+					// Remove required attribute when form is hidden
+					nameInput.removeAttribute('required');
+				});
+			}
+			
+			function initSkillsAutocomplete() {
+				const skillsInput = document.getElementById('skills-input');
+				const autocomplete = document.getElementById('skills-autocomplete');
+				const selectedSkillsContainer = document.getElementById('selected-skills');
+				
+				skillsInput.addEventListener('input', (e) => {
+					const query = e.target.value.toLowerCase().trim();
+					
+					if (!query) {
+						autocomplete.style.display = 'none';
+						return;
+					}
+					
+					const filteredSkills = allSkills.filter(skill => 
+						skill.toLowerCase().includes(query) && 
+						!selectedSkills.includes(skill)
+					);
+					
+					if (filteredSkills.length === 0) {
+						autocomplete.style.display = 'none';
+						return;
+					}
+					
+					autocomplete.innerHTML = '';
+					filteredSkills.forEach(skill => {
+						const item = document.createElement('div');
+						item.className = 'skills-autocomplete-item';
+						item.textContent = skill;
+						item.addEventListener('click', () => addSkill(skill));
+						autocomplete.appendChild(item);
+					});
+					
+					autocomplete.style.display = 'block';
+				});
+				
+				skillsInput.addEventListener('keydown', (e) => {
+					if (e.key === 'Enter') {
+						e.preventDefault();
+						const query = e.target.value.trim();
+						if (query && !selectedSkills.includes(query)) {
+							addSkill(query);
+						}
+					}
+				});
+				
+				// Close autocomplete when clicking outside
+				document.addEventListener('click', (e) => {
+					if (!skillsInput.contains(e.target) && !autocomplete.contains(e.target)) {
+						autocomplete.style.display = 'none';
+					}
+				});
+				
+				function addSkill(skill) {
+					if (selectedSkills.includes(skill)) return;
+					
+					selectedSkills.push(skill);
+					skillsInput.value = '';
+					autocomplete.style.display = 'none';
+					updateSelectedSkills();
+				}
+				
+				function updateSelectedSkills() {
+					selectedSkillsContainer.innerHTML = '';
+					selectedSkills.forEach((skill, index) => {
+						const tag = document.createElement('div');
+						tag.className = 'skill-tag';
+						tag.innerHTML = `
+							${skill}
+							<button type="button" class="skill-tag-remove" onclick="removeSkill(${index})">×</button>
+						`;
+						selectedSkillsContainer.appendChild(tag);
+					});
+				}
+				
+				// Make removeSkill available globally
+				window.removeSkill = function(index) {
+					selectedSkills.splice(index, 1);
+					updateSelectedSkills();
+				};
+			}
+			
+			function initImageUpload() {
+				const uploadArea = document.getElementById('image-upload-area');
+				const uploadInput = document.getElementById('image-upload-input');
+				const uploadContent = document.getElementById('upload-content');
+				
+				// Click to upload
+				uploadArea.addEventListener('click', () => {
+					uploadInput.click();
+				});
+				
+				// Drag and drop
+				uploadArea.addEventListener('dragover', (e) => {
+					e.preventDefault();
+					uploadArea.classList.add('dragover');
+				});
+				
+				uploadArea.addEventListener('dragleave', () => {
+					uploadArea.classList.remove('dragover');
+				});
+				
+				uploadArea.addEventListener('drop', (e) => {
+					e.preventDefault();
+					uploadArea.classList.remove('dragover');
+					
+					const files = e.dataTransfer.files;
+					if (files.length > 0) {
+						handleImageUpload(files[0]);
+					}
+				});
+				
+				uploadInput.addEventListener('change', (e) => {
+					if (e.target.files.length > 0) {
+						handleImageUpload(e.target.files[0]);
+					}
+				});
+				
+				function handleImageUpload(file) {
+					if (!file.type.startsWith('image/')) {
+						alert('Please select an image file');
+						return;
+					}
+					
+					if (file.size > 5 * 1024 * 1024) {
+						alert('Image size must be less than 5MB');
+						return;
+					}
+					
+					// Create preview
+					const reader = new FileReader();
+					reader.onload = (e) => {
+						uploadContent.innerHTML = `
+							<img src="${e.target.result}" class="image-preview" alt="Preview">
+							<div class="upload-text">
+								✅ Image uploaded<br>
+								<small>Click to change</small>
+							</div>
+						`;
+						currentPersonImage = file;
+					};
+					reader.readAsDataURL(file);
+				}
+			}
+			
+			function resetNewPersonForm() {
+				document.getElementById('new-person-name').value = '';
+				document.getElementById('skills-input').value = '';
+				document.getElementById('skills-autocomplete').style.display = 'none';
+				selectedSkills = [];
+				currentPersonImage = null;
+				
+				document.getElementById('selected-skills').innerHTML = '';
+				document.getElementById('upload-content').innerHTML = `
+					<div class="upload-text">
+						📷 Click or drag to upload profile image<br>
+						<small>(JPG, PNG, max 5MB)</small>
+					</div>
+				`;
+			}
+			
+			function updateNewPeopleList() {
+				const list = document.getElementById('new-people-list');
+				list.innerHTML = '';
+				
+				newPeople.forEach((person, index) => {
+					const item = document.createElement('div');
+					item.style.cssText = `
+						display: flex;
+						align-items: center;
+						gap: 1rem;
+						padding: 1rem;
+						background: #333;
+						border-radius: 12px;
+						margin-bottom: 0.5rem;
+						border: 2px solid #444;
+					`;
+					
+					const imagePreview = person.image ? 
+						`<img src="${URL.createObjectURL(person.image)}" style="
+							width: 40px;
+							height: 40px;
+							border-radius: 50%;
+							object-fit: cover;
+							border: 2px solid #ffae52;
+						" alt="${person.name}">` : 
+						`<div style="
+							width: 40px;
+							height: 40px;
+							border-radius: 50%;
+							background: #555;
+							display: flex;
+							align-items: center;
+							justify-content: center;
+							color: #ccc;
+							font-size: 1.2rem;
+						">👤</div>`;
+					
+					const skillsDisplay = person.skills && person.skills.length > 0 ? 
+						person.skills.map(skill => 
+							`<span style="
+								background: #ffae52;
+								color: #1a1a1a;
+								padding: 0.2rem 0.5rem;
+								border-radius: 12px;
+								font-size: 0.8rem;
+								font-weight: 600;
+							">${skill}</span>`
+						).join(' ') : 
+						'<span style="color: #888; font-size: 0.9rem;">No skills</span>';
+					
+					item.innerHTML = `
+						${imagePreview}
+						<div style="flex: 1;">
+							<div style="color: #ffae52; font-weight: 600; margin-bottom: 0.3rem;">${person.name}</div>
+							<div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">${skillsDisplay}</div>
+						</div>
+						<button type="button" style="
+							background: #cf6679;
+							color: white;
+							border: none;
+							padding: 0.4rem 0.8rem;
+							border-radius: 6px;
+							cursor: pointer;
+							font-size: 0.9rem;
+							font-weight: 600;
+						" onclick="removeNewPerson(${index})">Remove</button>
+					`;
+					
+					list.appendChild(item);
+				});
+			}
+			
+			// Make removeNewPerson available globally
+			window.removeNewPerson = function(index) {
+				const person = newPeople[index];
+				selectedCrew.delete(person.name);
+				newPeople.splice(index, 1);
+				updateNewPeopleList();
+				updateSubmitButton();
+			};
+			
+			function updateSubmitButton() {
+				const url = urlInput.value.trim();
+				const hasValidUrl = url && !urlInput.classList.contains('error') && 
+								   document.getElementById('url-success').style.display === 'block';
+				const hasSelectedCrew = selectedCrew.size > 0;
+				
+				submitBtn.disabled = !(hasValidUrl && hasSelectedCrew);
+			}
+			
+			// Form submission
+			form.addEventListener('submit', async (e) => {
+				e.preventDefault();
+				
+				const url = urlInput.value.trim();
+				const crew = Array.from(selectedCrew);
+				
+				submitBtn.disabled = true;
+				submitBtn.textContent = 'Submitting...';
+				
+				try {
+					// Upload images for new people first
+					const processedNewPeople = [];
+					
+					for (const person of newPeople) {
+						let processedPerson = {
+							name: person.name,
+							skills: person.skills || [],
+							location: []
+						};
+						
+						// Upload image if provided
+						if (person.image) {
+							try {
+								const formData = new FormData();
+								formData.append('file', person.image);
+								formData.append('person_name', person.name);
+								
+								const uploadResponse = await fetch('/api/upload-face', {
+									method: 'POST',
+									body: formData
+								});
+								
+								if (uploadResponse.ok) {
+									const uploadData = await uploadResponse.json();
+									processedPerson.temp_image_path = uploadData.temp_path;
+								}
+							} catch (uploadError) {
+								console.warn('Failed to upload image for', person.name, uploadError);
+							}
+						}
+						
+						processedNewPeople.push(processedPerson);
+					}
+					
+					const response = await fetch('/api/albums/submit', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+						},
+						body: JSON.stringify({
+							url,
+							crew,
+							new_people: processedNewPeople
+						})
+					});
+					
+					const data = await response.json();
+					
+					if (response.ok) {
+						showSubmissionSuccess(data);
+					} else {
+						showSubmissionError(data.detail || 'Submission failed');
+					}
+				} catch (error) {
+					showSubmissionError('Network error occurred');
+				}
+			});
+			
+			function showSubmissionSuccess(data) {
+				const status = document.getElementById('submission-status');
+				status.innerHTML = `
+					<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+						✅ ${data.message}
+					</div>
+					<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+						<strong>Album:</strong> ${data.album_title}
+					</div>
+					<a href="${data.pr_url}" target="_blank" style="
+						color: #ffae52;
+						text-decoration: underline;
+						font-weight: 600;
+					">
+						View Pull Request #${data.pr_number}
+					</a>
+				`;
+			}
+			
+			function showSubmissionError(message) {
+				const status = document.getElementById('submission-status');
+				status.innerHTML = `
+					<div style="color: #cf6679; font-weight: 600;">
+						❌ ${message}
+					</div>
+				`;
+				submitBtn.disabled = false;
+				submitBtn.textContent = 'Add Album';
+			}
+			
+			function resetForm() {
+				form.reset();
+				selectedCrew.clear();
+				newPeople = [];
+				selectedSkills = [];
+				currentPersonImage = null;
+				hideUrlFeedback();
+				hideAlbumPreview();
+				updateNewPeopleList();
+				updateSubmitButton();
+				document.getElementById('submission-status').innerHTML = '';
+				submitBtn.textContent = 'Add Album';
+				
+				// Reset crew selector
+				document.querySelectorAll('.crew-option').forEach(option => {
+					option.classList.remove('selected');
+					option.querySelector('input').checked = false;
+				});
+				
+				// Reset new person form
+				const newPersonForm = document.getElementById('new-person-form');
+				const showBtn = document.getElementById('show-new-person-btn');
+				const nameInput = document.getElementById('new-person-name');
+				if (newPersonForm.style.display === 'block') {
+					resetNewPersonForm();
+					newPersonForm.style.display = 'none';
+					showBtn.style.display = 'block';
+					// Remove required attribute when form is hidden
+					nameInput.removeAttribute('required');
+				}
+			}
+		}
 	</script>
 </body>
 

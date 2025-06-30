@@ -123,3 +123,97 @@ MIT
 - [Poppins font](https://fonts.google.com/specimen/Poppins)
 - [Google Photos](https://photos.google.com/)
 - [Excalidraw](https://excalidraw.com/)
+
+# Climbing Album Management
+
+A web application for managing climbing albums and crew progress.
+
+## Features
+
+- **Albums**: Browse climbing albums with filtering by crew members
+- **Crew**: View crew member progress, skills, and level statistics  
+- **Memes**: Browse climbing photos and memes
+- **Add Albums**: Submit new Google Photos albums with automatic PR creation
+
+## Setup
+
+### Prerequisites
+- Python 3.13+
+- uv package manager
+
+### Installation
+```bash
+uv pip install -e .
+```
+
+### Environment Variables
+
+For the album submission feature to work, you need to set up these environment variables:
+
+```bash
+# GitHub Personal Access Token with repo permissions
+export GITHUB_TOKEN="your_github_token_here"
+
+# GitHub repository URL (optional, defaults to yarden-zamir/climbing)
+export GITHUB_REPO_URL="https://github.com/your-username/your-repo.git"
+```
+
+#### Creating a GitHub Token
+
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Click "Generate new token (classic)"
+3. Select the following scopes:
+   - `repo` (Full control of private repositories)
+   - `pull_request` (Access to pull requests)
+4. Copy the generated token and set it as the `GITHUB_TOKEN` environment variable
+
+### Running the Application
+
+```bash
+uvicorn main:app --reload
+```
+
+The application will be available at `http://localhost:8000`
+
+## Adding Albums
+
+The new album submission feature allows users to:
+
+1. **Add Album Button**: Click the orange "+" button on the albums page
+2. **Google Photos URL**: Paste a Google Photos album link (e.g., `https://photos.app.goo.gl/...`)
+3. **URL Validation**: The system automatically validates the URL and fetches album metadata
+4. **Crew Selection**: Select existing crew members who participated in the climb
+5. **Add New People**: Optionally add new people to the crew database
+6. **Automatic PR**: The system creates a GitHub branch and pull request automatically
+
+### How It Works
+
+When you submit an album:
+
+1. The URL is validated to ensure it's a valid Google Photos album
+2. Album metadata (title, description, cover image) is fetched and displayed
+3. A new Git branch is created with timestamp (e.g., `add-album-20241215-143022`)
+4. The following files are updated:
+   - `static/albums.txt` - Album URL is added
+   - `static/albums.json` - Crew information is added
+   - `climbers/*/details.json` - New climber profiles are created (if any)
+5. A pull request is automatically created for review
+6. You receive a link to the PR for review and merging
+
+### File Structure
+
+- `static/albums.txt` - List of album URLs
+- `static/albums.json` - Album metadata including crew information
+- `climbers/` - Individual climber profiles and photos
+- `static/photos/` - Meme photos
+- `main.py` - FastAPI backend application
+- `static/` - Frontend assets (HTML, CSS, JS)
+
+## Development
+
+The application uses:
+- **Backend**: FastAPI with Python
+- **Frontend**: Vanilla HTML/CSS/JavaScript
+- **GitHub API**: PyGithub for repository operations
+- **Image Processing**: Pillow for photo metadata
+- **HTTP Requests**: httpx for external API calls
