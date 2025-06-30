@@ -1,5 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
 	const container = document.getElementById("albums-container");
+	let allAlbums = []; // Store all album cards for filtering
+	let allPeople = new Set(); // Store all unique people
+	let selectedPeople = new Set(); // Store currently selected people
 
 const typewriter = (element, text, speed = 20) => {
 	return new Promise((resolve) => {
@@ -137,6 +140,178 @@ function enableMobileCardHighlight() {
 	}
 }
 
+	// Filter popup functionality
+	const initFilterPopup = () => {
+		const filterFab = document.getElementById('filter-fab');
+		const filterPopup = document.getElementById('filter-popup');
+		const filterOverlay = document.getElementById('filter-popup-overlay');
+		const filterClose = document.getElementById('filter-popup-close');
+		
+		const openPopup = () => {
+			filterOverlay.classList.add('active');
+			filterPopup.classList.add('active');
+			filterFab.classList.add('active');
+		};
+		
+		const closePopup = () => {
+			filterOverlay.classList.remove('active');
+			filterPopup.classList.remove('active');
+			filterFab.classList.remove('active');
+		};
+		
+		// Toggle popup when FAB is clicked
+		filterFab.addEventListener('click', () => {
+			if (filterPopup.classList.contains('active')) {
+				closePopup();
+			} else {
+				openPopup();
+			}
+		});
+		
+		// Close popup when overlay is clicked
+		filterOverlay.addEventListener('click', closePopup);
+		
+		// Close popup when close button is clicked
+		filterClose.addEventListener('click', closePopup);
+		
+		// Close popup when ESC key is pressed
+		document.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape' && filterPopup.classList.contains('active')) {
+				closePopup();
+			}
+		});
+	};
+	
+	// Update filter FAB appearance
+	const updateFilterFab = () => {
+		const filterFab = document.getElementById('filter-fab');
+		
+		if (selectedPeople.size > 0) {
+			filterFab.style.background = 'linear-gradient(135deg, #03dac6 0%, #018786 100%)';
+		} else {
+			filterFab.style.background = 'linear-gradient(135deg, #bb86fc 0%, #6200ea 100%)';
+		}
+	};
+
+	// Filter functionality
+	const populatePersonFilters = () => {
+		const peopleFiltersContainer = document.getElementById('people-filters');
+		const sortedPeople = Array.from(allPeople).sort();
+		
+		peopleFiltersContainer.innerHTML = '';
+		
+		sortedPeople.forEach(person => {
+			const filterDiv = document.createElement('div');
+			filterDiv.className = 'person-filter';
+			
+			const checkbox = document.createElement('input');
+			checkbox.type = 'checkbox';
+			checkbox.id = `person-${person.replace(/\s+/g, '-')}`;
+			checkbox.value = person;
+			
+			const face = document.createElement('img');
+			face.src = `/climbers/${encodeURIComponent(person)}/face.png`;
+			face.alt = person;
+			face.className = 'person-face';
+			face.onerror = () => face.style.display = 'none';
+			
+			const label = document.createElement('span');
+			label.textContent = person;
+			
+			filterDiv.appendChild(checkbox);
+			filterDiv.appendChild(face);
+			filterDiv.appendChild(label);
+			
+			// Add event listeners for both checkbox and div click
+			checkbox.addEventListener('change', handleFilterChange);
+			filterDiv.addEventListener('click', (e) => {
+				if (e.target !== checkbox) {
+					checkbox.checked = !checkbox.checked;
+					handleFilterChange();
+				}
+			});
+			
+			peopleFiltersContainer.appendChild(filterDiv);
+		});
+		
+		// Add event listeners for control buttons
+		document.getElementById('select-all-btn').addEventListener('click', selectAllPeople);
+		document.getElementById('clear-all-btn').addEventListener('click', clearAllPeople);
+	};
+	
+	const handleFilterChange = () => {
+		// Update selected people set
+		selectedPeople.clear();
+		document.querySelectorAll('#people-filters input[type="checkbox"]').forEach(checkbox => {
+			const filterDiv = checkbox.closest('.person-filter');
+			if (checkbox.checked) {
+				selectedPeople.add(checkbox.value);
+				filterDiv.classList.add('checked');
+			} else {
+				filterDiv.classList.remove('checked');
+			}
+		});
+		
+		// Apply filters
+		applyFilters();
+		updateFilterStatus();
+		updateFilterFab();
+	};
+	
+	const applyFilters = () => {
+		const hasFilters = selectedPeople.size > 0;
+		
+		allAlbums.forEach(({ card, meta }) => {
+			if (!hasFilters) {
+				// No filters selected, show all
+				card.style.display = '';
+				card.classList.remove('filtered-out');
+			} else {
+				// Check if album contains all selected people
+				const albumCrew = meta.crew || [];
+				const hasAllSelectedPeople = Array.from(selectedPeople).every(person => 
+					albumCrew.includes(person)
+				);
+				
+				if (hasAllSelectedPeople) {
+					card.style.display = '';
+					card.classList.remove('filtered-out');
+				} else {
+					card.style.display = 'none';
+					card.classList.add('filtered-out');
+				}
+			}
+		});
+	};
+	
+	const updateFilterStatus = () => {
+		const statusEl = document.getElementById('filter-status');
+		const visibleAlbums = allAlbums.filter(({ card }) => card.style.display !== 'none').length;
+		const totalAlbums = allAlbums.length;
+		
+		if (selectedPeople.size === 0) {
+			statusEl.style.display = 'none';
+		} else {
+			statusEl.style.display = 'block';
+			const peopleList = Array.from(selectedPeople).join(', ');
+			statusEl.innerHTML = `✨ Showing <strong>${visibleAlbums}</strong> of <strong>${totalAlbums}</strong> albums featuring: <strong>${peopleList}</strong>`;
+		}
+	};
+	
+	const selectAllPeople = () => {
+		document.querySelectorAll('#people-filters input[type="checkbox"]').forEach(checkbox => {
+			checkbox.checked = true;
+		});
+		handleFilterChange();
+	};
+	
+	const clearAllPeople = () => {
+		document.querySelectorAll('#people-filters input[type="checkbox"]').forEach(checkbox => {
+			checkbox.checked = false;
+		});
+		handleFilterChange();
+	};
+
 	const loadAlbums = async () => {
 		try {
 			const response = await fetch("static/albums.txt");
@@ -158,6 +333,17 @@ function enableMobileCardHighlight() {
 				if (crewRes.ok) crewData = await crewRes.json();
 			} catch (e) { crewData = {}; }
 
+			// Extract all unique people from crew data
+			Object.values(crewData).forEach(albumData => {
+				if (albumData.crew && Array.isArray(albumData.crew)) {
+					albumData.crew.forEach(person => allPeople.add(person));
+				}
+			});
+
+			// Initialize filter functionality
+			initFilterPopup();
+			populatePersonFilters();
+
 			const metaPromises = urls.map((url) => fetchAlbumMeta(url));
 			const allMetas = await Promise.all(metaPromises);
 
@@ -168,6 +354,10 @@ function enableMobileCardHighlight() {
 					if (crewData[meta.url] && crewData[meta.url].crew) {
 						meta.crew = crewData[meta.url].crew;
 					}
+					
+					// Store album for filtering
+					allAlbums.push({ card: placeholder, meta });
+					
 					populateCard(placeholder, meta);
 				} else {
 					placeholder.remove();

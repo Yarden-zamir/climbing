@@ -10,6 +10,324 @@
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 	<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet" />
 	<link rel="stylesheet" href="/static/css/styles.css" />
+	<style>
+		/* Floating Action Button */
+		.filter-fab {
+			position: fixed;
+			bottom: 2rem;
+			right: 2rem;
+			width: 64px;
+			height: 64px;
+			background: linear-gradient(135deg, #bb86fc 0%, #6200ea 100%);
+			border: none;
+			border-radius: 50%;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			box-shadow: 0 6px 20px rgba(187, 134, 252, 0.4);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		
+		.filter-fab:hover {
+			transform: scale(1.1);
+			box-shadow: 0 8px 30px rgba(187, 134, 252, 0.6);
+		}
+		
+		.filter-fab:active {
+			transform: scale(0.95);
+		}
+		
+		.filter-fab.active {
+			background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
+		}
+		
+		.filter-fab::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -100%;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+			transition: left 0.5s;
+		}
+		
+		.filter-fab:hover::before {
+			left: 100%;
+		}
+		
+		.filter-fab-icon {
+			font-size: 1.5rem;
+			transition: transform 0.3s ease;
+			color: white;
+			z-index: 2;
+		}
+		
+		.filter-fab.active .filter-fab-icon {
+			transform: rotate(45deg);
+		}
+		
+
+		
+		/* Filter Popup */
+		.filter-popup-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			z-index: 999;
+			pointer-events: none;
+		}
+		
+		.filter-popup-overlay.active {
+			pointer-events: auto;
+		}
+		
+		.filter-popup {
+			position: fixed;
+			bottom: 6rem;
+			right: 2rem;
+			width: 400px;
+			max-width: calc(100vw - 4rem);
+			max-height: calc(100vh - 12rem);
+			background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+			border-radius: 20px;
+			border: 1px solid #333;
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+			backdrop-filter: blur(20px);
+			transform: translateY(20px) scale(0.9);
+			opacity: 0;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			overflow: hidden;
+			z-index: 1001;
+			pointer-events: auto;
+		}
+		
+		.filter-popup.active {
+			transform: translateY(0) scale(1);
+			opacity: 1;
+		}
+		
+		.filter-popup-header {
+			padding: 1.5rem;
+			border-bottom: 1px solid #333;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		
+		.filter-popup-title {
+			font-size: 1.2rem;
+			font-weight: 700;
+			color: #fff;
+			margin: 0;
+			background: linear-gradient(90deg, #bb86fc, #03dac6);
+			background-clip: text;
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+		
+		.filter-popup-close {
+			background: none;
+			border: none;
+			color: #888;
+			font-size: 1.5rem;
+			cursor: pointer;
+			padding: 0.5rem;
+			border-radius: 50%;
+			transition: all 0.2s ease;
+		}
+		
+		.filter-popup-close:hover {
+			background: #333;
+			color: #fff;
+		}
+		
+		.filter-popup-content {
+			padding: 1.5rem;
+			max-height: calc(100vh - 20rem);
+			overflow-y: auto;
+		}
+		
+		.filter-controls {
+			display: flex;
+			gap: 0.7rem;
+			margin-bottom: 1.5rem;
+			flex-wrap: wrap;
+		}
+		
+		.filter-btn {
+			background: linear-gradient(135deg, #333 0%, #444 100%);
+			border: 1px solid #555;
+			color: #e0e0e0;
+			padding: 0.6rem 1.2rem;
+			border-radius: 25px;
+			cursor: pointer;
+			font-size: 0.9rem;
+			font-weight: 500;
+			transition: all 0.3s ease;
+			position: relative;
+			overflow: hidden;
+		}
+		
+		.filter-btn::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -100%;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(90deg, transparent, rgba(187, 134, 252, 0.3), transparent);
+			transition: left 0.3s;
+		}
+		
+		.filter-btn:hover {
+			background: linear-gradient(135deg, #444 0%, #555 100%);
+			border-color: #bb86fc;
+			transform: translateY(-1px);
+			box-shadow: 0 4px 15px rgba(187, 134, 252, 0.2);
+		}
+		
+		.filter-btn:hover::before {
+			left: 100%;
+		}
+		
+		.people-filters {
+			display: grid;
+			grid-template-columns: 1fr;
+			gap: 0.6rem;
+			margin-bottom: 1rem;
+		}
+		
+		.person-filter {
+			display: flex;
+			align-items: center;
+			gap: 0.8rem;
+			padding: 0.8rem 1rem;
+			background: linear-gradient(135deg, #252525 0%, #1a1a1a 100%);
+			border-radius: 12px;
+			border: 1px solid #333;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			cursor: pointer;
+			position: relative;
+			overflow: hidden;
+		}
+		
+		.person-filter::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: linear-gradient(135deg, rgba(187, 134, 252, 0.1) 0%, rgba(3, 218, 198, 0.1) 100%);
+			opacity: 0;
+			transition: opacity 0.3s ease;
+		}
+		
+		.person-filter:hover::before,
+		.person-filter.checked::before {
+			opacity: 1;
+		}
+		
+		.person-filter:hover {
+			transform: translateX(4px);
+			border-color: #bb86fc;
+			box-shadow: 0 4px 15px rgba(187, 134, 252, 0.2);
+		}
+		
+		.person-filter.checked {
+			border-color: #03dac6;
+			background: linear-gradient(135deg, #1a3a35 0%, #0d2d28 100%);
+		}
+		
+		.person-filter.checked:hover {
+			border-color: #03dac6;
+		}
+		
+		.person-filter input[type="checkbox"] {
+			display: none;
+		}
+		
+		.person-filter .person-face {
+			width: 32px;
+			height: 32px;
+			border-radius: 50%;
+			object-fit: cover;
+			border: 2px solid #555;
+			transition: all 0.3s ease;
+			z-index: 2;
+			position: relative;
+		}
+		
+		.person-filter.checked .person-face {
+			border-color: #03dac6;
+			box-shadow: 0 0 0 2px rgba(3, 218, 198, 0.3);
+		}
+		
+		.person-filter span {
+			flex: 1;
+			cursor: pointer;
+			color: #e0e0e0;
+			font-size: 0.95rem;
+			font-weight: 500;
+			z-index: 2;
+			position: relative;
+			transition: color 0.3s ease;
+		}
+		
+		.person-filter.checked span {
+			color: #03dac6;
+		}
+		
+		.filter-status {
+			padding: 1rem;
+			background: linear-gradient(135deg, #1a3a35 0%, #0d2d28 100%);
+			border-radius: 12px;
+			border: 1px solid #03dac6;
+			color: #03dac6;
+			font-size: 0.9rem;
+			text-align: center;
+			font-weight: 500;
+			box-shadow: 0 0 15px rgba(3, 218, 198, 0.2);
+		}
+		
+		/* Mobile adjustments */
+		@media (max-width: 700px) {
+			.filter-fab {
+				bottom: 1.5rem;
+				right: 1.5rem;
+				width: 56px;
+				height: 56px;
+			}
+			
+			.filter-fab-icon {
+				font-size: 1.3rem;
+			}
+			
+
+			
+			.filter-popup {
+				bottom: 5rem;
+				right: 1.5rem;
+				left: 1.5rem;
+				width: auto;
+				max-width: none;
+			}
+			
+			.filter-popup-content {
+				padding: 1rem;
+			}
+			
+			.filter-popup-header {
+				padding: 1rem;
+			}
+		}
+	</style>
 </head>
 
 <body>
@@ -22,6 +340,34 @@
 	<main class="page-fade">
 		<div id="albums-container" class="albums-grid">
 			<!-- Album cards will be injected here by JavaScript -->
+		</div>
+		
+		<!-- Floating Action Button -->
+		<button class="filter-fab" id="filter-fab">
+			<span class="filter-fab-icon">🔍</span>
+		</button>
+		
+		<!-- Filter Popup Overlay -->
+		<div class="filter-popup-overlay" id="filter-popup-overlay"></div>
+		
+		<!-- Filter Popup -->
+		<div class="filter-popup" id="filter-popup">
+			<div class="filter-popup-header">
+				<h2 class="filter-popup-title">Filter by People</h2>
+				<button class="filter-popup-close" id="filter-popup-close">×</button>
+			</div>
+			<div class="filter-popup-content">
+				<div class="filter-controls">
+					<button class="filter-btn" id="select-all-btn">✨ Select All</button>
+					<button class="filter-btn" id="clear-all-btn">🗑️ Clear All</button>
+				</div>
+				<div id="people-filters" class="people-filters">
+					<!-- People checkboxes will be populated here -->
+				</div>
+				<div id="filter-status" class="filter-status" style="display: none;">
+					<!-- Status message will appear here -->
+				</div>
+			</div>
 		</div>
 	</main>
 	<script src="static/js/albums.js"></script>
