@@ -81,10 +81,12 @@
 			bottom: 0;
 			z-index: 999;
 			pointer-events: none;
+			display: none;
 		}
 		
 		.filter-popup-overlay.active {
 			pointer-events: auto;
+			display: block;
 		}
 		
 		.filter-popup {
@@ -104,12 +106,15 @@
 			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 			overflow: hidden;
 			z-index: 1001;
-			pointer-events: auto;
+			pointer-events: none;
+			visibility: hidden;
 		}
 		
 		.filter-popup.active {
 			transform: translateY(0) scale(1);
 			opacity: 1;
+			pointer-events: auto;
+			visibility: visible;
 		}
 		
 		.filter-popup-header {

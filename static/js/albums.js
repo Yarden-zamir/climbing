@@ -140,6 +140,56 @@ function enableMobileCardHighlight() {
 	}
 }
 
+	// URL parameter handling
+	const updateUrlParams = () => {
+		const url = new URL(window.location);
+		if (selectedPeople.size > 0) {
+			const peopleArray = Array.from(selectedPeople).sort();
+			url.searchParams.set('people', peopleArray.join(','));
+		} else {
+			url.searchParams.delete('people');
+		}
+		history.pushState({}, '', url.toString());
+	};
+	
+	const loadFiltersFromUrl = () => {
+		const params = new URLSearchParams(window.location.search);
+		const peopleParam = params.get('people');
+		if (peopleParam) {
+			const peopleFromUrl = peopleParam.split(',').map(p => p.trim()).filter(p => p);
+			peopleFromUrl.forEach(person => {
+				if (allPeople.has(person)) {
+					selectedPeople.add(person);
+				}
+			});
+		}
+	};
+	
+	const syncFiltersWithUI = () => {
+		// Update checkbox states based on selectedPeople
+		document.querySelectorAll('#people-filters input[type="checkbox"]').forEach(checkbox => {
+			const filterDiv = checkbox.closest('.person-filter');
+			checkbox.checked = selectedPeople.has(checkbox.value);
+			if (checkbox.checked) {
+				filterDiv.classList.add('checked');
+			} else {
+				filterDiv.classList.remove('checked');
+			}
+		});
+		
+		// Apply filters and update UI
+		applyFilters();
+		updateFilterStatus();
+		updateFilterFab();
+	};
+	
+	// Handle browser back/forward navigation
+	window.addEventListener('popstate', () => {
+		selectedPeople.clear();
+		loadFiltersFromUrl();
+		syncFiltersWithUI();
+	});
+
 	// Filter popup functionality
 	const initFilterPopup = () => {
 		const filterFab = document.getElementById('filter-fab');
@@ -256,6 +306,7 @@ function enableMobileCardHighlight() {
 		applyFilters();
 		updateFilterStatus();
 		updateFilterFab();
+		updateUrlParams();
 	};
 	
 	const applyFilters = () => {
@@ -343,6 +394,9 @@ function enableMobileCardHighlight() {
 			// Initialize filter functionality
 			initFilterPopup();
 			populatePersonFilters();
+			
+			// Load filters from URL parameters
+			loadFiltersFromUrl();
 
 			const metaPromises = urls.map((url) => fetchAlbumMeta(url));
 			const allMetas = await Promise.all(metaPromises);
@@ -363,6 +417,10 @@ function enableMobileCardHighlight() {
 					placeholder.remove();
 				}
 			});
+			
+			// Apply initial filters if any were loaded from URL
+			syncFiltersWithUI();
+			
 			enableMobileCardHighlight();
 		} catch (error) {
 			container.innerHTML = `<p style="color: #cf6679;">${error.message}</p>`;
