@@ -243,9 +243,9 @@
                 </span>
             </td>
             <td data-label="Climbs">
-                <span class="climbs-badge" title="Climbs with crew">
-                    Clb. ${c.climbs}
-                </span>
+                <a href="/albums?people=${encodeURIComponent(c.name)}" class="climbs-badge" title="View albums with ${c.name}">
+                    Cl. ${c.climbs}
+                </a>
             </td>
         </tr>
     `).join("")}
@@ -380,8 +380,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             // Add click handler to each row for highlight
             document.querySelectorAll('.crew-table tbody tr').forEach(row => {
                 row.addEventListener('click', function (e) {
-                    // Avoid interfering with level badge clicks
-                    if (e.target.classList.contains('level-badge')) return;
+                    // Avoid interfering with level badge and climbs badge clicks
+                    if (e.target.classList.contains('level-badge') || e.target.classList.contains('climbs-badge')) return;
                     const climberName = row.getAttribute('data-climber-name');
                     if (climberName) {
                         const url = new URL(window.location);

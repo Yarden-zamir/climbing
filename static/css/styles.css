@@ -817,6 +817,36 @@ nav a {
     overflow: hidden;
     text-overflow: ellipsis;
     vertical-align: middle;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.climbs-badge::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+}
+
+.climbs-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(187, 134, 252, 0.3);
+    background: linear-gradient(90deg, #cf6679, #ff8a80);
+}
+
+.climbs-badge:hover::before {
+    left: 100%;
+}
+
+.climbs-badge:active {
+    transform: translateY(0);
 }
 
 @media (max-width: 700px) {
