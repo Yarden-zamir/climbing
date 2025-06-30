@@ -320,6 +320,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         
         // Close all existing shelves
         document.querySelectorAll('.progress-shelf-content').forEach(shelf => {
+            shelf.classList.remove('expanded');
             shelf.classList.add('closing');
             setTimeout(() => shelf.remove(), 300);
         });
