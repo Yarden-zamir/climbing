@@ -564,6 +564,13 @@ nav a {
     overflow: hidden;
     text-overflow: ellipsis;
     vertical-align: middle;
+    cursor: pointer;
+    transition: box-shadow 0.2s, background 0.2s;
+}
+.level-badge:hover, .level-badge:focus {
+    box-shadow: 0 0 0 3px #03dac655, 0 2px 8px #03dac622;
+    background: linear-gradient(90deg, #03dac6 40%, #bb86fc 100%);
+    color: #121212;
 }
 @media (max-width: 700px) {
     .crew-table thead {
@@ -637,30 +644,73 @@ nav a {
 	background: #232323;
 }
 
-.progress-popup {
+/* Progress Shelf Styles */
+.expanded-row {
+    position: relative;
+}
+
+.progress-shelf-content {
+	order: 9;
     position: absolute;
-    left: 50%;
-    top: 110%;
-    transform: translateX(-50%);
-    background: #232323;
-    border: 2px solid #03dac6;
-    border-radius: 10px;
-    padding: 1em 1.5em;
-    min-width: 220px;
-    box-shadow: 0 8px 32px #000a;
-    z-index: 10;
-    animation: fadeIn 0.2s;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    /* background: rgba(0,0,0,0.4); */
+    backdrop-filter: blur(0px);
+    border: none;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    mask: linear-gradient(to bottom, black 0%, black 85%, transparent 100%);
+    -webkit-mask: linear-gradient(to bottom, black 0%, black 85%, transparent 100%);
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                backdrop-filter 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateX(-50%) translateY(10px);}
-    to { opacity: 1; transform: translateX(-50%) translateY(0);}
+
+.progress-shelf-content.expanded {
+    max-height: 200px;
+    opacity: 1;
+    backdrop-filter: blur(8px);
 }
+
+.progress-shelf-content.closing {
+    max-height: 0;
+    opacity: 0;
+    backdrop-filter: blur(0px);
+}
+
+.progress-shelf-inner {
+    padding: 1em 1.5em 2.0em 1.5em;
+    /* background: rgba(0,0,0,0.15); */
+    border-top: 1px solid rgba(255,255,255,0.05);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    border-radius: 0 0 8px 8px;
+}
+
+@media (max-width: 700px) {
+    .progress-shelf-content {
+        position: relative;
+        width: 100%;
+        margin-top: 0.5em;
+    }
+    .progress-shelf-inner {
+        padding: 0.8em 0.5em 1.2em 0.5em;
+        /* background: rgba(0,0,0,0.2); */
+    }
+    .progress-shelf-content.expanded {
+        max-height: 250px;
+    }
+}
+
+/* Progress Bar Styles */
 .progress-bar-label {
     font-size: 1em;
     font-weight: 600;
     margin-bottom: 0.3em;
     color: #03dac6;
-	text-align: center;
+    text-align: center;
 }
 .progress-bar {
     width: 100%;
@@ -714,29 +764,6 @@ nav a {
 .progress-breakdown .crew { color: #03dac6; }
 .progress-breakdown .skills { color: #bb86fc; }
 .progress-breakdown .climbs { color: #ffae52; }
-.climbs-badge {
-    background: linear-gradient(90deg, #bb86fc, #ff5252);
-    color: #fff;
-    border-radius: 8px;
-    padding: 0.3em 1em;
-    font-weight: bold;
-    font-size: 1.1em;
-    display: inline-block;
-    min-width: 60px;
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    vertical-align: middle;
-}
-@media (max-width: 700px) {
-    .crew-table td[data-label="Climbs"] {
-        flex: 0 0 auto;
-        margin-left: 0.5em;
-        align-items: center;
-        order: 2;
-    }
-}
 
 .progress-next-label {
     font-size: 1em;
@@ -776,6 +803,34 @@ nav a {
     text-shadow: 0 1px 4px #000b;
 }
 
+.climbs-badge {
+    background: linear-gradient(90deg, #bb86fc, #ff5252);
+    color: #fff;
+    border-radius: 8px;
+    padding: 0.3em 1em;
+    font-weight: bold;
+    font-size: 1.1em;
+    display: inline-block;
+    min-width: 60px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+}
+
+@media (max-width: 700px) {
+    .crew-table td[data-label="Climbs"] {
+        flex: 0 0 auto;
+        margin-left: 0.5em;
+        align-items: center;
+        order: 2;
+    }
+    .climbs-badge {
+        display: none !important;
+    }
+}
+
 /* --- Album Crew Face Stack --- */
 .album-crew-stack {
   position: absolute;
@@ -790,7 +845,6 @@ nav a {
   min-width: 0;
   max-width: 120px;
   pointer-events: auto;
-  /* Only as wide as the faces, not the card */
 }
 .album-crew-face-link {
   display: block;
