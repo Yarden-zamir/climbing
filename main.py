@@ -1058,6 +1058,22 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/climbers", StaticFiles(directory="climbers"), name="climbers")
 
 
+class CaseInsensitiveMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # Make API routes case insensitive by converting to lowercase
+        if request.url.path.startswith("/api/"):
+            # Create a new scope with lowercase path for API routes
+            scope = request.scope.copy()
+            scope["path"] = request.url.path.lower()
+            scope["raw_path"] = request.url.path.lower().encode()
+            # Create new request with modified scope
+            from starlette.requests import Request
+            request = Request(scope, request.receive)
+
+        response = await call_next(request)
+        return response
+
+
 class NoCacheMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
@@ -1076,4 +1092,5 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
         return response
 
 
+app.add_middleware(CaseInsensitiveMiddleware)
 app.add_middleware(NoCacheMiddleware)
