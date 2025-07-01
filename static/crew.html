@@ -6,525 +6,6 @@
     <title>Crew Progress</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/static/css/styles.css" />
-    <style>
-        .crew-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 1rem auto;
-            background: #181818;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        .crew-table th, .crew-table td {
-            padding: 1rem;
-            text-align: left;
-        }
-        .crew-table th {
-            background: #222;
-            color: #03dac6;
-            cursor: pointer;
-            user-select: none;
-        }
-        .crew-face {
-            width: 64px;
-            height: 64px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 2px solid #bb86fc;
-        }
-        .skill-badge {
-            display: inline-block;
-            background: #333;
-            color: #bb86fc;
-            border-radius: 6px;
-            padding: 0.2em 0.7em;
-            margin: 0 0.2em 0.2em 0;
-            font-size: 0.95em;
-            font-weight: 600;
-        }
-        .level-badge {
-            background: linear-gradient(90deg, #bb86fc, #03dac6);
-            color: #121212;
-            border-radius: 8px;
-            padding: 0.3em 1em;
-            font-weight: bold;
-            font-size: 1.1em;
-            display: inline-block;
-            min-width: 60px;
-            text-align: center;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            vertical-align: middle;
-        }
-        .address {
-            color: #cf6679;
-            font-size: 0.95em;
-        }
-        .climbs-link {
-            color: #ffae52;
-            text-decoration: underline;
-            border-bottom: 1px solid transparent;
-            transition: all 0.2s ease;
-        }
-        .climbs-link:hover {
-            color: #ffae52;
-            border-bottom-color: #bb86fc;
-        }
-        .sortable:after { content: " ⇅"; font-size: 0.8em; color: #666; }
-        .sorted-asc:after { content: " ↑"; }
-        .sorted-desc:after { content: " ↓"; }
-
-        @media (max-width: 700px) {
-            .crew-table thead {
-                display: none;
-            }
-            .crew-table {
-                width: 100vw !important;
-                max-width: 100vw !important;
-                min-width: 0 !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                border-radius: 0 !important;
-                box-sizing: border-box !important;
-                overflow-x: hidden !important;
-            }
-            .crew-table tr {
-                width: 100vw !important;
-                max-width: 100vw !important;
-                min-width: 0 !important;
-                box-sizing: border-box !important;
-            }
-            .crew-table td {
-                display: flex;
-                align-items: center;
-                border: none;
-                background: none;
-                box-shadow: none;
-                margin: 0 0.3em 0.3em 0;
-                padding: 0.2em 0.3em;
-                min-width: 0;
-                font-size: 1em;
-            }
-            .crew-table td[data-label="Face"] {
-                flex: 0 0 auto;
-                margin-right: 0.7em;
-                padding-right: 0;
-                order: 0;
-            }
-            .crew-table td[data-label="Level"] {
-                flex: 0 0 auto;
-                margin-left: 0;
-                font-size: 1em;
-                align-items: center;
-                order: 2;
-            }
-            .crew-table td[data-label="Skills"] {
-                flex: 1 1 100%;
-                margin-top: 0.5em;
-                flex-wrap: wrap;
-                font-size: 0.97em;
-                order: 3;
-            }
-            .crew-table td[data-label="Location"] {
-                display: none !important;
-            }
-        }
-        @media (max-width: 700px) {
-            body, main.page-fade {
-                overflow-x: hidden !important;
-            }
-        }
-        @media (max-width: 900px) and (min-width: 701px) {
-            .crew-table td {
-                padding: 0.7rem 0.3rem;
-            }
-            .level-badge {
-                display: inline-block;
-                min-width: 60px;
-                text-align: center;
-                font-size: 1em;
-                padding: 0.2em 0.7em;
-                white-space: nowrap;
-            }
-        }
-
-        /* Add Crew FAB */
-        .add-crew-fab {
-            position: fixed;
-            bottom: 2rem;
-            right: 2rem;
-            width: 64px;
-            height: 64px;
-            background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
-            border: none;
-            border-radius: 50%;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 6px 20px rgba(3, 218, 198, 0.4);
-            z-index: 1000;
-            overflow: hidden;
-        }
-        
-        .add-crew-fab:hover {
-            transform: scale(1.1);
-            box-shadow: 0 8px 30px rgba(3, 218, 198, 0.6);
-        }
-        
-        .add-crew-fab:active {
-            transform: scale(0.95);
-        }
-        
-        .add-crew-fab::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-            transition: left 0.5s;
-        }
-        
-        .add-crew-fab:hover::before {
-            left: 100%;
-        }
-        
-        .add-crew-fab-icon {
-            font-size: 1.5rem;
-            transition: transform 0.3s ease;
-            color: white;
-            z-index: 2;
-        }
-        
-        .add-crew-fab.active .add-crew-fab-icon {
-            transform: rotate(45deg);
-        }
-
-        /* Add Crew Modal */
-        .add-crew-modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.8);
-            z-index: 2000;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            backdrop-filter: blur(5px);
-        }
-        
-        .add-crew-modal-overlay.active {
-            display: flex;
-        }
-        
-        .add-crew-modal {
-            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
-            border-radius: 20px;
-            border: 1px solid #333;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
-            width: 90%;
-            max-width: 600px;
-            max-height: 90vh;
-            overflow-y: auto;
-            transform: scale(0.9);
-            opacity: 0;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        .add-crew-modal.active {
-            transform: scale(1);
-            opacity: 1;
-        }
-        
-        .add-crew-modal-header {
-            padding: 2rem;
-            border-bottom: 1px solid #333;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        
-        .add-crew-modal-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #fff;
-            margin: 0;
-            background: linear-gradient(90deg, #03dac6, #bb86fc);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        
-        .add-crew-modal-close {
-            background: none;
-            border: none;
-            color: #888;
-            font-size: 2rem;
-            cursor: pointer;
-            padding: 0.5rem;
-            border-radius: 50%;
-            transition: all 0.2s ease;
-        }
-        
-        .add-crew-modal-close:hover {
-            background: #333;
-            color: #fff;
-        }
-        
-        .add-crew-form {
-            padding: 2rem;
-        }
-        
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-        
-        .form-label {
-            display: block;
-            color: #fff;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            font-size: 1rem;
-        }
-        
-        .form-input {
-            width: 100%;
-            padding: 1rem;
-            background: #333;
-            border: 2px solid #444;
-            border-radius: 12px;
-            color: #fff;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            box-sizing: border-box;
-        }
-        
-        .form-input:focus {
-            outline: none;
-            border-color: #03dac6;
-            box-shadow: 0 0 0 3px rgba(3, 218, 198, 0.2);
-        }
-        
-        .form-input.error {
-            border-color: #cf6679;
-            box-shadow: 0 0 0 3px rgba(207, 102, 121, 0.2);
-        }
-        
-        .form-error {
-            color: #cf6679;
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }
-        
-        .form-success {
-            color: #03dac6;
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }
-        
-        .submit-btn {
-            width: 100%;
-            padding: 1rem;
-            background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
-            color: #1a1a1a;
-            border: none;
-            border-radius: 12px;
-            font-size: 1.1rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            margin-top: 1rem;
-        }
-        
-        .submit-btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(3, 218, 198, 0.4);
-        }
-        
-        .submit-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        /* Image Upload */
-        .image-upload-container {
-            margin-bottom: 1.5rem;
-        }
-        
-        .image-upload-area {
-            border: 2px dashed #444;
-            border-radius: 12px;
-            padding: 2rem;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            background: #222;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .image-upload-area:hover {
-            border-color: #03dac6;
-            background: #333;
-        }
-        
-        .image-upload-area.drag-over {
-            border-color: #03dac6;
-            background: #2a4a47;
-        }
-        
-        .upload-text {
-            color: #ccc;
-            font-size: 1rem;
-            line-height: 1.5;
-        }
-        
-        .upload-text small {
-            color: #888;
-            font-size: 0.85rem;
-        }
-        
-        .upload-file-input {
-            display: none;
-        }
-        
-        .image-preview {
-            max-width: 200px;
-            max-height: 200px;
-            border-radius: 12px;
-            object-fit: cover;
-            margin-top: 1rem;
-        }
-
-        /* Skills Input */
-        .skills-input-container {
-            position: relative;
-        }
-        
-        .skills-input {
-            width: 100%;
-            padding: 1rem;
-            background: #333;
-            border: 2px solid #444;
-            border-radius: 12px;
-            color: #fff;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            box-sizing: border-box;
-        }
-        
-        .skills-input:focus {
-            outline: none;
-            border-color: #03dac6;
-            box-shadow: 0 0 0 3px rgba(3, 218, 198, 0.2);
-        }
-        
-        .skills-autocomplete {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
-            background: #333;
-            border: 2px solid #444;
-            border-top: none;
-            border-radius: 0 0 12px 12px;
-            max-height: 200px;
-            overflow-y: auto;
-            z-index: 1000;
-            display: none;
-        }
-        
-        .skill-suggestion {
-            padding: 0.75rem 1rem;
-            cursor: pointer;
-            color: #ccc;
-            transition: all 0.2s ease;
-        }
-        
-        .skill-suggestion:hover,
-        .skill-suggestion.highlighted {
-            background: #444;
-            color: #03dac6;
-        }
-        
-        .selected-skills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-top: 1rem;
-        }
-        
-        .skill-tag {
-            background: #03dac6;
-            color: #1a1a1a;
-            padding: 0.3rem 0.8rem;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .skill-tag-remove {
-            background: none;
-            border: none;
-            color: #1a1a1a;
-            cursor: pointer;
-            font-weight: bold;
-            padding: 0;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-        }
-        
-        .skill-tag-remove:hover {
-            background: rgba(26, 26, 26, 0.2);
-        }
-
-        /* Location Input */
-        .location-inputs {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-        
-        .location-inputs .form-input {
-            flex: 1;
-            min-width: 200px;
-        }
-
-        /* Mobile adjustments */
-        @media (max-width: 768px) {
-            .add-crew-modal {
-                width: 95%;
-                max-height: 95vh;
-            }
-            
-            .add-crew-modal-header,
-            .add-crew-form {
-                padding: 1.5rem;
-            }
-            
-            .location-inputs {
-                flex-direction: column;
-            }
-            
-            .location-inputs .form-input {
-                min-width: 0;
-            }
-        }
-    </style>
 </head>
 <body>
     <nav>
@@ -538,7 +19,7 @@
         <div id="crew-table-container"></div>
         
         <!-- Add Crew FAB -->
-        <button class="add-crew-fab" id="add-crew-fab">
+        <button class="add-crew-fab" id="add-crew-fab" style="background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%); box-shadow: 0 6px 20px rgba(255, 174, 82, 0.4);">
             <span class="add-crew-fab-icon">➕</span>
         </button>
         
@@ -615,6 +96,90 @@
                     </button>
                     
                     <div id="submission-status" style="margin-top: 1rem; text-align: center;">
+                        <!-- Submission status will appear here -->
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Edit Crew FAB -->
+        <button class="add-crew-fab" id="edit-crew-fab" title="Edit Crew" style="right: 5rem; background: #03dac6; box-shadow: 0 6px 20px rgba(3, 218, 198, 0.4); display: none;">
+            <span class="add-crew-fab-icon">✏️</span>
+        </button>
+
+        <!-- Edit Crew Modal -->
+        <div class="add-crew-modal-overlay" id="edit-crew-modal-overlay">
+            <div class="add-crew-modal" id="edit-crew-modal">
+                <div class="add-crew-modal-header">
+                    <h2 class="add-crew-modal-title">Edit Crew Member</h2>
+                    <button class="add-crew-modal-close" id="edit-crew-modal-close">×</button>
+                </div>
+                <form class="add-crew-form" id="edit-crew-form">
+                    <div class="form-group">
+                        <label class="form-label" for="edit-crew-name">Full Name</label>
+                        <input 
+                            type="text" 
+                            id="edit-crew-name" 
+                            class="form-input" 
+                            placeholder="Enter full name"
+                            required
+                        >
+                        <div id="edit-name-error" class="form-error" style="display: none;"></div>
+                    </div>
+                    
+                    <div class="image-upload-container">
+                        <label class="form-label">Profile Image</label>
+                        <div class="image-upload-area" id="edit-image-upload-area">
+                            <input type="file" id="edit-image-upload-input" class="upload-file-input" accept="image/*">
+                            <div id="edit-upload-content">
+                                <div class="upload-text">
+                                    📷 Click or drag to upload profile image<br>
+                                    <small>(JPG, PNG, max 5MB)</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Location</label>
+                        <div class="location-inputs">
+                            <input 
+                                type="text" 
+                                id="edit-location-city" 
+                                class="form-input" 
+                                placeholder="City"
+                            >
+                            <input 
+                                type="text" 
+                                id="edit-location-country" 
+                                class="form-input" 
+                                placeholder="Country"
+                            >
+                        </div>
+                    </div>
+                    
+                    <div class="skills-input-container">
+                        <label class="form-label">Skills</label>
+                        <input 
+                            type="text" 
+                            id="edit-skills-input" 
+                            class="skills-input" 
+                            placeholder="Type to search and add skills..."
+                            autocomplete="off"
+                        >
+                        <div class="skills-autocomplete" id="edit-skills-autocomplete">
+                            <!-- Autocomplete suggestions will appear here -->
+                        </div>
+                        <div class="selected-skills" id="edit-selected-skills">
+                            <!-- Selected skills will appear here -->
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="submit-btn" id="edit-submit-crew-btn" disabled>
+                        Update Crew Member
+                    </button>
+                    
+                    <div id="edit-submission-status" style="margin-top: 1rem; text-align: center;">
                         <!-- Submission status will appear here -->
                     </div>
                 </form>
@@ -774,77 +339,102 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         const row = badge.closest('tr');
         const climberName = row.getAttribute('data-climber-name');
         
-        // Highlight this row (same as clicking the person)
+        // Toggle highlight for this row
+        const isCurrentlyHighlighted = row.classList.contains('highlighted-crew');
         document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('highlighted-crew'));
-        row.classList.add('highlighted-crew');
         
-        // Update URL
-        if (climberName) {
+        if (!isCurrentlyHighlighted) {
+            row.classList.add('highlighted-crew');
+            
+            // Update URL
+            if (climberName) {
+                const url = new URL(window.location);
+                url.searchParams.set('highlight', decodeURIComponent(climberName));
+                history.pushState({}, '', url.toString());
+            }
+        } else {
+            // Remove highlight - clear URL parameter
             const url = new URL(window.location);
-            url.searchParams.set('highlight', decodeURIComponent(climberName));
+            url.searchParams.delete('highlight');
             history.pushState({}, '', url.toString());
         }
         
-        // Check if this row already has expanded content
-        const existingShelf = row.querySelector('.progress-shelf-content');
+        // Update edit FAB visibility
+        if (window.updateEditFabVisibility) {
+            window.updateEditFabVisibility();
+        }
         
-        // Close all existing shelves
-        document.querySelectorAll('.progress-shelf-content').forEach(shelf => {
-            shelf.classList.remove('expanded');
-            shelf.classList.add('closing');
-            setTimeout(() => shelf.remove(), 300);
-        });
-        document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('expanded-row'));
-        
-        // If this row already had a shelf, don't open a new one
-        if (existingShelf) return;
-        
-        // Calculate progress data
-        const total = c.level;
-        const crewW = (1 / total) * 100;
-        const skillsW = (c.level_from_skills / total) * 100;
-        const climbsW = (c.level_from_climbs / total) * 100;
-        const climbsInCurrent = c.climbs % 5;
-        const nextPct = (climbsInCurrent / 5) * 100;
-        
-        // Create the progress content
-        const progressContent = document.createElement('div');
-        progressContent.className = 'progress-shelf-content';
-        progressContent.innerHTML = `
-            <div class="progress-shelf-inner">
-                <div class="progress-next-label">Progress to Next Level</div>
-                <div class="progress-next-bar">
-                    <div class="progress-next-bar-inner" style="width:0%"></div>
-                    <div class="progress-next-bar-text">${Math.round(nextPct)}%</div>
+        // Only show progress if we're selecting (not deselecting)
+        if (!isCurrentlyHighlighted) {
+            // Check if this row already has expanded content
+            const existingShelf = row.querySelector('.progress-shelf-content');
+            
+            // Close all existing shelves
+            document.querySelectorAll('.progress-shelf-content').forEach(shelf => {
+                shelf.classList.remove('expanded');
+                shelf.classList.add('closing');
+                setTimeout(() => shelf.remove(), 300);
+            });
+            document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('expanded-row'));
+            
+            // If this row already had a shelf, don't open a new one
+            if (existingShelf) return;
+            
+            // Calculate progress data
+            const total = c.level;
+            const crewW = (1 / total) * 100;
+            const skillsW = (c.level_from_skills / total) * 100;
+            const climbsW = (c.level_from_climbs / total) * 100;
+            const climbsInCurrent = c.climbs % 5;
+            const nextPct = (climbsInCurrent / 5) * 100;
+            
+            // Create the progress content
+            const progressContent = document.createElement('div');
+            progressContent.className = 'progress-shelf-content';
+            progressContent.innerHTML = `
+                <div class="progress-shelf-inner">
+                    <div class="progress-next-label">Progress to Next Level</div>
+                    <div class="progress-next-bar">
+                        <div class="progress-next-bar-inner" style="width:0%"></div>
+                        <div class="progress-next-bar-text">${Math.round(nextPct)}%</div>
+                    </div>
+                    <div class="progress-bar-label">Level Breakdown</div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-inner crew" style="width:0%"></div>
+                        <div class="progress-bar-inner skills" style="width:0%"></div>
+                        <div class="progress-bar-inner climbs" style="width:0%"></div>
+                        <div class="progress-bar-text">Lv. ${c.level}</div>
+                    </div>
+                    <div class="progress-breakdown">
+                        <span class="crew">1 level from being crew</span>
+                        <span class="skills">${c.level_from_skills} levels from ${c.skills.length} skills</span>
+                        <span class="climbs">${c.climbs / 5} levels from <a href="/albums?people=${encodeURIComponent(c.name)}" class="climbs-link">${c.climbs} climbs</a></span>
+                    </div>
                 </div>
-                <div class="progress-bar-label">Level Breakdown</div>
-                <div class="progress-bar">
-                    <div class="progress-bar-inner crew" style="width:0%"></div>
-                    <div class="progress-bar-inner skills" style="width:0%"></div>
-                    <div class="progress-bar-inner climbs" style="width:0%"></div>
-                    <div class="progress-bar-text">Lv. ${c.level}</div>
-                </div>
-                <div class="progress-breakdown">
-                    <span class="crew">1 level from being crew</span>
-                    <span class="skills">${c.level_from_skills} levels from ${c.skills.length} skills</span>
-                    <span class="climbs">${c.climbs / 5} levels from <a href="/albums?people=${encodeURIComponent(c.name)}" class="climbs-link">${c.climbs} climbs</a></span>
-                </div>
-            </div>
-        `;
-        
-        // Append to the row and mark as expanded
-        row.appendChild(progressContent);
-        row.classList.add('expanded-row');
-        
-        // Animate the content appearing and progress bars
-        setTimeout(() => {
-            progressContent.classList.add('expanded');
-            // Animate progress bars
-            progressContent.querySelector('.progress-next-bar-inner').style.width = `${nextPct}%`;
-            progressContent.querySelector('.progress-bar-inner.crew').style.width = `${crewW}%`;
-            progressContent.querySelector('.progress-bar-inner.skills').style.width = `${skillsW}%`;
-            progressContent.querySelector('.progress-bar-inner.climbs').style.width = `${climbsW}%`;
-        }, 50);
+            `;
+            
+            // Append to the row and mark as expanded
+            row.appendChild(progressContent);
+            row.classList.add('expanded-row');
+            
+            // Animate the content appearing and progress bars
+            setTimeout(() => {
+                progressContent.classList.add('expanded');
+                // Animate progress bars
+                progressContent.querySelector('.progress-next-bar-inner').style.width = `${nextPct}%`;
+                progressContent.querySelector('.progress-bar-inner.crew').style.width = `${crewW}%`;
+                progressContent.querySelector('.progress-bar-inner.skills').style.width = `${skillsW}%`;
+                progressContent.querySelector('.progress-bar-inner.climbs').style.width = `${climbsW}%`;
+            }, 50);
+        } else {
+            // Close all existing shelves when deselecting
+            document.querySelectorAll('.progress-shelf-content').forEach(shelf => {
+                shelf.classList.remove('expanded');
+                shelf.classList.add('closing');
+                setTimeout(() => shelf.remove(), 300);
+            });
+            document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('expanded-row'));
+        }
     });
 });
             // Add click handler to each row for highlight
@@ -854,14 +444,30 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     if (e.target.classList.contains('level-badge') || e.target.classList.contains('climbs-badge')) return;
                     const climberName = row.getAttribute('data-climber-name');
                     if (climberName) {
-                        const url = new URL(window.location);
-                        url.searchParams.set('highlight', decodeURIComponent(climberName));
-                        history.pushState({}, '', url.toString());
-                        // Remove previous highlights
+                        // Toggle highlight for this row
+                        const isCurrentlyHighlighted = row.classList.contains('highlighted-crew');
                         document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('highlighted-crew'));
-                        // Highlight this row
-                        row.classList.add('highlighted-crew');
-                        row.scrollIntoView({ behavior: "smooth", block: "center" });
+                        
+                        if (!isCurrentlyHighlighted) {
+                            row.classList.add('highlighted-crew');
+                            
+                            // Update URL
+                            const url = new URL(window.location);
+                            url.searchParams.set('highlight', decodeURIComponent(climberName));
+                            history.pushState({}, '', url.toString());
+                            
+                            row.scrollIntoView({ behavior: "smooth", block: "center" });
+                        } else {
+                            // Remove highlight - clear URL parameter
+                            const url = new URL(window.location);
+                            url.searchParams.delete('highlight');
+                            history.pushState({}, '', url.toString());
+                        }
+                        
+                        // Update edit FAB visibility
+                        if (window.updateEditFabVisibility) {
+                            window.updateEditFabVisibility();
+                        }
                     }
                 });
             });
@@ -890,6 +496,12 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 const nameCell = row.querySelector('td[data-label="Name"]');
                 if (nameCell && norm(nameCell.textContent) === norm(highlight)) {
                     row.classList.add("highlighted-crew");
+                    
+                    // Update edit FAB visibility
+                    if (window.updateEditFabVisibility) {
+                        window.updateEditFabVisibility();
+                    }
+                    
                     row.scrollIntoView({ behavior: "smooth", block: "center" });
                     break;
                 }
@@ -932,6 +544,10 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             
             // Open modal
             addCrewFab.addEventListener('click', () => {
+                // Add spinning animation
+                addCrewFab.classList.add('spinning');
+                setTimeout(() => addCrewFab.classList.remove('spinning'), 600);
+                
                 modalOverlay.classList.add('active');
                 setTimeout(() => modal.classList.add('active'), 50);
             });
@@ -1248,6 +864,417 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 updateSubmitButton();
             }
         }
+
+        // Edit Crew Modal Functionality
+        (function initEditCrewModal() {
+            const editCrewFab = document.getElementById('edit-crew-fab');
+            const editModalOverlay = document.getElementById('edit-crew-modal-overlay');
+            const editModal = document.getElementById('edit-crew-modal');
+            const editCloseBtn = document.getElementById('edit-crew-modal-close');
+            const editForm = document.getElementById('edit-crew-form');
+            const editNameInput = document.getElementById('edit-crew-name');
+            const editSubmitBtn = document.getElementById('edit-submit-crew-btn');
+            
+            let editAllSkills = [];
+            let editSelectedSkills = [];
+            let editCurrentImage = null;
+            let selectedCrewMember = null;
+            let originalCrewName = null;
+            
+            // Fetch available skills
+            fetch('/api/skills')
+                .then(r => r.json())
+                .then(skills => {
+                    editAllSkills = skills;
+                    initEditSkillsAutocomplete();
+                })
+                .catch(e => console.warn('Could not load skills:', e));
+            
+            // Function to show/hide edit FAB based on selection
+            window.updateEditFabVisibility = function() {
+                const highlightedRow = document.querySelector('.crew-table tbody tr.highlighted-crew');
+                if (highlightedRow) {
+                    const nameCell = highlightedRow.querySelector('td[data-label="Name"]');
+                    if (nameCell) {
+                        selectedCrewMember = crewData.find(member => member.name === nameCell.textContent.trim());
+                        
+                        // Show edit FAB with animation
+                        editCrewFab.style.display = 'flex';
+                        editCrewFab.classList.remove('hide');
+                        editCrewFab.classList.add('show');
+                        editCrewFab.title = `Edit ${selectedCrewMember?.name || 'Crew Member'}`;
+                    }
+                } else {
+                    selectedCrewMember = null;
+                    
+                    // Hide edit FAB with animation
+                    editCrewFab.classList.remove('show');
+                    editCrewFab.classList.add('hide');
+                    
+                    // Actually hide after animation completes
+                    setTimeout(() => {
+                        if (editCrewFab.classList.contains('hide')) {
+                            editCrewFab.style.display = 'none';
+                        }
+                    }, 400);
+                }
+            };
+            
+            // Open modal and populate with selected member data
+            editCrewFab.addEventListener('click', () => {
+                if (selectedCrewMember) {
+                    populateEditForm(selectedCrewMember);
+                    editModalOverlay.classList.add('active');
+                    setTimeout(() => editModal.classList.add('active'), 50);
+                }
+            });
+            
+            // Close modal
+            const closeEditModal = () => {
+                editModal.classList.remove('active');
+                setTimeout(() => {
+                    editModalOverlay.classList.remove('active');
+                    resetEditForm();
+                }, 300);
+            };
+            
+            editCloseBtn.addEventListener('click', closeEditModal);
+            editModalOverlay.addEventListener('click', (e) => {
+                if (e.target === editModalOverlay) closeEditModal();
+            });
+            
+            // Populate form with crew member data
+            function populateEditForm(member) {
+                originalCrewName = member.name;
+                editNameInput.value = member.name;
+                
+                // Set location
+                const location = member.location || [];
+                document.getElementById('edit-location-city').value = location[0] || '';
+                document.getElementById('edit-location-country').value = location[1] || '';
+                
+                // Set skills
+                editSelectedSkills = [...(member.skills || [])];
+                updateEditSelectedSkills();
+                
+                // Set current image (show existing image)
+                const editUploadContent = document.getElementById('edit-upload-content');
+                editUploadContent.innerHTML = `
+                    <img src="${member.face}" alt="${member.name}" class="image-preview">
+                    <div class="upload-text" style="margin-top: 0.5rem;">
+                        Current image<br>
+                        <small>Click to change</small>
+                    </div>
+                `;
+                editCurrentImage = null; // No new image initially
+                
+                updateEditSubmitButton();
+            }
+            
+            // Name validation
+            editNameInput.addEventListener('input', () => {
+                const name = editNameInput.value.trim();
+                const editNameError = document.getElementById('edit-name-error');
+                
+                if (!name) {
+                    editNameError.style.display = 'none';
+                    editNameInput.classList.remove('error');
+                } else if (name !== originalCrewName && crewData.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+                    editNameError.textContent = 'This person already exists in the crew';
+                    editNameError.style.display = 'block';
+                    editNameInput.classList.add('error');
+                } else {
+                    editNameError.style.display = 'none';
+                    editNameInput.classList.remove('error');
+                }
+                
+                updateEditSubmitButton();
+            });
+            
+            // Skills autocomplete functionality
+            function initEditSkillsAutocomplete() {
+                const skillsInput = document.getElementById('edit-skills-input');
+                const autocomplete = document.getElementById('edit-skills-autocomplete');
+                let highlightedIndex = -1;
+                
+                skillsInput.addEventListener('input', (e) => {
+                    const query = e.target.value.toLowerCase().trim();
+                    
+                    if (!query) {
+                        autocomplete.style.display = 'none';
+                        return;
+                    }
+                    
+                    const matches = editAllSkills.filter(skill => 
+                        skill.toLowerCase().includes(query) && 
+                        !editSelectedSkills.includes(skill)
+                    );
+                    
+                    if (matches.length === 0) {
+                        autocomplete.style.display = 'none';
+                        return;
+                    }
+                    
+                    autocomplete.innerHTML = matches.map((skill, index) => `
+                        <div class="skill-suggestion" data-skill="${skill}" data-index="${index}">${skill}</div>
+                    `).join('');
+                    
+                    autocomplete.style.display = 'block';
+                    highlightedIndex = -1;
+                });
+                
+                skillsInput.addEventListener('keydown', (e) => {
+                    const suggestions = autocomplete.querySelectorAll('.skill-suggestion');
+                    
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        highlightedIndex = Math.min(highlightedIndex + 1, suggestions.length - 1);
+                        updateEditHighlight(suggestions);
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        highlightedIndex = Math.max(highlightedIndex - 1, -1);
+                        updateEditHighlight(suggestions);
+                    } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
+                            addEditSkill(suggestions[highlightedIndex].dataset.skill);
+                        }
+                    } else if (e.key === 'Escape') {
+                        autocomplete.style.display = 'none';
+                        highlightedIndex = -1;
+                    }
+                });
+                
+                autocomplete.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('skill-suggestion')) {
+                        addEditSkill(e.target.dataset.skill);
+                    }
+                });
+                
+                function updateEditHighlight(suggestions) {
+                    suggestions.forEach((suggestion, index) => {
+                        suggestion.classList.toggle('highlighted', index === highlightedIndex);
+                    });
+                }
+                
+                function addEditSkill(skill) {
+                    if (!editSelectedSkills.includes(skill)) {
+                        editSelectedSkills.push(skill);
+                        updateEditSelectedSkills();
+                        skillsInput.value = '';
+                        autocomplete.style.display = 'none';
+                        highlightedIndex = -1;
+                    }
+                }
+                
+                // Hide autocomplete when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!skillsInput.contains(e.target) && !autocomplete.contains(e.target)) {
+                        autocomplete.style.display = 'none';
+                    }
+                });
+            }
+            
+            function updateEditSelectedSkills() {
+                const selectedSkillsDiv = document.getElementById('edit-selected-skills');
+                selectedSkillsDiv.innerHTML = editSelectedSkills.map((skill, index) => `
+                    <div class="skill-tag">
+                        ${skill}
+                        <button type="button" class="skill-tag-remove" onclick="removeEditSkill(${index})">×</button>
+                    </div>
+                `).join('');
+            }
+            
+            // Make removeEditSkill available globally
+            window.removeEditSkill = function(index) {
+                editSelectedSkills.splice(index, 1);
+                updateEditSelectedSkills();
+            };
+            
+            // Image upload functionality
+            function initEditImageUpload() {
+                const uploadArea = document.getElementById('edit-image-upload-area');
+                const uploadInput = document.getElementById('edit-image-upload-input');
+                const uploadContent = document.getElementById('edit-upload-content');
+                
+                uploadArea.addEventListener('click', () => uploadInput.click());
+                
+                uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.add('drag-over');
+                });
+                
+                uploadArea.addEventListener('dragleave', () => {
+                    uploadArea.classList.remove('drag-over');
+                });
+                
+                uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.remove('drag-over');
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        handleEditImageFile(files[0]);
+                    }
+                });
+                
+                uploadInput.addEventListener('change', (e) => {
+                    if (e.target.files.length > 0) {
+                        handleEditImageFile(e.target.files[0]);
+                    }
+                });
+                
+                function handleEditImageFile(file) {
+                    if (!file.type.startsWith('image/')) {
+                        alert('Please select an image file');
+                        return;
+                    }
+                    
+                    if (file.size > 5 * 1024 * 1024) {
+                        alert('File size must be less than 5MB');
+                        return;
+                    }
+                    
+                    editCurrentImage = file;
+                    
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        uploadContent.innerHTML = `
+                            <img src="${e.target.result}" alt="Preview" class="image-preview">
+                            <div class="upload-text" style="margin-top: 0.5rem;">
+                                ${file.name}<br>
+                                <small>Click to change image</small>
+                            </div>
+                        `;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+            
+            initEditImageUpload();
+            
+            function updateEditSubmitButton() {
+                const name = editNameInput.value.trim();
+                const hasValidName = name && !editNameInput.classList.contains('error');
+                editSubmitBtn.disabled = !hasValidName;
+            }
+            
+            // Form submission
+            editForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const name = editNameInput.value.trim();
+                const city = document.getElementById('edit-location-city').value.trim();
+                const country = document.getElementById('edit-location-country').value.trim();
+                const location = [city, country].filter(Boolean);
+                
+                editSubmitBtn.disabled = true;
+                editSubmitBtn.textContent = 'Updating...';
+                
+                try {
+                    let tempImagePath = null;
+                    
+                    // Upload new image if provided
+                    if (editCurrentImage) {
+                        try {
+                            const formData = new FormData();
+                            formData.append('file', editCurrentImage);
+                            formData.append('person_name', name);
+                            
+                            const uploadResponse = await fetch('/api/upload-face', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            
+                            if (uploadResponse.ok) {
+                                const uploadData = await uploadResponse.json();
+                                tempImagePath = uploadData.temp_path;
+                            }
+                        } catch (uploadError) {
+                            console.warn('Failed to upload image:', uploadError);
+                        }
+                    }
+                    
+                    const response = await fetch('/api/crew/edit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            original_name: originalCrewName,
+                            name,
+                            skills: editSelectedSkills,
+                            location,
+                            temp_image_path: tempImagePath
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        showEditSubmissionSuccess(data);
+                        // Refresh the crew data and table
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 2000);
+                    } else {
+                        showEditSubmissionError(data.detail || 'Update failed');
+                    }
+                } catch (error) {
+                    showEditSubmissionError('Network error occurred');
+                }
+            });
+            
+            function showEditSubmissionSuccess(data) {
+                const status = document.getElementById('edit-submission-status');
+                status.innerHTML = `
+                    <div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+                        ✅ ${data.message}
+                    </div>
+                    <div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+                        <strong>Updated:</strong> ${data.crew_name}
+                    </div>
+                    <a href="${data.pr_url}" target="_blank" style="
+                        color: #03dac6;
+                        text-decoration: underline;
+                        font-weight: 600;
+                    ">
+                        View Pull Request #${data.pr_number}
+                    </a>
+                `;
+            }
+            
+            function showEditSubmissionError(message) {
+                const status = document.getElementById('edit-submission-status');
+                status.innerHTML = `
+                    <div style="color: #cf6679; font-weight: 600;">
+                        ❌ ${message}
+                    </div>
+                `;
+                editSubmitBtn.disabled = false;
+                editSubmitBtn.textContent = 'Update Crew Member';
+            }
+            
+            function resetEditForm() {
+                editForm.reset();
+                editSelectedSkills = [];
+                editCurrentImage = null;
+                selectedCrewMember = null;
+                originalCrewName = null;
+                document.getElementById('edit-selected-skills').innerHTML = '';
+                document.getElementById('edit-upload-content').innerHTML = `
+                    <div class="upload-text">
+                        📷 Click or drag to upload profile image<br>
+                        <small>(JPG, PNG, max 5MB)</small>
+                    </div>
+                `;
+                document.getElementById('edit-name-error').style.display = 'none';
+                editNameInput.classList.remove('error');
+                document.getElementById('edit-submission-status').innerHTML = '';
+                document.getElementById('edit-skills-autocomplete').style.display = 'none';
+                editSubmitBtn.textContent = 'Update Crew Member';
+                updateEditSubmitButton();
+            }
+        })();
     </script>
 </body>
 </html>

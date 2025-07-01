@@ -356,6 +356,66 @@
 			transform: rotate(45deg);
 		}
 
+		/* Edit Album FAB */
+		.edit-album-fab {
+			position: fixed;
+			bottom: 2rem;
+			right: 8rem;
+			width: 64px;
+			height: 64px;
+			background: #03dac6;
+			border: none;
+			border-radius: 50%;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			box-shadow: 0 6px 20px rgba(3, 218, 198, 0.4);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		
+		.edit-album-fab:hover {
+			transform: scale(1.1);
+			box-shadow: 0 8px 30px rgba(3, 218, 198, 0.6);
+		}
+		
+		.edit-album-fab:active {
+			transform: scale(0.95);
+		}
+		
+		.edit-album-fab.active {
+			background: #03dac6;
+			box-shadow: 0 6px 20px rgba(3, 218, 198, 0.4);
+		}
+		
+		.edit-album-fab::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -100%;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+			transition: left 0.5s;
+		}
+		
+		.edit-album-fab:hover::before {
+			left: 100%;
+		}
+		
+		.edit-album-fab-icon {
+			font-size: 1.5rem;
+			transition: transform 0.3s ease;
+			color: white;
+			z-index: 2;
+		}
+		
+		.edit-album-fab.active .edit-album-fab-icon {
+			transform: rotate(180deg);
+		}
+
 		/* Add Album Modal */
 		.add-album-modal-overlay {
 			position: fixed;
@@ -746,6 +806,172 @@
 			line-height: 1.4;
 		}
 
+		/* Edit Mode Overlay */
+		.edit-mode-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(187, 134, 252, 0.1);
+			z-index: 500;
+			display: none;
+			pointer-events: none;
+		}
+		
+		.edit-mode-overlay.active {
+			display: block;
+		}
+		
+		.edit-mode-message {
+			position: fixed;
+			top: 2rem;
+			left: 50%;
+			transform: translateX(-50%);
+			background: linear-gradient(135deg, #bb86fc 0%, #6200ea 100%);
+			color: white;
+			padding: 1rem 2rem;
+			border-radius: 25px;
+			font-weight: 600;
+			font-size: 1.1rem;
+			box-shadow: 0 8px 25px rgba(187, 134, 252, 0.4);
+			z-index: 1001;
+			display: none;
+			animation: slideDown 0.3s ease-out;
+		}
+		
+		.edit-mode-message.active {
+			display: block;
+		}
+		
+		@keyframes slideDown {
+			from {
+				opacity: 0;
+				transform: translateX(-50%) translateY(-20px);
+			}
+			to {
+				opacity: 1;
+				transform: translateX(-50%) translateY(0);
+			}
+		}
+		
+		.album-card.edit-mode {
+			cursor: pointer;
+			transition: all 0.3s ease;
+		}
+		
+		.album-card.edit-mode:hover {
+			transform: translateY(-8px) scale(1.02);
+			box-shadow: 0 12px 30px rgba(187, 134, 252, 0.3);
+			border: 2px solid #bb86fc;
+		}
+
+		/* Edit Album Modal */
+		.edit-album-modal-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(0, 0, 0, 0.8);
+			z-index: 2000;
+			display: none;
+			align-items: center;
+			justify-content: center;
+			backdrop-filter: blur(5px);
+		}
+		
+		.edit-album-modal-overlay.active {
+			display: flex;
+		}
+		
+		.edit-album-modal {
+			background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+			border-radius: 20px;
+			border: 1px solid #333;
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+			width: 90%;
+			max-width: 600px;
+			max-height: 90vh;
+			overflow-y: auto;
+			transform: scale(0.9);
+			opacity: 0;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+		
+		.edit-album-modal.active {
+			transform: scale(1);
+			opacity: 1;
+		}
+		
+		.edit-album-modal-header {
+			padding: 2rem;
+			border-bottom: 1px solid #333;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		
+		.edit-album-modal-title {
+			font-size: 1.5rem;
+			font-weight: 700;
+			color: #fff;
+			margin: 0;
+			background: linear-gradient(90deg, #bb86fc, #03dac6);
+			background-clip: text;
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+		
+		.edit-album-modal-close {
+			background: none;
+			border: none;
+			color: #888;
+			font-size: 2rem;
+			cursor: pointer;
+			padding: 0.5rem;
+			border-radius: 50%;
+			transition: all 0.2s ease;
+		}
+		
+		.edit-album-modal-close:hover {
+			background: #333;
+			color: #fff;
+		}
+		
+		.edit-album-form {
+			padding: 2rem;
+		}
+		
+		.album-info {
+			background: #222;
+			border-radius: 12px;
+			padding: 1rem;
+			margin-bottom: 1.5rem;
+			border: 2px solid #333;
+		}
+		
+		.album-info-image {
+			width: 100%;
+			max-height: 200px;
+			object-fit: cover;
+			border-radius: 8px;
+			margin-bottom: 1rem;
+		}
+		
+		.album-info-title {
+			font-size: 1.2rem;
+			font-weight: 600;
+			color: #fff;
+			margin-bottom: 0.5rem;
+		}
+		
+		.album-info-url {
+			color: #bb86fc;
+			font-size: 0.9rem;
+			word-break: break-all;
+		}
+
 		/* Mobile adjustments */
 		@media (max-width: 700px) {
 			.filter-fab {
@@ -767,6 +993,17 @@
 			}
 			
 			.add-album-fab-icon {
+				font-size: 1.3rem;
+			}
+			
+			.edit-album-fab {
+				bottom: 1.5rem;
+				right: 6.5rem;
+				width: 56px;
+				height: 56px;
+			}
+			
+			.edit-album-fab-icon {
 				font-size: 1.3rem;
 			}
 			
@@ -823,6 +1060,16 @@
 		<button class="add-album-fab" id="add-album-fab">
 			<span class="add-album-fab-icon">➕</span>
 		</button>
+		
+		<button class="edit-album-fab" id="edit-album-fab">
+			<span class="edit-album-fab-icon">✏️</span>
+		</button>
+		
+		<!-- Edit Mode Overlay -->
+		<div class="edit-mode-overlay" id="edit-mode-overlay"></div>
+		<div class="edit-mode-message" id="edit-mode-message">
+			✏️ Click on an album to edit its crew members
+		</div>
 		
 		<!-- Filter Popup Overlay -->
 		<div class="filter-popup-overlay" id="filter-popup-overlay"></div>
@@ -883,12 +1130,12 @@
 						<label class="form-label">Add New Person (Optional)</label>
 						<div class="new-person-form" id="new-person-form" style="display: none;">
 							<div class="new-person-input">
-															<input 
-								type="text" 
-								id="new-person-name" 
-								class="form-input" 
-								placeholder="Full name"
-							>
+								<input 
+									type="text" 
+									id="new-person-name" 
+									class="form-input" 
+									placeholder="Full name"
+								>
 							</div>
 							
 							<div class="image-upload-container">
@@ -944,6 +1191,80 @@
 				</form>
 			</div>
 		</div>
+		
+		<!-- Edit Album Modal -->
+		<div class="edit-album-modal-overlay" id="edit-album-modal-overlay">
+			<div class="edit-album-modal" id="edit-album-modal">
+				<div class="edit-album-modal-header">
+					<h2 class="edit-album-modal-title">Edit Album Crew</h2>
+					<button class="edit-album-modal-close" id="edit-album-modal-close">×</button>
+				</div>
+				<form class="edit-album-form" id="edit-album-form">
+					<div class="album-info" id="edit-album-info">
+						<!-- Album info will be populated here -->
+					</div>
+					
+					<div class="form-group">
+						<label class="form-label">Select Crew Members</label>
+						<div id="edit-crew-selector" class="crew-selector">
+							<!-- Crew options will be populated here -->
+						</div>
+					</div>
+					
+					<div class="form-group">
+						<label class="form-label">Add New Person (Optional)</label>
+						<div class="new-person-form" id="edit-new-person-form" style="display: none;">
+							<div class="new-person-input">
+								<input 
+									type="text" 
+									id="edit-new-person-name" 
+									class="form-input" 
+									placeholder="Full name"
+								>
+							</div>
+							<div class="image-upload-container">
+								<label class="form-label">Profile Image</label>
+								<div class="image-upload-area" id="edit-image-upload-area">
+									<input type="file" id="edit-image-upload-input" class="upload-file-input" accept="image/*">
+									<div id="edit-upload-content">
+										<div class="upload-text">
+											📷 Click or drag to upload profile image<br>
+											<small>(JPG, PNG, max 5MB)</small>
+										</div>
+									</div>
+								</div>
+							</div>
+							<div class="skills-input-container">
+								<label class="form-label">Skills</label>
+								<input 
+									type="text" 
+									id="edit-skills-input" 
+									class="skills-input" 
+									placeholder="Type to search and add skills..."
+									autocomplete="off"
+								>
+								<div class="skills-autocomplete" id="edit-skills-autocomplete"></div>
+								<div class="selected-skills" id="edit-selected-skills"></div>
+							</div>
+							<div style="display: flex; gap: 0.5rem;">
+								<button type="button" class="add-person-btn" id="edit-add-person-btn">Add Person</button>
+								<button type="button" class="add-person-btn" id="edit-cancel-person-btn" style="background: #666;">Cancel</button>
+							</div>
+						</div>
+						<button type="button" class="add-person-btn" id="edit-show-new-person-btn">+ Add New Person</button>
+						<div id="edit-new-people-list" style="margin-top: 1rem;"></div>
+					</div>
+					
+					<button type="submit" class="submit-btn" id="edit-submit-btn">
+						Update Crew
+					</button>
+					
+					<div id="edit-submission-status" style="margin-top: 1rem; text-align: center;">
+						<!-- Submission status will appear here -->
+					</div>
+				</form>
+			</div>
+		</div>
 	</main>
 	<script src="static/js/albums.js"></script>
 	<script>
@@ -964,6 +1285,9 @@
 			
 			// Initialize add album functionality
 			initAddAlbumModal();
+			
+			// Initialize edit album functionality
+			initEditAlbumModal();
 		});
 		
 		// Add Album Modal Functionality
@@ -1590,6 +1914,232 @@
 					// Remove required attribute when form is hidden
 					nameInput.removeAttribute('required');
 				}
+			}
+		}
+
+		// Edit Album Modal Functionality
+		function initEditAlbumModal() {
+			const editAlbumFab = document.getElementById('edit-album-fab');
+			const editModeOverlay = document.getElementById('edit-mode-overlay');
+			const editModeMessage = document.getElementById('edit-mode-message');
+			const editModalOverlay = document.getElementById('edit-album-modal-overlay');
+			const editModal = document.getElementById('edit-album-modal');
+			const editCloseBtn = document.getElementById('edit-album-modal-close');
+			const editForm = document.getElementById('edit-album-form');
+			const editSubmitBtn = document.getElementById('edit-submit-btn');
+			
+			let isEditMode = false;
+			let currentEditAlbum = null;
+			let crewData = [];
+			let selectedCrew = new Set();
+			
+			// Fetch crew data
+			fetch('/api/crew')
+				.then(r => r.json())
+				.then(crew => {
+					crewData = crew;
+				})
+				.catch(e => console.warn('Could not load crew:', e));
+			
+			// Toggle edit mode
+			editAlbumFab.addEventListener('click', () => {
+				isEditMode = !isEditMode;
+				toggleEditMode();
+			});
+			
+			function toggleEditMode() {
+				if (isEditMode) {
+					// Enter edit mode
+					editAlbumFab.classList.add('active');
+					editModeOverlay.classList.add('active');
+					editModeMessage.classList.add('active');
+					
+					// Make album cards clickable
+					document.querySelectorAll('.album-card').forEach(card => {
+						card.classList.add('edit-mode');
+						card.addEventListener('click', handleAlbumClick);
+					});
+				} else {
+					// Exit edit mode
+					editAlbumFab.classList.remove('active');
+					editModeOverlay.classList.remove('active');
+					editModeMessage.classList.remove('active');
+					
+					// Remove edit mode from album cards
+					document.querySelectorAll('.album-card').forEach(card => {
+						card.classList.remove('edit-mode');
+						card.removeEventListener('click', handleAlbumClick);
+					});
+				}
+			}
+			
+			function handleAlbumClick(e) {
+				if (!isEditMode) return;
+				
+				e.preventDefault();
+				e.stopPropagation();
+				
+				const albumCard = e.currentTarget;
+				const albumUrl = albumCard.dataset.albumUrl;
+				const albumMeta = albumCard.albumMeta; // This should be attached when creating cards
+				
+				if (albumUrl && albumMeta) {
+					openEditModal(albumUrl, albumMeta);
+				}
+			}
+			
+			function openEditModal(albumUrl, albumMeta) {
+				currentEditAlbum = {
+					url: albumUrl,
+					meta: albumMeta
+				};
+				
+				// Exit edit mode
+				isEditMode = false;
+				toggleEditMode();
+				
+				// Populate modal with album info
+				populateEditModal(albumMeta);
+				
+				// Show modal
+				editModalOverlay.classList.add('active');
+				setTimeout(() => editModal.classList.add('active'), 50);
+			}
+			
+			function populateEditModal(albumMeta) {
+				// Populate album info
+				const albumInfo = document.getElementById('edit-album-info');
+				const proxyImageUrl = `/get-image?url=${encodeURIComponent(albumMeta.imageUrl)}`;
+				
+				albumInfo.innerHTML = `
+					<img src="${proxyImageUrl}" alt="${albumMeta.title}" class="album-info-image" onerror="this.style.display='none'">
+					<div class="album-info-title">${albumMeta.title}</div>
+					<div class="album-info-url">${currentEditAlbum.url}</div>
+				`;
+				
+				// Get current crew for this album
+				const currentCrew = albumMeta.crew || [];
+				selectedCrew.clear();
+				currentCrew.forEach(member => selectedCrew.add(member));
+				
+				// Populate crew selector
+				populateEditCrewSelector();
+			}
+			
+			function populateEditCrewSelector() {
+				const selector = document.getElementById('edit-crew-selector');
+				selector.innerHTML = '';
+				
+				crewData.forEach(person => {
+					const isSelected = selectedCrew.has(person.name);
+					const option = document.createElement('div');
+					option.className = `crew-option ${isSelected ? 'selected' : ''}`;
+					option.innerHTML = `
+						<input type="checkbox" value="${person.name}" id="edit-crew-${person.name.replace(/\s+/g, '-')}" ${isSelected ? 'checked' : ''}>
+						<img src="${person.face}" alt="${person.name}" class="crew-face" onerror="this.style.display='none'">
+						<span class="crew-option-name">${person.name}</span>
+					`;
+					
+					option.addEventListener('click', () => {
+						const checkbox = option.querySelector('input');
+						checkbox.checked = !checkbox.checked;
+						
+						if (checkbox.checked) {
+							selectedCrew.add(person.name);
+							option.classList.add('selected');
+						} else {
+							selectedCrew.delete(person.name);
+							option.classList.remove('selected');
+						}
+					});
+					
+					selector.appendChild(option);
+				});
+			}
+			
+			// Close modal
+			const closeEditModal = () => {
+				editModal.classList.remove('active');
+				setTimeout(() => {
+					editModalOverlay.classList.remove('active');
+					resetEditForm();
+				}, 300);
+			};
+			
+			editCloseBtn.addEventListener('click', closeEditModal);
+			editModalOverlay.addEventListener('click', (e) => {
+				if (e.target === editModalOverlay) closeEditModal();
+			});
+			
+			// Form submission
+			editForm.addEventListener('submit', async (e) => {
+				e.preventDefault();
+				
+				const newCrew = Array.from(selectedCrew);
+				
+				editSubmitBtn.disabled = true;
+				editSubmitBtn.textContent = 'Updating...';
+				
+				try {
+					const response = await fetch('/api/albums/edit-crew', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+						},
+						body: JSON.stringify({
+							album_url: currentEditAlbum.url,
+							crew: newCrew
+						})
+					});
+					
+					const data = await response.json();
+					
+					if (response.ok) {
+						showEditSubmissionSuccess(data);
+					} else {
+						showEditSubmissionError(data.detail || 'Update failed');
+					}
+				} catch (error) {
+					showEditSubmissionError('Network error occurred');
+				}
+			});
+			
+			function showEditSubmissionSuccess(data) {
+				const status = document.getElementById('edit-submission-status');
+				status.innerHTML = `
+					<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+						✅ ${data.message}
+					</div>
+					<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+						<strong>Album:</strong> ${data.album_title}
+					</div>
+					<a href="${data.pr_url}" target="_blank" style="
+						color: #bb86fc;
+						text-decoration: underline;
+						font-weight: 600;
+					">
+						View Pull Request #${data.pr_number}
+					</a>
+				`;
+			}
+			
+			function showEditSubmissionError(message) {
+				const status = document.getElementById('edit-submission-status');
+				status.innerHTML = `
+					<div style="color: #cf6679; font-weight: 600;">
+						❌ ${message}
+					</div>
+				`;
+				editSubmitBtn.disabled = false;
+				editSubmitBtn.textContent = 'Update Crew';
+			}
+			
+			function resetEditForm() {
+				selectedCrew.clear();
+				currentEditAlbum = null;
+				document.getElementById('edit-submission-status').innerHTML = '';
+				editSubmitBtn.textContent = 'Update Crew';
+				editSubmitBtn.disabled = false;
 			}
 		}
 	</script>

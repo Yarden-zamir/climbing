@@ -49,6 +49,10 @@ const populateCard = async (card, meta) => {
 	card.href = meta.url;
 	card.target = "_blank";
 	card.rel = "noopener noreferrer";
+	
+	// Add data attributes for edit functionality
+	card.dataset.albumUrl = meta.url;
+	card.albumMeta = meta;
 
 	const proxyImageUrl = `/get-image?url=${encodeURIComponent(meta.imageUrl)}`;
 
@@ -430,3 +434,278 @@ function enableMobileCardHighlight() {
 
 	loadAlbums();
 });
+
+let editNewPeople = [];
+let editAllSkills = [];
+let editSelectedSkills = [];
+let editCurrentPersonImage = null;
+
+// Fetch skills for edit modal
+fetch('/api/skills')
+    .then(r => r.json())
+    .then(skills => {
+        editAllSkills = skills;
+        initEditSkillsAutocomplete();
+    });
+
+initEditNewPersonForm();
+
+function initEditNewPersonForm() {
+    const showBtn = document.getElementById('edit-show-new-person-btn');
+    const cancelBtn = document.getElementById('edit-cancel-person-btn');
+    const addBtn = document.getElementById('edit-add-person-btn');
+    const form = document.getElementById('edit-new-person-form');
+    const nameInput = document.getElementById('edit-new-person-name');
+    const skillsInput = document.getElementById('edit-skills-input');
+    const imageUploadArea = document.getElementById('edit-image-upload-area');
+    const imageUploadInput = document.getElementById('edit-image-upload-input');
+
+    showBtn.addEventListener('click', () => {
+        showBtn.style.display = 'none';
+        form.style.display = 'block';
+        nameInput.setAttribute('required', '');
+    });
+    cancelBtn.addEventListener('click', () => {
+        resetEditNewPersonForm();
+        form.style.display = 'none';
+        showBtn.style.display = 'block';
+        nameInput.removeAttribute('required');
+    });
+    // Skills autocomplete
+    initEditSkillsAutocomplete();
+    // Image upload
+    initEditImageUpload();
+    // Add person
+    addBtn.addEventListener('click', () => {
+        const name = nameInput.value.trim();
+        if (!name) {
+            alert('Please enter a name');
+            return;
+        }
+        // Check if person already exists
+        if (crewData.some(p => p.name.toLowerCase() === name.toLowerCase()) || 
+            editNewPeople.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+            alert('This person already exists');
+            return;
+        }
+        const newPerson = {
+            name: name,
+            skills: [...editSelectedSkills],
+            image: editCurrentPersonImage
+        };
+        editNewPeople.push(newPerson);
+        selectedCrew.add(name);
+        updateEditNewPeopleList();
+        // Reset and hide form
+        resetEditNewPersonForm();
+        form.style.display = 'none';
+        showBtn.style.display = 'block';
+        nameInput.removeAttribute('required');
+    });
+}
+
+function initEditSkillsAutocomplete() {
+    const skillsInput = document.getElementById('edit-skills-input');
+    const autocomplete = document.getElementById('edit-skills-autocomplete');
+    const selectedSkillsContainer = document.getElementById('edit-selected-skills');
+    skillsInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
+        if (!query) {
+            autocomplete.style.display = 'none';
+            return;
+        }
+        const filteredSkills = editAllSkills.filter(skill => 
+            skill.toLowerCase().includes(query) && 
+            !editSelectedSkills.includes(skill)
+        );
+        if (filteredSkills.length === 0) {
+            autocomplete.style.display = 'none';
+            return;
+        }
+        autocomplete.innerHTML = '';
+        filteredSkills.forEach(skill => {
+            const item = document.createElement('div');
+            item.className = 'skills-autocomplete-item';
+            item.textContent = skill;
+            item.addEventListener('click', () => addEditSkill(skill));
+            autocomplete.appendChild(item);
+        });
+        autocomplete.style.display = 'block';
+    });
+    skillsInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const query = e.target.value.trim();
+            if (query && !editSelectedSkills.includes(query)) {
+                addEditSkill(query);
+            }
+        }
+    });
+    document.addEventListener('click', (e) => {
+        if (!skillsInput.contains(e.target) && !autocomplete.contains(e.target)) {
+            autocomplete.style.display = 'none';
+        }
+    });
+    function addEditSkill(skill) {
+        if (editSelectedSkills.includes(skill)) return;
+        editSelectedSkills.push(skill);
+        skillsInput.value = '';
+        autocomplete.style.display = 'none';
+        updateEditSelectedSkills();
+    }
+    function updateEditSelectedSkills() {
+        selectedSkillsContainer.innerHTML = '';
+        editSelectedSkills.forEach((skill, index) => {
+            const tag = document.createElement('div');
+            tag.className = 'skill-tag';
+            tag.innerHTML = `
+                ${skill}
+                <button type="button" class="skill-tag-remove" onclick="window.removeEditSkill(${index})">×</button>
+            `;
+            selectedSkillsContainer.appendChild(tag);
+        });
+    }
+    window.removeEditSkill = function(index) {
+        editSelectedSkills.splice(index, 1);
+        updateEditSelectedSkills();
+    };
+}
+
+function initEditImageUpload() {
+    const uploadArea = document.getElementById('edit-image-upload-area');
+    const uploadInput = document.getElementById('edit-image-upload-input');
+    const uploadContent = document.getElementById('edit-upload-content');
+    uploadArea.addEventListener('click', () => {
+        uploadInput.click();
+    });
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('dragover');
+    });
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleEditImageUpload(files[0]);
+        }
+    });
+    uploadInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleEditImageUpload(e.target.files[0]);
+        }
+    });
+    function handleEditImageUpload(file) {
+        if (!file.type.startsWith('image/')) {
+            alert('Please select an image file');
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+            alert('Image size must be less than 5MB');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            uploadContent.innerHTML = `
+                <img src="${e.target.result}" class="image-preview" alt="Preview">
+                <div class="upload-text">
+                    ✅ Image uploaded<br>
+                    <small>Click to change</small>
+                </div>
+            `;
+            editCurrentPersonImage = file;
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+function resetEditNewPersonForm() {
+    document.getElementById('edit-new-person-name').value = '';
+    document.getElementById('edit-skills-input').value = '';
+    document.getElementById('edit-skills-autocomplete').style.display = 'none';
+    editSelectedSkills = [];
+    editCurrentPersonImage = null;
+    document.getElementById('edit-selected-skills').innerHTML = '';
+    document.getElementById('edit-upload-content').innerHTML = `
+        <div class="upload-text">
+            📷 Click or drag to upload profile image<br>
+            <small>(JPG, PNG, max 5MB)</small>
+        </div>
+    `;
+}
+
+function updateEditNewPeopleList() {
+    const list = document.getElementById('edit-new-people-list');
+    list.innerHTML = '';
+    editNewPeople.forEach((person, index) => {
+        const item = document.createElement('div');
+        item.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: #333;
+            border-radius: 12px;
+            margin-bottom: 0.5rem;
+            border: 2px solid #444;
+        `;
+        const imagePreview = person.image ? 
+            `<img src="${URL.createObjectURL(person.image)}" style="
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                object-fit: cover;
+                border: 2px solid #ffae52;
+            " alt="${person.name}">` : 
+            `<div style="
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                background: #555;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #ccc;
+                font-size: 1.2rem;
+            ">👤</div>`;
+        const skillsDisplay = person.skills && person.skills.length > 0 ? 
+            person.skills.map(skill => 
+                `<span style="
+                    background: #ffae52;
+                    color: #1a1a1a;
+                    padding: 0.2rem 0.5rem;
+                    border-radius: 12px;
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                ">${skill}</span>`
+            ).join(' ') : 
+            '<span style="color: #888; font-size: 0.9rem;">No skills</span>';
+        item.innerHTML = `
+            ${imagePreview}
+            <div style="flex: 1;">
+                <div style="color: #ffae52; font-weight: 600; margin-bottom: 0.3rem;">${person.name}</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">${skillsDisplay}</div>
+            </div>
+            <button type="button" style="
+                background: #cf6679;
+                color: white;
+                border: none;
+                padding: 0.4rem 0.8rem;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 0.9rem;
+                font-weight: 600;
+            " onclick="window.removeEditNewPerson(${index})">Remove</button>
+        `;
+        list.appendChild(item);
+    });
+}
+window.removeEditNewPerson = function(index) {
+    const person = editNewPeople[index];
+    selectedCrew.delete(person.name);
+    editNewPeople.splice(index, 1);
+    updateEditNewPeopleList();
+};
