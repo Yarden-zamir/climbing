@@ -256,6 +256,13 @@ class AlbumSubmission(BaseModel):
     crew: List[str]
     new_people: Optional[List[NewPerson]] = []
 
+
+class CrewSubmission(BaseModel):
+    name: str
+    skills: List[str] = []
+    location: List[str] = []
+    temp_image_path: Optional[str] = None
+
 def validate_google_photos_url(url: str) -> bool:
     """Validate that the URL is a Google Photos album link."""
     return bool(re.match(r"https://photos\.app\.goo\.gl/[a-zA-Z0-9]+", url))
@@ -399,6 +406,138 @@ Please review and merge when ready!
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create PR: {str(e)}")
+
+def create_crew_github_pr(crew_member: CrewSubmission):
+    """Create a GitHub branch and pull request for a new crew member."""
+    github_token = os.getenv("GITHUB_TOKEN")
+    if not github_token:
+        raise HTTPException(status_code=500, detail="GitHub token not configured")
+    
+    repo_url = os.getenv("GITHUB_REPO_URL", "https://github.com/yarden-zamir/climbing.git")
+    repo_name = repo_url.split("/")[-2:] 
+    repo_name = f"{repo_name[0]}/{repo_name[1].replace('.git', '')}"
+    
+    try:
+        # Initialize GitHub client
+        g = Github(github_token)
+        repo = g.get_repo(repo_name)
+        
+        # Create a unique branch name
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        crew_slug = crew_member.name.lower().replace(" ", "-").replace(".", "")
+        branch_name = f"add-crew-{crew_slug}-{timestamp}"
+        
+        # Get the latest commit SHA from main
+        main_branch = repo.get_branch("main")
+        
+        # Create new branch
+        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
+        
+        # Create climber directory name (keeping spaces to match existing pattern)
+        person_dir = crew_member.name
+        
+        # Create details.json content
+        details_content = json.dumps({
+            "Location": crew_member.location,
+            "skills": crew_member.skills
+        }, indent=4)
+        
+        commit_message = f"Add new crew member: {crew_member.name}"
+        
+        # Create details.json
+        repo.create_file(
+            f"climbers/{person_dir}/details.json",
+            commit_message,
+            details_content,
+            branch=branch_name
+        )
+        
+        # Handle face image if provided
+        if crew_member.temp_image_path and Path(crew_member.temp_image_path).exists():
+            try:
+                with open(crew_member.temp_image_path, "rb") as img_file:
+                    image_content = img_file.read()
+                
+                # Convert to base64 for GitHub API
+                image_b64 = base64.b64encode(image_content).decode()
+                
+                repo.create_file(
+                    f"climbers/{person_dir}/face.png",
+                    f"Add profile image for {crew_member.name}",
+                    image_b64,
+                    branch=branch_name
+                )
+                
+                # Clean up temp file
+                Path(crew_member.temp_image_path).unlink()
+                
+            except Exception as e:
+                print(f"Failed to upload image for {crew_member.name}: {e}")
+                # Continue without the image
+        
+        # Create pull request
+        pr_title = f"Add new crew member: {crew_member.name}"
+        pr_body = f"""
+## New Crew Member Added
+
+**Name:** {crew_member.name}
+**Location:** {', '.join(crew_member.location) if crew_member.location else 'Not specified'}
+**Skills:** {', '.join(crew_member.skills) if crew_member.skills else 'None specified'}
+
+This pull request automatically adds a new crew member to the climbing team.
+
+### Changes Made:
+- ✅ Created crew member profile at `climbers/{person_dir}/details.json`
+{'- ✅ Added profile image' if crew_member.temp_image_path else ''}
+
+Please review and merge when ready!
+        """
+        
+        pr = repo.create_pull(
+            title=pr_title,
+            body=pr_body,
+            head=branch_name,
+            base="main"
+        )
+        
+        return {
+            "success": True,
+            "pr_url": pr.html_url,
+            "pr_number": pr.number,
+            "branch_name": branch_name
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create crew PR: {str(e)}")
+
+@app.post("/api/crew/submit")
+async def submit_crew_member(submission: CrewSubmission):
+    """Submit a new crew member for review and automatic PR creation."""
+    
+    # Validate name is provided
+    if not submission.name or not submission.name.strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+    
+    # Check if crew member already exists
+    try:
+        crew_data = get_crew()
+        existing_names = [member.get("name", "").lower() for member in crew_data]
+        if submission.name.lower() in existing_names:
+            raise HTTPException(status_code=400, detail="Crew member already exists")
+    except:
+        # If we can't load crew data, continue anyway
+        pass
+    
+    # Create GitHub PR
+    pr_result = create_crew_github_pr(submission)
+    
+    return JSONResponse({
+        "success": True,
+        "message": "Crew member submitted successfully! A pull request has been created for review.",
+        "crew_name": submission.name,
+        "pr_url": pr_result["pr_url"],
+        "pr_number": pr_result["pr_number"]
+    })
 
 @app.post("/api/albums/submit")
 async def submit_album(submission: AlbumSubmission):

@@ -148,6 +148,382 @@
                 white-space: nowrap;
             }
         }
+
+        /* Add Crew FAB */
+        .add-crew-fab {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 6px 20px rgba(3, 218, 198, 0.4);
+            z-index: 1000;
+            overflow: hidden;
+        }
+        
+        .add-crew-fab:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 30px rgba(3, 218, 198, 0.6);
+        }
+        
+        .add-crew-fab:active {
+            transform: scale(0.95);
+        }
+        
+        .add-crew-fab::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+        
+        .add-crew-fab:hover::before {
+            left: 100%;
+        }
+        
+        .add-crew-fab-icon {
+            font-size: 1.5rem;
+            transition: transform 0.3s ease;
+            color: white;
+            z-index: 2;
+        }
+        
+        .add-crew-fab.active .add-crew-fab-icon {
+            transform: rotate(45deg);
+        }
+
+        /* Add Crew Modal */
+        .add-crew-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(5px);
+        }
+        
+        .add-crew-modal-overlay.active {
+            display: flex;
+        }
+        
+        .add-crew-modal {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            border-radius: 20px;
+            border: 1px solid #333;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: scale(0.9);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .add-crew-modal.active {
+            transform: scale(1);
+            opacity: 1;
+        }
+        
+        .add-crew-modal-header {
+            padding: 2rem;
+            border-bottom: 1px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .add-crew-modal-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+            margin: 0;
+            background: linear-gradient(90deg, #03dac6, #bb86fc);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .add-crew-modal-close {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 2rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+        
+        .add-crew-modal-close:hover {
+            background: #333;
+            color: #fff;
+        }
+        
+        .add-crew-form {
+            padding: 2rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-label {
+            display: block;
+            color: #fff;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 1rem;
+            background: #333;
+            border: 2px solid #444;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #03dac6;
+            box-shadow: 0 0 0 3px rgba(3, 218, 198, 0.2);
+        }
+        
+        .form-input.error {
+            border-color: #cf6679;
+            box-shadow: 0 0 0 3px rgba(207, 102, 121, 0.2);
+        }
+        
+        .form-error {
+            color: #cf6679;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        
+        .form-success {
+            color: #03dac6;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        
+        .submit-btn {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
+            color: #1a1a1a;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 1rem;
+        }
+        
+        .submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(3, 218, 198, 0.4);
+        }
+        
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Image Upload */
+        .image-upload-container {
+            margin-bottom: 1.5rem;
+        }
+        
+        .image-upload-area {
+            border: 2px dashed #444;
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #222;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .image-upload-area:hover {
+            border-color: #03dac6;
+            background: #333;
+        }
+        
+        .image-upload-area.drag-over {
+            border-color: #03dac6;
+            background: #2a4a47;
+        }
+        
+        .upload-text {
+            color: #ccc;
+            font-size: 1rem;
+            line-height: 1.5;
+        }
+        
+        .upload-text small {
+            color: #888;
+            font-size: 0.85rem;
+        }
+        
+        .upload-file-input {
+            display: none;
+        }
+        
+        .image-preview {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 12px;
+            object-fit: cover;
+            margin-top: 1rem;
+        }
+
+        /* Skills Input */
+        .skills-input-container {
+            position: relative;
+        }
+        
+        .skills-input {
+            width: 100%;
+            padding: 1rem;
+            background: #333;
+            border: 2px solid #444;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+        
+        .skills-input:focus {
+            outline: none;
+            border-color: #03dac6;
+            box-shadow: 0 0 0 3px rgba(3, 218, 198, 0.2);
+        }
+        
+        .skills-autocomplete {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #333;
+            border: 2px solid #444;
+            border-top: none;
+            border-radius: 0 0 12px 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .skill-suggestion {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            color: #ccc;
+            transition: all 0.2s ease;
+        }
+        
+        .skill-suggestion:hover,
+        .skill-suggestion.highlighted {
+            background: #444;
+            color: #03dac6;
+        }
+        
+        .selected-skills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+        
+        .skill-tag {
+            background: #03dac6;
+            color: #1a1a1a;
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .skill-tag-remove {
+            background: none;
+            border: none;
+            color: #1a1a1a;
+            cursor: pointer;
+            font-weight: bold;
+            padding: 0;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+        
+        .skill-tag-remove:hover {
+            background: rgba(26, 26, 26, 0.2);
+        }
+
+        /* Location Input */
+        .location-inputs {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .location-inputs .form-input {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        /* Mobile adjustments */
+        @media (max-width: 768px) {
+            .add-crew-modal {
+                width: 95%;
+                max-height: 95vh;
+            }
+            
+            .add-crew-modal-header,
+            .add-crew-form {
+                padding: 1.5rem;
+            }
+            
+            .location-inputs {
+                flex-direction: column;
+            }
+            
+            .location-inputs .form-input {
+                min-width: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -160,6 +536,90 @@
     <main class="page-fade">
         <h1>Crew Progress</h1>
         <div id="crew-table-container"></div>
+        
+        <!-- Add Crew FAB -->
+        <button class="add-crew-fab" id="add-crew-fab">
+            <span class="add-crew-fab-icon">➕</span>
+        </button>
+        
+        <!-- Add Crew Modal -->
+        <div class="add-crew-modal-overlay" id="add-crew-modal-overlay">
+            <div class="add-crew-modal" id="add-crew-modal">
+                <div class="add-crew-modal-header">
+                    <h2 class="add-crew-modal-title">Add New Crew Member</h2>
+                    <button class="add-crew-modal-close" id="add-crew-modal-close">×</button>
+                </div>
+                <form class="add-crew-form" id="add-crew-form">
+                    <div class="form-group">
+                        <label class="form-label" for="crew-name">Full Name</label>
+                        <input 
+                            type="text" 
+                            id="crew-name" 
+                            class="form-input" 
+                            placeholder="Enter full name"
+                            required
+                        >
+                        <div id="name-error" class="form-error" style="display: none;"></div>
+                    </div>
+                    
+                    <div class="image-upload-container">
+                        <label class="form-label">Profile Image</label>
+                        <div class="image-upload-area" id="image-upload-area">
+                            <input type="file" id="image-upload-input" class="upload-file-input" accept="image/*">
+                            <div id="upload-content">
+                                <div class="upload-text">
+                                    📷 Click or drag to upload profile image<br>
+                                    <small>(JPG, PNG, max 5MB)</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Location</label>
+                        <div class="location-inputs">
+                            <input 
+                                type="text" 
+                                id="location-city" 
+                                class="form-input" 
+                                placeholder="City"
+                            >
+                            <input 
+                                type="text" 
+                                id="location-country" 
+                                class="form-input" 
+                                placeholder="Country"
+                            >
+                        </div>
+                    </div>
+                    
+                    <div class="skills-input-container">
+                        <label class="form-label">Skills</label>
+                        <input 
+                            type="text" 
+                            id="skills-input" 
+                            class="skills-input" 
+                            placeholder="Type to search and add skills..."
+                            autocomplete="off"
+                        >
+                        <div class="skills-autocomplete" id="skills-autocomplete">
+                            <!-- Autocomplete suggestions will appear here -->
+                        </div>
+                        <div class="selected-skills" id="selected-skills">
+                            <!-- Selected skills will appear here -->
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="submit-btn" id="submit-crew-btn" disabled>
+                        Add Crew Member
+                    </button>
+                    
+                    <div id="submission-status" style="margin-top: 1rem; text-align: center;">
+                        <!-- Submission status will appear here -->
+                    </div>
+                </form>
+            </div>
+        </div>
     </main>
     <script>
         let crewData = [];
@@ -443,6 +903,351 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 computeSkillOrder(crewData);
                 sortAndRender();
             });
+
+        // Initialize add crew functionality
+        initAddCrewModal();
+
+        // Add Crew Modal Functionality
+        function initAddCrewModal() {
+            const addCrewFab = document.getElementById('add-crew-fab');
+            const modalOverlay = document.getElementById('add-crew-modal-overlay');
+            const modal = document.getElementById('add-crew-modal');
+            const closeBtn = document.getElementById('add-crew-modal-close');
+            const form = document.getElementById('add-crew-form');
+            const nameInput = document.getElementById('crew-name');
+            const submitBtn = document.getElementById('submit-crew-btn');
+            
+            let allSkills = [];
+            let selectedSkills = [];
+            let currentImage = null;
+            
+            // Fetch available skills
+            fetch('/api/skills')
+                .then(r => r.json())
+                .then(skills => {
+                    allSkills = skills;
+                    initSkillsAutocomplete();
+                })
+                .catch(e => console.warn('Could not load skills:', e));
+            
+            // Open modal
+            addCrewFab.addEventListener('click', () => {
+                modalOverlay.classList.add('active');
+                setTimeout(() => modal.classList.add('active'), 50);
+            });
+            
+            // Close modal
+            const closeModal = () => {
+                modal.classList.remove('active');
+                setTimeout(() => {
+                    modalOverlay.classList.remove('active');
+                    resetForm();
+                }, 300);
+            };
+            
+            closeBtn.addEventListener('click', closeModal);
+            modalOverlay.addEventListener('click', (e) => {
+                if (e.target === modalOverlay) closeModal();
+            });
+            
+            // Name validation
+            nameInput.addEventListener('input', () => {
+                const name = nameInput.value.trim();
+                const nameError = document.getElementById('name-error');
+                
+                if (!name) {
+                    nameError.style.display = 'none';
+                    nameInput.classList.remove('error');
+                } else if (crewData.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+                    nameError.textContent = 'This person already exists in the crew';
+                    nameError.style.display = 'block';
+                    nameInput.classList.add('error');
+                } else {
+                    nameError.style.display = 'none';
+                    nameInput.classList.remove('error');
+                }
+                
+                updateSubmitButton();
+            });
+            
+            // Skills autocomplete functionality
+            function initSkillsAutocomplete() {
+                const skillsInput = document.getElementById('skills-input');
+                const autocomplete = document.getElementById('skills-autocomplete');
+                const selectedSkillsDiv = document.getElementById('selected-skills');
+                let highlightedIndex = -1;
+                
+                skillsInput.addEventListener('input', (e) => {
+                    const query = e.target.value.toLowerCase().trim();
+                    
+                    if (!query) {
+                        autocomplete.style.display = 'none';
+                        return;
+                    }
+                    
+                    const matches = allSkills.filter(skill => 
+                        skill.toLowerCase().includes(query) && 
+                        !selectedSkills.includes(skill)
+                    );
+                    
+                    if (matches.length === 0) {
+                        autocomplete.style.display = 'none';
+                        return;
+                    }
+                    
+                    autocomplete.innerHTML = matches.map((skill, index) => `
+                        <div class="skill-suggestion" data-skill="${skill}" data-index="${index}">${skill}</div>
+                    `).join('');
+                    
+                    autocomplete.style.display = 'block';
+                    highlightedIndex = -1;
+                });
+                
+                skillsInput.addEventListener('keydown', (e) => {
+                    const suggestions = autocomplete.querySelectorAll('.skill-suggestion');
+                    
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        highlightedIndex = Math.min(highlightedIndex + 1, suggestions.length - 1);
+                        updateHighlight(suggestions);
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        highlightedIndex = Math.max(highlightedIndex - 1, -1);
+                        updateHighlight(suggestions);
+                    } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
+                            addSkill(suggestions[highlightedIndex].dataset.skill);
+                        }
+                    } else if (e.key === 'Escape') {
+                        autocomplete.style.display = 'none';
+                        highlightedIndex = -1;
+                    }
+                });
+                
+                autocomplete.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('skill-suggestion')) {
+                        addSkill(e.target.dataset.skill);
+                    }
+                });
+                
+                function updateHighlight(suggestions) {
+                    suggestions.forEach((suggestion, index) => {
+                        suggestion.classList.toggle('highlighted', index === highlightedIndex);
+                    });
+                }
+                
+                function addSkill(skill) {
+                    if (!selectedSkills.includes(skill)) {
+                        selectedSkills.push(skill);
+                        updateSelectedSkills();
+                        skillsInput.value = '';
+                        autocomplete.style.display = 'none';
+                        highlightedIndex = -1;
+                    }
+                }
+                
+                function updateSelectedSkills() {
+                    selectedSkillsDiv.innerHTML = selectedSkills.map((skill, index) => `
+                        <div class="skill-tag">
+                            ${skill}
+                            <button type="button" class="skill-tag-remove" onclick="removeSkill(${index})">×</button>
+                        </div>
+                    `).join('');
+                }
+                
+                // Make removeSkill available globally
+                window.removeSkill = function(index) {
+                    selectedSkills.splice(index, 1);
+                    updateSelectedSkills();
+                };
+                
+                // Hide autocomplete when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!skillsInput.contains(e.target) && !autocomplete.contains(e.target)) {
+                        autocomplete.style.display = 'none';
+                    }
+                });
+            }
+            
+            // Image upload functionality
+            function initImageUpload() {
+                const uploadArea = document.getElementById('image-upload-area');
+                const uploadInput = document.getElementById('image-upload-input');
+                const uploadContent = document.getElementById('upload-content');
+                
+                uploadArea.addEventListener('click', () => uploadInput.click());
+                
+                uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.add('drag-over');
+                });
+                
+                uploadArea.addEventListener('dragleave', () => {
+                    uploadArea.classList.remove('drag-over');
+                });
+                
+                uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.remove('drag-over');
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        handleImageFile(files[0]);
+                    }
+                });
+                
+                uploadInput.addEventListener('change', (e) => {
+                    if (e.target.files.length > 0) {
+                        handleImageFile(e.target.files[0]);
+                    }
+                });
+                
+                function handleImageFile(file) {
+                    if (!file.type.startsWith('image/')) {
+                        alert('Please select an image file');
+                        return;
+                    }
+                    
+                    if (file.size > 5 * 1024 * 1024) {
+                        alert('File size must be less than 5MB');
+                        return;
+                    }
+                    
+                    currentImage = file;
+                    
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        uploadContent.innerHTML = `
+                            <img src="${e.target.result}" alt="Preview" class="image-preview">
+                            <div class="upload-text" style="margin-top: 0.5rem;">
+                                ${file.name}<br>
+                                <small>Click to change image</small>
+                            </div>
+                        `;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+            
+            initImageUpload();
+            
+            function updateSubmitButton() {
+                const name = nameInput.value.trim();
+                const hasValidName = name && !nameInput.classList.contains('error');
+                
+                submitBtn.disabled = !hasValidName;
+            }
+            
+            // Form submission
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const name = nameInput.value.trim();
+                const city = document.getElementById('location-city').value.trim();
+                const country = document.getElementById('location-country').value.trim();
+                const location = [city, country].filter(Boolean);
+                
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Submitting...';
+                
+                try {
+                    let tempImagePath = null;
+                    
+                    // Upload image if provided
+                    if (currentImage) {
+                        try {
+                            const formData = new FormData();
+                            formData.append('file', currentImage);
+                            formData.append('person_name', name);
+                            
+                            const uploadResponse = await fetch('/api/upload-face', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            
+                            if (uploadResponse.ok) {
+                                const uploadData = await uploadResponse.json();
+                                tempImagePath = uploadData.temp_path;
+                            }
+                        } catch (uploadError) {
+                            console.warn('Failed to upload image:', uploadError);
+                        }
+                    }
+                    
+                    const response = await fetch('/api/crew/submit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            name,
+                            skills: selectedSkills,
+                            location,
+                            temp_image_path: tempImagePath
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        showSubmissionSuccess(data);
+                    } else {
+                        showSubmissionError(data.detail || 'Submission failed');
+                    }
+                } catch (error) {
+                    showSubmissionError('Network error occurred');
+                }
+            });
+            
+            function showSubmissionSuccess(data) {
+                const status = document.getElementById('submission-status');
+                status.innerHTML = `
+                    <div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+                        ✅ ${data.message}
+                    </div>
+                    <div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+                        <strong>Crew Member:</strong> ${data.crew_name}
+                    </div>
+                    <a href="${data.pr_url}" target="_blank" style="
+                        color: #03dac6;
+                        text-decoration: underline;
+                        font-weight: 600;
+                    ">
+                        View Pull Request #${data.pr_number}
+                    </a>
+                `;
+            }
+            
+            function showSubmissionError(message) {
+                const status = document.getElementById('submission-status');
+                status.innerHTML = `
+                    <div style="color: #cf6679; font-weight: 600;">
+                        ❌ ${message}
+                    </div>
+                `;
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Add Crew Member';
+            }
+            
+            function resetForm() {
+                form.reset();
+                selectedSkills = [];
+                currentImage = null;
+                document.getElementById('selected-skills').innerHTML = '';
+                document.getElementById('upload-content').innerHTML = `
+                    <div class="upload-text">
+                        📷 Click or drag to upload profile image<br>
+                        <small>(JPG, PNG, max 5MB)</small>
+                    </div>
+                `;
+                document.getElementById('name-error').style.display = 'none';
+                nameInput.classList.remove('error');
+                document.getElementById('submission-status').innerHTML = '';
+                document.getElementById('skills-autocomplete').style.display = 'none';
+                submitBtn.textContent = 'Add Crew Member';
+                updateSubmitButton();
+            }
+        }
     </script>
 </body>
 </html>

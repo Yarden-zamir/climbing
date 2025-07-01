@@ -18,4 +18,5 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /root/climbing
+            got reset --hard
             git pull
