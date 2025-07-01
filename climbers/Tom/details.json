@@ -1,4 +1,13 @@
 {
-    "Location": ["Kazir"],
-    "skills": ["climber", "belayer", "lead climber", "lead belayer", "anchor closer"]
+    "Location": [
+        "Kazir",
+        "Israel"
+    ],
+    "skills": [
+        "climber",
+        "belayer",
+        "lead climber",
+        "lead belayer",
+        "anchor closer"
+    ]
 }
