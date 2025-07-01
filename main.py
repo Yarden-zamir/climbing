@@ -155,19 +155,39 @@ async def get_image(url: str = Query(...)):
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    return HTMLResponse(content=inject_css_version("static/index.html"), status_code=200)
+    content = inject_css_version("static/index.html")
+    response = HTMLResponse(content=content, status_code=200)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 @app.get("/albums", response_class=HTMLResponse)
 async def read_albums():
-    return HTMLResponse(content=inject_css_version("static/albums.html"), status_code=200)
+    content = inject_css_version("static/albums.html")
+    response = HTMLResponse(content=content, status_code=200)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 @app.get("/memes", response_class=HTMLResponse)
 async def read_memes():
-    return HTMLResponse(content=inject_css_version("static/memes.html"), status_code=200)
+    content = inject_css_version("static/memes.html")
+    response = HTMLResponse(content=content, status_code=200)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 @app.get("/crew", response_class=HTMLResponse)
 async def read_crew():
-    return HTMLResponse(content=inject_css_version("static/crew.html"), status_code=200)
+    content = inject_css_version("static/crew.html")
+    response = HTMLResponse(content=content, status_code=200)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 @app.get("/api/memes")
 def get_memes():
     photos_dir = Path("static/photos")
@@ -610,12 +630,22 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/climbers", StaticFiles(directory="climbers"), name="climbers")
 
 
-class NoCacheCSSMiddleware(BaseHTTPMiddleware):
+class NoCacheMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
-        if request.url.path.endswith(".css"):
-            response.headers["Cache-Control"] = "no-cache, max-age=0"
+
+        # Apply no-cache headers to static assets and HTML pages
+        path = request.url.path
+
+        # Cache-bust CSS, JS, and HTML files
+        if (path.endswith((".css", ".js", ".html")) or
+            path in ["/", "/albums", "/memes", "/crew"] or
+                path.startswith("/static/")):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+
         return response
 
 
-app.add_middleware(NoCacheCSSMiddleware)
+app.add_middleware(NoCacheMiddleware)
