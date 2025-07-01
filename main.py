@@ -188,6 +188,35 @@ async def read_crew():
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@app.get("/climbers/{climber_name}/{file_path:path}")
+async def get_climber_file(climber_name: str, file_path: str):
+    """Case-insensitive climber file access"""
+    from urllib.parse import unquote
+
+    # Decode URL-encoded climber name
+    climber_name = unquote(climber_name)
+
+    # Find the correct case directory
+    climbers_dir = Path("climbers")
+    correct_dir = None
+
+    for existing_dir in climbers_dir.iterdir():
+        if existing_dir.is_dir() and existing_dir.name.lower() == climber_name.lower():
+            correct_dir = existing_dir
+            break
+
+    if not correct_dir:
+        raise HTTPException(status_code=404, detail="Climber not found")
+
+    # Construct the file path
+    file_full_path = correct_dir / file_path
+
+    if not file_full_path.exists() or not file_full_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(file_full_path)
 @app.get("/api/memes")
 def get_memes():
     photos_dir = Path("static/photos")
@@ -1055,13 +1084,13 @@ async def validate_album_url(url: str = Query(...)):
     return JSONResponse({"valid": True})
 # app.mount("/", StaticFiles(directory="static", html=True), name="static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/climbers", StaticFiles(directory="climbers"), name="climbers")
+# Climbers directory is handled by custom route for case-insensitive access
 
 
 class CaseInsensitiveMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        # Make API and climbers routes case insensitive by converting to lowercase
-        if request.url.path.startswith(("/api/", "/climbers/")):
+        # Only make API routes case insensitive, not static file routes
+        if request.url.path.startswith("/api/"):
             scope = request.scope.copy()
             scope["path"] = request.url.path.lower()
             scope["raw_path"] = request.url.path.lower().encode()
