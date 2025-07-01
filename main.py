@@ -326,30 +326,17 @@ def create_github_pr(album_url: str, crew: List[str], new_people: List[NewPerson
         # Create new branch
         repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
         
-        # Read current files
-        albums_txt = repo.get_contents("static/albums.txt", ref="main")
+        # Read current albums.json
         albums_json = repo.get_contents("static/albums.json", ref="main")
         
-        # Update albums.txt - add to top of list
-        current_albums = albums_txt.decoded_content.decode().strip()
-        new_albums_txt = f"{album_url}\n{current_albums}\n" if current_albums else f"{album_url}\n"
-        
-        # Update albums.json
+        # Update albums.json - add new album
         albums_data = json.loads(albums_json.decoded_content.decode())
         albums_data[album_url] = {"crew": crew}
         new_albums_json = json.dumps(albums_data, indent=4)
         
         commit_message = f"Add new album with crew: {', '.join(crew)}"
         
-        # Create/update files in the new branch
-        repo.update_file(
-            "static/albums.txt",
-            commit_message,
-            new_albums_txt,
-            albums_txt.sha,
-            branch=branch_name
-        )
-        
+        # Update albums.json in the new branch
         repo.update_file(
             "static/albums.json", 
             commit_message,
@@ -417,8 +404,7 @@ This pull request automatically adds a new climbing album to the collection.
 {'**New People Added:** ' + ', '.join([p.name for p in new_people]) if new_people else ''}
 
 ### Changes Made:
-- ✅ Added album URL to `static/albums.txt`
-- ✅ Added crew information to `static/albums.json`
+- ✅ Added album URL and crew information to `static/albums.json`
 {'- ✅ Created new climber profiles' if new_people else ''}
 
 Please review and merge when ready!
@@ -900,12 +886,12 @@ async def edit_album_crew(edit_data: AlbumCrewEdit):
     if not validate_google_photos_url(edit_data.album_url):
         raise HTTPException(status_code=400, detail="Invalid Google Photos URL format")
 
-    # Check if album exists
-    albums_path = Path("static/albums.txt")
+    # Check if album exists in albums.json
+    albums_path = Path("static/albums.json")
     if albums_path.exists():
         with open(albums_path) as f:
-            existing_urls = f.read().strip().split("\n")
-            if edit_data.album_url not in existing_urls:
+            albums_data = json.load(f)
+            if edit_data.album_url not in albums_data:
                 raise HTTPException(status_code=404, detail="Album not found")
     else:
         raise HTTPException(status_code=404, detail="Albums file not found")
@@ -1003,68 +989,70 @@ async def edit_crew_member(edit_data: CrewEdit):
 async def submit_album(submission: AlbumSubmission):
     """Submit a new album for review and automatic PR creation."""
     
-    # Validate Google Photos URL
+    # Validate album URL format
     if not validate_google_photos_url(submission.url):
         raise HTTPException(status_code=400, detail="Invalid Google Photos URL format")
-    
-    # Verify URL is accessible and get metadata
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await fetch_url(client, submission.url)
-            meta_data = parse_meta_tags(response.text, submission.url)
-            if not meta_data.get("title"):
-                raise HTTPException(status_code=400, detail="Unable to fetch album metadata")
-    except:
-        raise HTTPException(status_code=400, detail="Album URL is not accessible")
-    
+
     # Check if album already exists
-    albums_path = Path("static/albums.txt")
+    albums_path = Path("static/albums.json")
     if albums_path.exists():
         with open(albums_path) as f:
-            existing_urls = f.read().strip().split("\n")
-            if submission.url in existing_urls:
+            albums_data = json.load(f)
+            if submission.url in albums_data:
                 raise HTTPException(status_code=400, detail="Album already exists")
     
+    # Validate crew members exist (if not creating new people)
+    existing_crew = []
+    for crew_name in submission.crew:
+        # Check if this person is in new_people
+        if not any(p.name == crew_name for p in submission.new_people):
+            existing_crew.append(crew_name)
+
+    if existing_crew:
+        try:
+            crew_data = get_crew()
+            existing_names = [member.get("name", "") for member in crew_data]
+            for crew_name in existing_crew:
+                if crew_name not in existing_names:
+                    raise HTTPException(status_code=400, detail=f"Crew member '{crew_name}' does not exist")
+        except:
+            # If we can't load crew data, continue anyway
+            pass
+
     # Create GitHub PR
     pr_result = create_github_pr(submission.url, submission.crew, submission.new_people)
     
     return JSONResponse({
         "success": True,
         "message": "Album submitted successfully! A pull request has been created for review.",
-        "album_title": meta_data.get("title", "Unknown"),
+        "album_url": submission.url,
         "pr_url": pr_result["pr_url"],
         "pr_number": pr_result["pr_number"]
     })
 
 @app.get("/api/albums/validate-url")
 async def validate_album_url(url: str = Query(...)):
-    """Validate and fetch metadata for a Google Photos URL."""
+    """Validate if an album URL is valid and doesn't already exist."""
     
-    # Validate format
+    # Validate URL format
     if not validate_google_photos_url(url):
-        return JSONResponse({"valid": False, "error": "Invalid Google Photos URL format"})
-    
-    # Try to fetch metadata
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await fetch_url(client, url)
-            meta_data = parse_meta_tags(response.text, url)
-            
-            # Check if album already exists
-            albums_path = Path("static/albums.txt")
-            exists = False
-            if albums_path.exists():
-                with open(albums_path) as f:
-                    existing_urls = f.read().strip().split("\n")
-                    exists = url in existing_urls
-            
-            return JSONResponse({
-                "valid": True,
-                "exists": exists,
-                "metadata": meta_data
-            })
-    except:
-        return JSONResponse({"valid": False, "error": "Unable to access album or fetch metadata"})
+        return JSONResponse({
+            "valid": False,
+            "error": "Invalid Google Photos URL format"
+        })
+
+    # Check if album already exists
+    albums_path = Path("static/albums.json")
+    if albums_path.exists():
+        with open(albums_path) as f:
+            albums_data = json.load(f)
+            if url in albums_data:
+                return JSONResponse({
+                    "valid": False,
+                    "error": "Album already exists"
+                })
+
+    return JSONResponse({"valid": True})
 # app.mount("/", StaticFiles(directory="static", html=True), name="static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/climbers", StaticFiles(directory="climbers"), name="climbers")

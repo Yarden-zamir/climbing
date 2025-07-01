@@ -367,70 +367,96 @@ function enableMobileCardHighlight() {
 		handleFilterChange();
 	};
 
-	const loadAlbums = async () => {
+	function showSkeletonCards() {
+		// Skeleton cards are created in processAlbums
+	}
+
+	function hideSkeletonCards() {
+		// Remove any existing skeleton cards
+		document.querySelectorAll('.album-card.loading').forEach(card => {
+			card.remove();
+		});
+	}
+
+	function showError(message) {
+		container.innerHTML = `<p style="color: #cf6679; text-align: center; padding: 2rem;">${message}</p>`;
+	}
+
+	async function processAlbums(urls) {
+		const placeholders = urls.map((_, index) => {
+			const card = createPlaceholderCard(index);
+			container.appendChild(card);
+			return card;
+		});
+
+		// Fetch crew participation data from albums.json
+		let crewData = {};
 		try {
-			const response = await fetch("static/albums.txt");
-			if (!response.ok) throw new Error("Could not load albums.txt");
+			const crewRes = await fetch("static/albums.json");
+			if (crewRes.ok) crewData = await crewRes.json();
+		} catch (e) { crewData = {}; }
 
-			const text = await response.text();
-			const urls = text.split("\n").filter((line) => line.trim() !== "");
+		// Extract all unique people from crew data
+		Object.values(crewData).forEach(albumData => {
+			if (albumData.crew && Array.isArray(albumData.crew)) {
+				albumData.crew.forEach(person => allPeople.add(person));
+			}
+		});
 
-			const placeholders = urls.map((_, index) => {
-				const card = createPlaceholderCard(index);
-				container.appendChild(card);
-				return card;
-			});
+		// Initialize filter functionality
+		initFilterPopup();
+		populatePersonFilters();
+		
+		// Load filters from URL parameters
+		loadFiltersFromUrl();
 
-			// Fetch crew participation data
-			let crewData = {};
-			try {
-				const crewRes = await fetch("static/albums.json");
-				if (crewRes.ok) crewData = await crewRes.json();
-			} catch (e) { crewData = {}; }
+		const metaPromises = urls.map((url) => fetchAlbumMeta(url));
+		const allMetas = await Promise.all(metaPromises);
 
-			// Extract all unique people from crew data
-			Object.values(crewData).forEach(albumData => {
-				if (albumData.crew && Array.isArray(albumData.crew)) {
-					albumData.crew.forEach(person => allPeople.add(person));
+		allMetas.forEach((meta, index) => {
+			const placeholder = placeholders[index];
+			if (meta && !meta.error && meta.imageUrl) {
+				// Attach crew info if available
+				if (crewData[meta.url] && crewData[meta.url].crew) {
+					meta.crew = crewData[meta.url].crew;
 				}
-			});
+				
+				// Store album for filtering
+				allAlbums.push({ card: placeholder, meta });
+				
+				populateCard(placeholder, meta);
+			} else {
+				placeholder.remove();
+			}
+		});
+		
+		// Apply initial filters if any were loaded from URL
+		syncFiltersWithUI();
+		
+		enableMobileCardHighlight();
+	}
 
-			// Initialize filter functionality
-			initFilterPopup();
-			populatePersonFilters();
+	async function loadAlbums() {
+		try {
+			showSkeletonCards();
 			
-			// Load filters from URL parameters
-			loadFiltersFromUrl();
-
-			const metaPromises = urls.map((url) => fetchAlbumMeta(url));
-			const allMetas = await Promise.all(metaPromises);
-
-			allMetas.forEach((meta, index) => {
-				const placeholder = placeholders[index];
-				if (meta && !meta.error && meta.imageUrl) {
-					// Attach crew info if available
-					if (crewData[meta.url] && crewData[meta.url].crew) {
-						meta.crew = crewData[meta.url].crew;
-					}
-					
-					// Store album for filtering
-					allAlbums.push({ card: placeholder, meta });
-					
-					populateCard(placeholder, meta);
-				} else {
-					placeholder.remove();
-				}
-			});
+			// Load albums from albums.json instead of albums.txt
+			const response = await fetch("static/albums.json");
+			if (!response.ok) throw new Error("Could not load albums.json");
 			
-			// Apply initial filters if any were loaded from URL
-			syncFiltersWithUI();
+			const albumsData = await response.json();
+			const urls = Object.keys(albumsData); // Extract URLs from object keys
 			
-			enableMobileCardHighlight();
+			console.log(`Loaded ${urls.length} album URLs from albums.json`);
+			
+			await processAlbums(urls);
+			
 		} catch (error) {
-			container.innerHTML = `<p style="color: #cf6679;">${error.message}</p>`;
 			console.error("Error loading albums:", error);
+			hideSkeletonCards();
+			showError("Failed to load albums. Please try refreshing the page.");
 		}
-	};
+	}
 
 	loadAlbums();
 });

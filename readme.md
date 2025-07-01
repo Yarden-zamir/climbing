@@ -57,12 +57,15 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 ├── pyproject.toml         # Python dependencies
 ├── static/
 │   ├── index.html         # Main page with Excalidraw flowchart
-│   ├── albums.html        # Albums page
-│   ├── albums.txt         # List of Google Photos album links (one per line)
+│   ├── albums.html        # Albums page with filtering and crew faces
+│   ├── albums.json        # Album metadata with crew information and URLs
+│   ├── crew.html          # Crew directory page
 │   ├── css/
 │   │   └── styles.css
-│   └── js/
-│       └── albums.js
+│   ├── js/
+│   │   └── albums.js
+│   ├── memes.html         # Memes page
+│   └── photos/            # Static photos
 ```
 
 ---
@@ -79,7 +82,7 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 - **Main Page:**  
   - Displays an embedded Excalidraw flowchart explaining climbing.
 - **Albums Page:**  
-  - Loads album links from `albums.txt`
+  - Loads album links from `albums.json`
   - Shows animated skeletons for images/text
   - Fetches album metadata and preview image via backend API
   - Fades in images with blur, types in text, and shows album date
@@ -95,7 +98,7 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 ## Customization
 
 - **Add albums:**  
-  - Edit `static/albums.txt` (one Google Photos album link per line)
+  - Edit `static/albums.json` (add new album metadata)
 - **Change styles:**  
   - Edit `static/css/styles.css`
 - **Change text effects:**  
@@ -194,16 +197,14 @@ When you submit an album:
 2. Album metadata (title, description, cover image) is fetched and displayed
 3. A new Git branch is created with timestamp (e.g., `add-album-20241215-143022`)
 4. The following files are updated:
-   - `static/albums.txt` - Album URL is added
-   - `static/albums.json` - Crew information is added
+   - `static/albums.json` - Album metadata is added
    - `climbers/*/details.json` - New climber profiles are created (if any)
 5. A pull request is automatically created for review
 6. You receive a link to the PR for review and merging
 
 ### File Structure
 
-- `static/albums.txt` - List of album URLs
-- `static/albums.json` - Album metadata including crew information
+- `static/albums.json` - List of album metadata
 - `climbers/` - Individual climber profiles and photos
 - `static/photos/` - Meme photos
 - `main.py` - FastAPI backend application
