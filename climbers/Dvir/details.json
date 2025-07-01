@@ -1,4 +1,9 @@
 {
-    "Location": ["kazir"],
-    "skills": ["climber"]
+    "Location": [
+        "kazir"
+    ],
+    "skills": [
+        "climber",
+        "lead climber"
+    ]
 }
