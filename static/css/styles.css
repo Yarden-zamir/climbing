@@ -675,58 +675,72 @@ nav a {
     position: relative;
 }
 
-.progress-shelf-content {
-	order: 9;
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    z-index: 5;
-    /* background: rgba(0,0,0,0.4); */
-    backdrop-filter: blur(0px);
-    border: none;
-    overflow: hidden;
-    max-height: 0;
-    opacity: 0;
-    mask: linear-gradient(to bottom, black 0%, black 85%, transparent 100%);
-    -webkit-mask: linear-gradient(to bottom, black 0%, black 85%, transparent 100%);
-    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
-                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                backdrop-filter 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+/* Desktop Progress Shelf Styles (min-width: 701px) */
+@media (min-width: 701px) {
+    .progress-shelf-content {
+        order: 9;
+        position: absolute;
+        top: 100%;
+        left: 12px;
+        right: 12px;
+        z-index: 5;
+        background: #232323;
+        border: none;
+        overflow: hidden;
+        max-height: 0;
+        opacity: 0;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+                    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transform: translateY(-5px);
+    }
+
+    .progress-shelf-content.expanded {
+        max-height: 220px;
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    .progress-shelf-content.closing {
+        max-height: 0;
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+
+    .progress-shelf-inner {
+        padding: 1.2em 1.5em 1.5em 1.5em;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        border-radius: 12px;
+    }
 }
 
-.progress-shelf-content.expanded {
-    max-height: 200px;
-    opacity: 1;
-    backdrop-filter: blur(8px);
-}
-
-.progress-shelf-content.closing {
-    max-height: 0;
-    opacity: 0;
-    backdrop-filter: blur(0px);
-}
-
-.progress-shelf-inner {
-    padding: 1em 1.5em 2.0em 1.5em;
-    /* background: rgba(0,0,0,0.15); */
-    border-top: 1px solid rgba(255,255,255,0.05);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    border-radius: 0 0 8px 8px;
-}
-
+/* Mobile Progress Shelf Styles (max-width: 700px) - UNCHANGED */
 @media (max-width: 700px) {
     .progress-shelf-content {
         position: relative;
         width: 100%;
         margin-top: 0.5em;
+        order: 9;
+        overflow: hidden;
+        max-height: 0;
+        opacity: 0;
+        transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+                    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .progress-shelf-inner {
         padding: 0.8em 0.5em 1.2em 0.5em;
-        /* background: rgba(0,0,0,0.2); */
     }
     .progress-shelf-content.expanded {
         max-height: 250px;
+        opacity: 1;
+    }
+    .progress-shelf-content.closing {
+        max-height: 0;
+        opacity: 0;
     }
 }
 
