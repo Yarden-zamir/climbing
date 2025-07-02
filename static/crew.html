@@ -339,23 +339,44 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         const row = badge.closest('tr');
         const climberName = row.getAttribute('data-climber-name');
         
-        // Toggle highlight for this row
+        // Check if this row already has expanded content and is currently highlighted
+        const existingShelf = row.querySelector('.progress-shelf-content');
         const isCurrentlyHighlighted = row.classList.contains('highlighted-crew');
-        document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('highlighted-crew'));
+        const hasExpandedShelf = existingShelf && existingShelf.classList.contains('expanded');
         
-        if (!isCurrentlyHighlighted) {
-            row.classList.add('highlighted-crew');
+        // If clicking the same crew member's badge again and they have an open shelf, close it
+        if (isCurrentlyHighlighted && hasExpandedShelf) {
+            // Close the shelf and deselect
+            document.querySelectorAll('.progress-shelf-content').forEach(shelf => {
+                shelf.classList.remove('expanded');
+                shelf.classList.add('closing');
+                setTimeout(() => shelf.remove(), 300);
+            });
+            document.querySelectorAll('.crew-table tbody tr').forEach(r => {
+                r.classList.remove('expanded-row');
+                r.classList.remove('highlighted-crew');
+            });
             
-            // Update URL
-            if (climberName) {
-                const url = new URL(window.location);
-                url.searchParams.set('highlight', decodeURIComponent(climberName));
-                history.pushState({}, '', url.toString());
-            }
-        } else {
-            // Remove highlight - clear URL parameter
+            // Clear URL parameter
             const url = new URL(window.location);
             url.searchParams.delete('highlight');
+            history.pushState({}, '', url.toString());
+            
+            // Update edit FAB visibility
+            if (window.updateEditFabVisibility) {
+                window.updateEditFabVisibility();
+            }
+            return;
+        }
+        
+        // Otherwise, select this crew member and show their shelf
+        document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('highlighted-crew'));
+        row.classList.add('highlighted-crew');
+        
+        // Update URL
+        if (climberName) {
+            const url = new URL(window.location);
+            url.searchParams.set('highlight', decodeURIComponent(climberName));
             history.pushState({}, '', url.toString());
         }
         
@@ -364,77 +385,60 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             window.updateEditFabVisibility();
         }
         
-        // Only show progress if we're selecting (not deselecting)
-        if (!isCurrentlyHighlighted) {
-            // Check if this row already has expanded content
-            const existingShelf = row.querySelector('.progress-shelf-content');
-            
-            // Close all existing shelves
-            document.querySelectorAll('.progress-shelf-content').forEach(shelf => {
-                shelf.classList.remove('expanded');
-                shelf.classList.add('closing');
-                setTimeout(() => shelf.remove(), 300);
-            });
-            document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('expanded-row'));
-            
-            // If this row already had a shelf, don't open a new one
-            if (existingShelf) return;
-            
-            // Calculate progress data
-            const total = c.level;
-            const crewW = (1 / total) * 100;
-            const skillsW = (c.level_from_skills / total) * 100;
-            const climbsW = (c.level_from_climbs / total) * 100;
-            const climbsInCurrent = c.climbs % 5;
-            const nextPct = (climbsInCurrent / 5) * 100;
-            
-            // Create the progress content
-            const progressContent = document.createElement('div');
-            progressContent.className = 'progress-shelf-content';
-            progressContent.innerHTML = `
-                <div class="progress-shelf-inner">
-                    <div class="progress-next-label">Progress to Next Level</div>
-                    <div class="progress-next-bar">
-                        <div class="progress-next-bar-inner" style="width:0%"></div>
-                        <div class="progress-next-bar-text">${Math.round(nextPct)}%</div>
-                    </div>
-                    <div class="progress-bar-label">Level Breakdown</div>
-                    <div class="progress-bar">
-                        <div class="progress-bar-inner crew" style="width:0%"></div>
-                        <div class="progress-bar-inner skills" style="width:0%"></div>
-                        <div class="progress-bar-inner climbs" style="width:0%"></div>
-                        <div class="progress-bar-text">Lv. ${c.level}</div>
-                    </div>
-                    <div class="progress-breakdown">
-                        <span class="crew">1 level from being crew</span>
-                        <span class="skills">${c.level_from_skills} levels from ${c.skills.length} skills</span>
-                        <span class="climbs">${c.climbs / 5} levels from <a href="/albums?people=${encodeURIComponent(c.name)}" class="climbs-link">${c.climbs} climbs</a></span>
-                    </div>
+        // Close all existing shelves first
+        document.querySelectorAll('.progress-shelf-content').forEach(shelf => {
+            shelf.classList.remove('expanded');
+            shelf.classList.add('closing');
+            setTimeout(() => shelf.remove(), 300);
+        });
+        document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('expanded-row'));
+        
+        // Calculate progress data
+        const total = c.level;
+        const crewW = (1 / total) * 100;
+        const skillsW = (c.level_from_skills / total) * 100;
+        const climbsW = (c.level_from_climbs / total) * 100;
+        const climbsInCurrent = c.climbs % 5;
+        const nextPct = (climbsInCurrent / 5) * 100;
+        
+        // Create the progress content
+        const progressContent = document.createElement('div');
+        progressContent.className = 'progress-shelf-content';
+        progressContent.innerHTML = `
+            <div class="progress-shelf-inner">
+                <div class="progress-next-label">Progress to Next Level</div>
+                <div class="progress-next-bar">
+                    <div class="progress-next-bar-inner" style="width:0%"></div>
+                    <div class="progress-next-bar-text">${Math.round(nextPct)}%</div>
                 </div>
-            `;
-            
-            // Append to the row and mark as expanded
-            row.appendChild(progressContent);
-            row.classList.add('expanded-row');
-            
-            // Animate the content appearing and progress bars
-            setTimeout(() => {
-                progressContent.classList.add('expanded');
-                // Animate progress bars
-                progressContent.querySelector('.progress-next-bar-inner').style.width = `${nextPct}%`;
-                progressContent.querySelector('.progress-bar-inner.crew').style.width = `${crewW}%`;
-                progressContent.querySelector('.progress-bar-inner.skills').style.width = `${skillsW}%`;
-                progressContent.querySelector('.progress-bar-inner.climbs').style.width = `${climbsW}%`;
-            }, 50);
-        } else {
-            // Close all existing shelves when deselecting
-            document.querySelectorAll('.progress-shelf-content').forEach(shelf => {
-                shelf.classList.remove('expanded');
-                shelf.classList.add('closing');
-                setTimeout(() => shelf.remove(), 300);
-            });
-            document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('expanded-row'));
-        }
+                <div class="progress-bar-label">Level Breakdown</div>
+                <div class="progress-bar">
+                    <div class="progress-bar-inner crew" style="width:0%"></div>
+                    <div class="progress-bar-inner skills" style="width:0%"></div>
+                    <div class="progress-bar-inner climbs" style="width:0%"></div>
+                    <div class="progress-bar-text">Lv. ${c.level}</div>
+                </div>
+                <div class="progress-breakdown">
+                    <span class="crew">1 level from being crew</span>
+                    <span class="skills">${c.level_from_skills} levels from ${c.skills.length} skills</span>
+                    <span class="climbs">${c.climbs / 5} levels from <a href="/albums?people=${encodeURIComponent(c.name)}" class="climbs-link">${c.climbs} climbs</a></span>
+                </div>
+            </div>
+        `;
+        
+        // Append to the row and mark as expanded
+        row.appendChild(progressContent);
+        row.classList.add('expanded-row');
+        
+        // Animate the content appearing and progress bars
+        setTimeout(() => {
+            progressContent.classList.add('expanded');
+            // Animate progress bars
+            progressContent.querySelector('.progress-next-bar-inner').style.width = `${nextPct}%`;
+            progressContent.querySelector('.progress-bar-inner.crew').style.width = `${crewW}%`;
+            progressContent.querySelector('.progress-bar-inner.skills').style.width = `${skillsW}%`;
+            progressContent.querySelector('.progress-bar-inner.climbs').style.width = `${climbsW}%`;
+        }, 50);
     });
 });
             // Add click handler to each row for highlight
@@ -446,6 +450,15 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     if (climberName) {
                         // Toggle highlight for this row
                         const isCurrentlyHighlighted = row.classList.contains('highlighted-crew');
+                        
+                        // Always close any open progress shelves first
+                        document.querySelectorAll('.progress-shelf-content').forEach(shelf => {
+                            shelf.classList.remove('expanded');
+                            shelf.classList.add('closing');
+                            setTimeout(() => shelf.remove(), 300);
+                        });
+                        document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('expanded-row'));
+                        
                         document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('highlighted-crew'));
                         
                         if (!isCurrentlyHighlighted) {
