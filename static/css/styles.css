@@ -555,22 +555,48 @@ nav a {
 	}
 }
 .level-badge {
+    background: linear-gradient(90deg, #03dac6, #018786);
+    color: #fff;
+    border-radius: 8px;
+    padding: 0.3em 1em;
+    font-weight: bold;
+    font-size: 1.1em;
     display: inline-block;
     min-width: 60px;
     text-align: center;
-    font-size: 1em;
-    padding: 0.2em 0.7em;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     vertical-align: middle;
+    text-decoration: none;
+    transition: all 0.3s ease;
     cursor: pointer;
-    transition: box-shadow 0.2s, background 0.2s;
+    position: relative;
 }
-.level-badge:hover, .level-badge:focus {
-    box-shadow: 0 0 0 3px #03dac655, 0 2px 8px #03dac622;
-    background: linear-gradient(90deg, #03dac6 40%, #bb86fc 100%);
-    color: #121212;
+
+.level-badge::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+}
+
+.level-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(3, 218, 198, 0.3);
+    background: linear-gradient(90deg, #00acc1, #26c6da);
+}
+
+.level-badge:hover::before {
+    left: 100%;
+}
+
+.level-badge:active {
+    transform: translateY(0);
 }
 @media (max-width: 700px) {
     .crew-table thead {
@@ -1432,7 +1458,15 @@ nav a {
         min-width: 60px;
         text-align: center;
         font-size: 1em;
-        padding: 0.2em 0.7em;
+        padding: 0.3em 0.8em;
+        white-space: nowrap;
+    }
+    .climbs-badge {
+        display: inline-block;
+        min-width: 60px;
+        text-align: center;
+        font-size: 1em;
+        padding: 0.3em 0.8em;
         white-space: nowrap;
     }
 }
