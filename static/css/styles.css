@@ -621,9 +621,9 @@ nav a {
         background: none;
         box-shadow: none;
         margin: 0 0.3em 0.3em 0;
-        padding: 0.2em 0.3em;
+        padding: 0.3em 0.4em;
         min-width: 0;
-        font-size: 1em;
+        font-size: 1.15em;
     }
     .crew-table td[data-label="Face"] {
         flex: 0 0 auto;
@@ -633,7 +633,7 @@ nav a {
     .crew-table td[data-label="Name"] {
         flex: 1 1;
         font-weight: 600;
-        font-size: 1.08em;
+        font-size: 1.25em;
         min-width: 80px;
         margin-right: 0.5em;
         align-items: center;
@@ -641,7 +641,7 @@ nav a {
     .crew-table td[data-label="Level"] {
         flex: 0 0 auto;
         margin-left: 0;
-        font-size: 1em;
+        font-size: 1.15em;
         align-items: center;
         order: 2;
     }
@@ -649,7 +649,7 @@ nav a {
         flex: 1 1 100%;
         margin-top: 0.5em;
         flex-wrap: wrap;
-        font-size: 0.97em;
+        font-size: 1.1em;
         order: 3;
     }
     .crew-table td[data-label="Location"] {
@@ -976,8 +976,9 @@ nav a {
 }
 
 .crew-table th, .crew-table td {
-    padding: 1rem;
+    padding: 1.2rem;
     text-align: left;
+    font-size: 1.1em;
 }
 
 .crew-table th {
@@ -985,14 +986,59 @@ nav a {
     color: #03dac6;
     cursor: pointer;
     user-select: none;
+    font-size: 1.15em;
+    font-weight: 700;
 }
 
 .crew-face {
-    width: 64px;
-    height: 64px;
+    width: 80px;
+    height: 80px;
     border-radius: 50%;
     object-fit: cover;
     border: 2px solid #bb86fc;
+    cursor: pointer;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+                height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                border 0.3s ease,
+                box-shadow 0.3s ease;
+    display: block;
+}
+
+.crew-face:hover:not(.enlarged) {
+    transform: scale(1.05);
+    box-shadow: 0 4px 15px rgba(187, 134, 252, 0.4);
+}
+
+.crew-face.enlarged {
+    width: 200px;
+    height: 200px;
+    border: 4px solid #bb86fc;
+    box-shadow: 0 10px 30px rgba(187, 134, 252, 0.8), 
+                0 0 20px rgba(3, 218, 198, 0.4);
+    animation: glow-pulse 2s infinite alternate ease-in-out;
+}
+
+/* Container for the face image that expands when enlarged */
+.crew-face-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.crew-face-container.enlarged {
+    padding: 1rem;
+}
+
+@keyframes glow-pulse {
+    from {
+        box-shadow: 0 10px 30px rgba(187, 134, 252, 0.8), 
+                    0 0 20px rgba(3, 218, 198, 0.4);
+    }
+    to {
+        box-shadow: 0 15px 40px rgba(187, 134, 252, 1), 
+                    0 0 30px rgba(3, 218, 198, 0.6);
+    }
 }
 
 .skill-badge {
@@ -1000,9 +1046,9 @@ nav a {
     background: #333;
     color: #bb86fc;
     border-radius: 6px;
-    padding: 0.2em 0.7em;
+    padding: 0.3em 0.8em;
     margin: 0 0.2em 0.2em 0;
-    font-size: 0.95em;
+    font-size: 1.05em;
     font-weight: 600;
 }
 
@@ -1011,16 +1057,16 @@ nav a {
     background: #2a2a2a;
     color: #888;
     border-radius: 6px;
-    padding: 0.2em 0.7em;
+    padding: 0.3em 0.8em;
     margin: 0 0.2em 0.2em 0;
-    font-size: 0.95em;
+    font-size: 1.05em;
     font-weight: 600;
     opacity: 0.8;
 }
 
 .address {
     color: #cf6679;
-    font-size: 0.95em;
+    font-size: 1.05em;
 }
 
 .climbs-link {

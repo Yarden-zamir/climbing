@@ -270,7 +270,11 @@
 <tbody>
     ${data.map((c, idx) => `
         <tr data-climber-name="${encodeURIComponent(c.name)}">
-            <td data-label="Face"><img src="${c.face}" class="crew-face" alt="${c.name}"></td>
+            <td data-label="Face">
+                <div class="crew-face-container">
+                    <img src="${c.face}" class="crew-face" alt="${c.name}">
+                </div>
+            </td>
             <td data-label="Name">${c.name}</td>
             <td data-label="Location"><span class="address">${c.location.join(", ")}</span></td>
             <td data-label="Skills">
@@ -454,11 +458,21 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         }, 50);
     });
 });
+            // Add click handler to crew faces for enlargement
+            document.querySelectorAll('.crew-face').forEach(crewFace => {
+                crewFace.addEventListener('click', function (e) {
+                    e.stopPropagation(); // Prevent row click
+                    toggleFaceEnlargement(crewFace);
+                });
+            });
+
             // Add click handler to each row for highlight
             document.querySelectorAll('.crew-table tbody tr').forEach(row => {
                 row.addEventListener('click', function (e) {
-                    // Avoid interfering with level badge and climbs badge clicks
-                    if (e.target.classList.contains('level-badge') || e.target.classList.contains('climbs-badge')) return;
+                    // Avoid interfering with level badge, climbs badge, and crew face clicks
+                    if (e.target.classList.contains('level-badge') || 
+                        e.target.classList.contains('climbs-badge') || 
+                        e.target.classList.contains('crew-face')) return;
                     const climberName = row.getAttribute('data-climber-name');
                     if (climberName) {
                         // Toggle highlight for this row
@@ -1301,6 +1315,63 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 updateEditSubmitButton();
             }
         })();
+
+        // Crew Face In-Place Enlargement Functions
+        function toggleFaceEnlargement(crewFace) {
+            const container = crewFace.closest('.crew-face-container');
+            
+            // Close any other enlarged faces first
+            document.querySelectorAll('.crew-face.enlarged').forEach(face => {
+                if (face !== crewFace) {
+                    face.classList.remove('enlarged');
+                    const otherContainer = face.closest('.crew-face-container');
+                    if (otherContainer) {
+                        otherContainer.classList.remove('enlarged');
+                    }
+                }
+            });
+            
+            // Toggle the clicked face and its container
+            if (crewFace.classList.contains('enlarged')) {
+                crewFace.classList.remove('enlarged');
+                if (container) {
+                    container.classList.remove('enlarged');
+                }
+            } else {
+                crewFace.classList.add('enlarged');
+                if (container) {
+                    container.classList.add('enlarged');
+                }
+            }
+        }
+
+        function closeAllEnlargedFaces() {
+            document.querySelectorAll('.crew-face.enlarged').forEach(face => {
+                face.classList.remove('enlarged');
+                const container = face.closest('.crew-face-container');
+                if (container) {
+                    container.classList.remove('enlarged');
+                }
+            });
+        }
+
+        // Initialize crew face enlargement event handlers
+        document.addEventListener('DOMContentLoaded', function() {
+            // Close enlarged faces when clicking elsewhere
+            document.addEventListener('click', function(e) {
+                // Don't close if clicking on a crew face or its container
+                if (!e.target.closest('.crew-face')) {
+                    closeAllEnlargedFaces();
+                }
+            });
+            
+            // Close enlarged faces on Escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closeAllEnlargedFaces();
+                }
+            });
+        });
     </script>
 </body>
 </html>
