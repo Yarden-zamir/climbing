@@ -670,6 +670,7 @@ nav a {
         flex: 1 1 100%;
         margin-right: 0;
         justify-content: center;
+        padding-right: 2vw; /* extra right margin */
     }
 
     .crew-table td[data-label="Face"] .crew-face.enlarged {
