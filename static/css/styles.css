@@ -629,7 +629,14 @@ nav a {
         flex: 0 0 auto;
         margin-right: 0.7em;
         padding-right: 0;
+        transition: flex 0.2s ease, margin 0.2s ease, justify-content 0.2s ease;
     }
+    
+    /* Mobile face enlargement: pivot ~40% so growth feels centred without layout change */
+    .crew-table td[data-label="Face"] .crew-face {
+        transform-origin: 40% center;
+    }
+    
     .crew-table td[data-label="Name"] {
         flex: 1 1;
         font-weight: 600;
@@ -658,6 +665,19 @@ nav a {
     /* Optional: ensure order for name and face */
     .crew-table td[data-label="Face"] { order: 0; }
     .crew-table td[data-label="Name"] { order: 1; }
+    /* When face is enlarged, let it grow to (almost) full viewport width and center it */
+    .crew-table td[data-label="Face"]:has(.crew-face-container.enlarged) {
+        flex: 1 1 100%;
+        margin-right: 0;
+        justify-content: center;
+    }
+
+    .crew-table td[data-label="Face"] .crew-face.enlarged {
+        width: 92vw;   /* leave small side gutters */
+        height: 92vw;  /* keep square aspect */
+        max-width: 500px; /* don't get ridiculously big on tablets */
+        max-height: 500px;
+    }
 }
 .highlighted-crew {
 	outline: 2px solid #03dac6;
@@ -1023,7 +1043,7 @@ nav a {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: justify-content 0.2s ease, width 0.2s ease, padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .crew-face-container.enlarged {

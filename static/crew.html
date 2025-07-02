@@ -1319,7 +1319,6 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         // Crew Face In-Place Enlargement Functions
         function toggleFaceEnlargement(crewFace) {
             const container = crewFace.closest('.crew-face-container');
-            
             // Close any other enlarged faces first
             document.querySelectorAll('.crew-face.enlarged').forEach(face => {
                 if (face !== crewFace) {
@@ -1330,7 +1329,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     }
                 }
             });
-            
+
             // Toggle the clicked face and its container
             if (crewFace.classList.contains('enlarged')) {
                 crewFace.classList.remove('enlarged');
