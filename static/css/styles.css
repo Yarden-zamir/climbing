@@ -1006,6 +1006,18 @@ nav a {
     font-weight: 600;
 }
 
+.tag-badge {
+    display: inline-block;
+    background: #2a2a2a;
+    color: #888;
+    border-radius: 6px;
+    padding: 0.2em 0.7em;
+    margin: 0 0.2em 0.2em 0;
+    font-size: 0.95em;
+    font-weight: 600;
+    opacity: 0.8;
+}
+
 .address {
     color: #cf6679;
     font-size: 0.95em;

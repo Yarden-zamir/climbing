@@ -189,13 +189,21 @@
     <script>
         let crewData = [];
         let skillOrder = [];
+        let tagOrder = [];
         let sortKey = "level";
         let sortDir = -1;
 
         function computeSkillOrder(data) {
             const allSkills = new Set();
-            data.forEach(c => (c.skills || []).forEach(s => allSkills.add(s)));
+            const allTags = new Set();
+            data.forEach(c => {
+                (c.skills || []).forEach(s => allSkills.add(s));
+                (c.tags || []).forEach(t => allTags.add(t));
+            });
             skillOrder = Array.from(allSkills).sort((a, b) =>
+                a.toLowerCase().localeCompare(b.toLowerCase())
+            );
+            tagOrder = Array.from(allTags).sort((a, b) =>
                 a.toLowerCase().localeCompare(b.toLowerCase())
             );
         }
@@ -269,6 +277,11 @@
                 ${skillOrder.map(skill =>
                     c.skills.includes(skill)
                         ? `<span class="skill-badge">${skill}</span>`
+                        : ""
+                ).join("")}
+                ${tagOrder.map(tag =>
+                    c.tags && c.tags.includes(tag)
+                        ? `<span class="tag-badge">${tag}</span>`
                         : ""
                 ).join("")}
             </td>
@@ -490,7 +503,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             let sorted = [...crewData];
             sorted.sort((a, b) => {
                 let vA = a[sortKey], vB = b[sortKey];
-                if (sortKey === "skills") vA = a.skills.length, vB = b.skills.length;
+                if (sortKey === "skills") vA = (a.skills.length + (a.tags ? a.tags.length : 0)), vB = (b.skills.length + (b.tags ? b.tags.length : 0));
                 if (sortKey === "location") vA = a.location[0] || "", vB = b.location[0] || "";
                 if (sortKey === "climbs") vA = a.climbs, vB = b.climbs;
                 if (typeof vA === "string") return sortDir * vA.localeCompare(vB);

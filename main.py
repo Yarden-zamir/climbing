@@ -114,7 +114,8 @@ def get_crew():
         norm = name.strip().lower()
         climbs = climb_counts.get(norm, 0)
         skills = details.get("skills", [])
-        level_from_skills = len(skills)
+        tags = details.get("tags", [])
+        level_from_skills = len(skills)  # Only count skills, not tags
         level_from_climbs = climbs // 5
         total_level = 1 + level_from_skills + level_from_climbs
         crew.append({
@@ -122,6 +123,7 @@ def get_crew():
             "face": f"/climbers/{climber_dir.name}/face.png",
             "location": details.get("Location", []),
             "skills": skills,
+            "tags": tags,
             "climbs": climbs,
             "level_from_climbs": level_from_climbs,
             "level_from_skills": level_from_skills,
