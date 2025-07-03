@@ -174,8 +174,12 @@ function enableMobileCardHighlight() {
 		if (peopleParam) {
 			const peopleFromUrl = peopleParam.split(',').map(p => p.trim()).filter(p => p);
 			peopleFromUrl.forEach(person => {
-				if (allPeople.has(person)) {
-					selectedPeople.add(person);
+				// Case-insensitive matching: find the person in allPeople
+				const matchingPerson = Array.from(allPeople).find(p => 
+					p.toLowerCase() === person.toLowerCase()
+				);
+				if (matchingPerson) {
+					selectedPeople.add(matchingPerson);
 				}
 			});
 		}
@@ -240,82 +244,50 @@ function enableMobileCardHighlight() {
 		// Close popup when close button is clicked
 		filterClose.addEventListener('click', closePopup);
 		
-		// Close popup when ESC key is pressed
-		document.addEventListener('keydown', (e) => {
-			if (e.key === 'Escape' && filterPopup.classList.contains('active')) {
-				closePopup();
-			}
-		});
+		// Initialize clear all and select all buttons
+		document.getElementById('clear-all-btn').addEventListener('click', clearAllPeople);
+		document.getElementById('select-all-btn').addEventListener('click', selectAllPeople);
 	};
 	
-	// Update filter FAB appearance
 	const updateFilterFab = () => {
 		const filterFab = document.getElementById('filter-fab');
-		
 		if (selectedPeople.size > 0) {
-			filterFab.style.background = 'linear-gradient(135deg, #03dac6 0%, #018786 100%)';
+			filterFab.classList.add('has-filters');
 		} else {
-			filterFab.style.background = 'linear-gradient(135deg, #bb86fc 0%, #6200ea 100%)';
+			filterFab.classList.remove('has-filters');
 		}
 	};
 
-	// Filter functionality
 	const populatePersonFilters = () => {
-		const peopleFiltersContainer = document.getElementById('people-filters');
+		const filtersContainer = document.getElementById('people-filters');
 		const sortedPeople = Array.from(allPeople).sort();
 		
-		peopleFiltersContainer.innerHTML = '';
+		filtersContainer.innerHTML = sortedPeople.map(person => `
+			<div class="person-filter">
+				<label>
+					<input type="checkbox" value="${person}" onchange="handleFilterChange()">
+					<span class="checkmark"></span>
+					${person}
+				</label>
+			</div>
+		`).join('');
 		
-		sortedPeople.forEach(person => {
-			const filterDiv = document.createElement('div');
-			filterDiv.className = 'person-filter';
-			
-			const checkbox = document.createElement('input');
-			checkbox.type = 'checkbox';
-			checkbox.id = `person-${person.replace(/\s+/g, '-')}`;
-			checkbox.value = person;
-			
-			const face = document.createElement('img');
-			face.src = `/climbers/${encodeURIComponent(person)}/face.png`;
-			face.alt = person;
-			face.className = 'person-face';
-			face.onerror = () => face.style.display = 'none';
-			
-			const label = document.createElement('span');
-			label.textContent = person;
-			
-			filterDiv.appendChild(checkbox);
-			filterDiv.appendChild(face);
-			filterDiv.appendChild(label);
-			
-			// Add event listeners for both checkbox and div click
-			checkbox.addEventListener('change', handleFilterChange);
-			filterDiv.addEventListener('click', (e) => {
-				if (e.target !== checkbox) {
-					checkbox.checked = !checkbox.checked;
-					handleFilterChange();
-				}
-			});
-			
-			peopleFiltersContainer.appendChild(filterDiv);
-		});
-		
-		// Add event listeners for control buttons
-		document.getElementById('select-all-btn').addEventListener('click', selectAllPeople);
-		document.getElementById('clear-all-btn').addEventListener('click', clearAllPeople);
+		// Sync with current URL filters
+		loadFiltersFromUrl();
+		syncFiltersWithUI();
 	};
 	
 	const handleFilterChange = () => {
-		// Update selected people set
+		// Update selectedPeople based on checked checkboxes
 		selectedPeople.clear();
-		document.querySelectorAll('#people-filters input[type="checkbox"]').forEach(checkbox => {
-			const filterDiv = checkbox.closest('.person-filter');
-			if (checkbox.checked) {
-				selectedPeople.add(checkbox.value);
-				filterDiv.classList.add('checked');
-			} else {
-				filterDiv.classList.remove('checked');
-			}
+		document.querySelectorAll('#people-filters input[type="checkbox"]:checked').forEach(checkbox => {
+			selectedPeople.add(checkbox.value);
+			checkbox.closest('.person-filter').classList.add('checked');
+		});
+		
+		// Remove checked class from unchecked items
+		document.querySelectorAll('#people-filters input[type="checkbox"]:not(:checked)').forEach(checkbox => {
+			checkbox.closest('.person-filter').classList.remove('checked');
 		});
 		
 		// Apply filters
@@ -334,10 +306,15 @@ function enableMobileCardHighlight() {
 				card.style.display = '';
 				card.classList.remove('filtered-out');
 			} else {
-				// Check if album contains all selected people
-				const albumCrew = meta.crew || [];
-				const hasAllSelectedPeople = Array.from(selectedPeople).every(person => 
-					albumCrew.includes(person)
+				// Check if album contains all selected people (case-insensitive)
+				const albumCrewNames = (meta.crew || []).map(crew => 
+					typeof crew === 'string' ? crew : crew.name
+				);
+				
+				const hasAllSelectedPeople = Array.from(selectedPeople).every(selectedPerson => 
+					albumCrewNames.some(crewName => 
+						crewName.toLowerCase() === selectedPerson.toLowerCase()
+					)
 				);
 				
 				if (hasAllSelectedPeople) {

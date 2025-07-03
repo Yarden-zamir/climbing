@@ -39,7 +39,7 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 
 3. **Run the server**
     ```bash
-    uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+    uv run uvicorn main:app --host 0.0.0.0 --port 8001 --reload
     ```
 
 4. **Browse**
@@ -173,7 +173,7 @@ export GITHUB_REPO_URL="https://github.com/your-username/your-repo.git"
 ### Running the Application
 
 ```bash
-uvicorn main:app --reload
+uv run uvicorn main:app --reload
 ```
 
 The application will be available at `http://localhost:8000`
