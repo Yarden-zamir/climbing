@@ -21,9 +21,66 @@ from pydantic import BaseModel
 from typing import List, Optional
 import git
 from github import Github
+import asyncio
+import logging
+from logging.handlers import RotatingFileHandler
+import sys
+
+# Configure logging
+
+
+def setup_logging():
+    """Set up comprehensive logging with both file and console handlers"""
+    # Create logs directory
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+
+    # Create formatters
+    detailed_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+    )
+    simple_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s'
+    )
+
+    # Set up root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+
+    # Clear any existing handlers
+    root_logger.handlers.clear()
+
+    # File handler with rotation
+    file_handler = RotatingFileHandler(
+        logs_dir / "climbing_app.log",
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(detailed_formatter)
+    root_logger.addHandler(file_handler)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(simple_formatter)
+    root_logger.addHandler(console_handler)
+
+    # Create app-specific logger
+    app_logger = logging.getLogger("climbing_app")
+    app_logger.setLevel(logging.DEBUG)
+
+    return app_logger
+
+
+# Set up logging
+logger = setup_logging()
 
 # Initialize FastAPI app
-app = FastAPI()
+app = FastAPI(title="Climbing App", description="A climbing album and crew management system")
+
+logger.info("Starting Climbing App initialization...")
 
 # Global cache for album metadata and new climber tracking
 album_metadata_cache = {}
@@ -36,24 +93,30 @@ async def initialize_cache():
     global album_metadata_cache, new_climbers_cache, cache_initialized
 
     if cache_initialized:
+        logger.info("Cache already initialized, skipping...")
         return
 
-    print("Initializing album metadata cache...")
+    logger.info("=== Starting cache initialization ===")
 
     # Load albums.json
     albums_path = Path("static/albums.json")
     if not albums_path.exists():
-        print("No albums.json found, skipping cache initialization")
+        logger.warning("No albums.json found, skipping cache initialization")
         cache_initialized = True
         return
 
     with open(albums_path) as f:
         albums_data = json.load(f)
 
-    # Fetch metadata for all albums
-    async with httpx.AsyncClient() as client:
-        for album_url in albums_data.keys():
+    logger.info(f"Loaded {len(albums_data)} albums from albums.json")
+
+    # Fetch metadata for all albums in parallel
+    async with httpx.AsyncClient(timeout=30.0) as client:
+
+        async def fetch_album_metadata(album_url: str):
+            """Fetch metadata for a single album"""
             try:
+                logger.debug(f"Fetching metadata for: {album_url}")
                 response = await fetch_url(client, album_url)
                 meta_data = parse_meta_tags(response.text, album_url)
 
@@ -61,18 +124,47 @@ async def initialize_cache():
                 if albums_data[album_url].get("crew"):
                     meta_data["crew"] = albums_data[album_url]["crew"]
 
-                album_metadata_cache[album_url] = meta_data
-                print(f"Cached metadata for: {meta_data.get('title', 'Unknown')}")
+                logger.info(f"✓ Cached metadata for: {meta_data.get('title', 'Unknown')}")
+                return album_url, meta_data
 
             except Exception as e:
-                print(f"Failed to cache metadata for {album_url}: {e}")
+                logger.error(f"✗ Failed to cache metadata for {album_url}: {e}")
+                return album_url, None
+
+        # Create tasks for all albums and execute them in parallel
+        logger.info(f"Creating {len(albums_data)} parallel tasks for metadata fetching...")
+        tasks = [fetch_album_metadata(album_url) for album_url in albums_data.keys()]
+
+        start_time = datetime.datetime.now()
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        end_time = datetime.datetime.now()
+
+        logger.info(f"Parallel fetch completed in {(end_time - start_time).total_seconds():.2f} seconds")
+
+        # Process results
+        successful_caches = 0
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Task failed with exception: {result}")
+                continue
+
+            if result is None:
+                continue
+
+            album_url, meta_data = result
+            if meta_data:
+                album_metadata_cache[album_url] = meta_data
+                successful_caches += 1
+
+        logger.info(f"Successfully cached {successful_caches}/{len(albums_data)} albums")
 
     # Calculate new climbers (first participation in last 14 days)
+    logger.info("Calculating new climbers...")
     new_climbers_cache = calculate_new_climbers()
-    print(f"Found {len(new_climbers_cache)} new climbers: {list(new_climbers_cache)}")
+    logger.info(f"Found {len(new_climbers_cache)} new climbers: {list(new_climbers_cache)}")
 
     cache_initialized = True
-    print("Cache initialization complete!")
+    logger.info("=== Cache initialization complete! ===")
 
 
 def normalize_climber_name(name):
@@ -82,6 +174,7 @@ def normalize_climber_name(name):
 
 def calculate_new_climbers():
     """Calculate which climbers are new (first participation in last 14 days)"""
+    logger.debug("Starting new climbers calculation...")
     climber_first_participation = {}
     current_year = datetime.datetime.now().year
 
@@ -90,6 +183,7 @@ def calculate_new_climbers():
 
     for album_url, metadata in album_metadata_cache.items():
         if not metadata.get("crew") or not metadata.get("date"):
+            logger.debug(f"Skipping album {album_url} - missing crew or date")
             continue
 
             # Parse album date
@@ -101,7 +195,7 @@ def calculate_new_climbers():
             # Extract month and day using regex - look for month name followed by day number
             match = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d+)', date_str)
             if not match:
-                print(f"Could not parse date format: {date_str}")
+                logger.warning(f"Could not parse date format: {date_str}")
                 continue
 
             month_name, day = match.groups()
@@ -117,14 +211,15 @@ def calculate_new_climbers():
                 album_date = datetime.date(current_year - 1, month_map[month_name], int(day))
 
             albums_with_dates.append((album_url, metadata, album_date))
-            print(f"Parsed date: {date_str} -> {album_date}")
+            logger.debug(f"Parsed date: {date_str} -> {album_date}")
 
         except Exception as e:
-            print(f"Failed to parse date '{date_str}' for album {album_url}: {e}")
+            logger.error(f"Failed to parse date '{date_str}' for album {album_url}: {e}")
             continue
 
     # Sort albums by date (oldest first)
     albums_with_dates.sort(key=lambda x: x[2])
+    logger.debug(f"Sorted {len(albums_with_dates)} albums by date")
 
     # Track first participation for each climber (using normalized names)
     for album_url, metadata, album_date in albums_with_dates:
@@ -164,12 +259,12 @@ def calculate_new_climbers():
     calculate_new_climbers._climber_dates = climber_first_participation
 
     # Debug logging
-    print("First participation dates:")
+    logger.debug("First participation dates:")
     for climber_normalized, participation_info in climber_first_participation.items():
         original_name = participation_info['original_name']
         first_date = participation_info['date']
         is_new = first_date >= cutoff_date
-        print(f"  {original_name} (normalized: {climber_normalized}): {first_date} {'[NEW]' if is_new else ''}")
+        logger.debug(f"  {original_name} (normalized: {climber_normalized}): {first_date} {'[NEW]' if is_new else ''}")
 
     return new_climbers
 
@@ -177,6 +272,7 @@ def calculate_new_climbers():
 @app.on_event("startup")
 async def startup_event():
     """Initialize cache on startup"""
+    logger.info("FastAPI startup event triggered")
     await initialize_cache()
 
 def inject_css_version(html_path):
