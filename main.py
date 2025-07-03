@@ -21,8 +21,164 @@ from pydantic import BaseModel
 from typing import List, Optional
 import git
 from github import Github
+
 # Initialize FastAPI app
 app = FastAPI()
+
+# Global cache for album metadata and new climber tracking
+album_metadata_cache = {}
+new_climbers_cache = set()
+cache_initialized = False
+
+
+async def initialize_cache():
+    """Initialize the cache with album metadata and calculate new climbers on startup"""
+    global album_metadata_cache, new_climbers_cache, cache_initialized
+
+    if cache_initialized:
+        return
+
+    print("Initializing album metadata cache...")
+
+    # Load albums.json
+    albums_path = Path("static/albums.json")
+    if not albums_path.exists():
+        print("No albums.json found, skipping cache initialization")
+        cache_initialized = True
+        return
+
+    with open(albums_path) as f:
+        albums_data = json.load(f)
+
+    # Fetch metadata for all albums
+    async with httpx.AsyncClient() as client:
+        for album_url in albums_data.keys():
+            try:
+                response = await fetch_url(client, album_url)
+                meta_data = parse_meta_tags(response.text, album_url)
+
+                # Add crew info from albums.json
+                if albums_data[album_url].get("crew"):
+                    meta_data["crew"] = albums_data[album_url]["crew"]
+
+                album_metadata_cache[album_url] = meta_data
+                print(f"Cached metadata for: {meta_data.get('title', 'Unknown')}")
+
+            except Exception as e:
+                print(f"Failed to cache metadata for {album_url}: {e}")
+
+    # Calculate new climbers (first participation in last 14 days)
+    new_climbers_cache = calculate_new_climbers()
+    print(f"Found {len(new_climbers_cache)} new climbers: {list(new_climbers_cache)}")
+
+    cache_initialized = True
+    print("Cache initialization complete!")
+
+
+def normalize_climber_name(name):
+    """Normalize climber names for consistent matching"""
+    return re.sub(r'[^a-zA-Z\s]', '', name.strip().lower().replace(' ', ''))
+
+
+def calculate_new_climbers():
+    """Calculate which climbers are new (first participation in last 14 days)"""
+    climber_first_participation = {}
+    current_year = datetime.datetime.now().year
+
+    # Create a list of albums with their dates for sorting
+    albums_with_dates = []
+
+    for album_url, metadata in album_metadata_cache.items():
+        if not metadata.get("crew") or not metadata.get("date"):
+            continue
+
+            # Parse album date
+        try:
+            date_str = metadata["date"]
+            # Handle various date formats:
+            # "Jul 1 – 2 📸", "Saturday, Jun 28 📸", "Friday, Jun 27 📸", "May 15", etc.
+
+            # Extract month and day using regex - look for month name followed by day number
+            match = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d+)', date_str)
+            if not match:
+                print(f"Could not parse date format: {date_str}")
+                continue
+
+            month_name, day = match.groups()
+            month_map = {
+                'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+            }
+
+            album_date = datetime.date(current_year, month_map[month_name], int(day))
+
+            # If the date is in the future, assume it's from last year
+            if album_date > datetime.date.today():
+                album_date = datetime.date(current_year - 1, month_map[month_name], int(day))
+
+            albums_with_dates.append((album_url, metadata, album_date))
+            print(f"Parsed date: {date_str} -> {album_date}")
+
+        except Exception as e:
+            print(f"Failed to parse date '{date_str}' for album {album_url}: {e}")
+            continue
+
+    # Sort albums by date (oldest first)
+    albums_with_dates.sort(key=lambda x: x[2])
+
+    # Track first participation for each climber (using normalized names)
+    for album_url, metadata, album_date in albums_with_dates:
+        for climber in metadata["crew"]:
+            climber_normalized = normalize_climber_name(climber)
+            if climber_normalized not in climber_first_participation:
+                climber_first_participation[climber_normalized] = {
+                    'date': album_date,
+                    'original_name': climber.strip()
+                }
+
+    # Find climbers whose first participation was in the last 14 days
+    cutoff_date = datetime.date.today() - datetime.timedelta(days=14)
+    new_climbers = set()
+
+    # Also create a mapping from directory names to check against
+    climbers_dir = Path("climbers")
+    directory_to_normalized = {}
+    if climbers_dir.exists():
+        for climber_dir in climbers_dir.iterdir():
+            if climber_dir.is_dir():
+                dir_name = climber_dir.name.replace("-", " ").title()
+                normalized = normalize_climber_name(dir_name)
+                directory_to_normalized[normalized] = dir_name
+
+    for climber_normalized, participation_info in climber_first_participation.items():
+        first_date = participation_info['date']
+        if first_date >= cutoff_date:
+            # Find the corresponding directory name
+            if climber_normalized in directory_to_normalized:
+                new_climbers.add(directory_to_normalized[climber_normalized])
+            else:
+                # Fallback to original name
+                new_climbers.add(participation_info['original_name'])
+
+        # Store the climber dates for later access (attach to function)
+    calculate_new_climbers._climber_dates = climber_first_participation
+
+    # Debug logging
+    print("First participation dates:")
+    for climber_normalized, participation_info in climber_first_participation.items():
+        original_name = participation_info['original_name']
+        first_date = participation_info['date']
+        is_new = first_date >= cutoff_date
+        print(f"  {original_name} (normalized: {climber_normalized}): {first_date} {'[NEW]' if is_new else ''}")
+
+    return new_climbers
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize cache on startup"""
+    await initialize_cache()
+
 def inject_css_version(html_path):
     with open(html_path) as f:
         html = f.read()
@@ -34,6 +190,7 @@ def inject_css_version(html_path):
         f'href="/static/css/styles.css?v={version}"'
     )
     return html
+
 async def fetch_url(client: httpx.AsyncClient, url: str):
     """Generic helper to fetch a URL and handle errors."""
     try:
@@ -118,6 +275,25 @@ def get_crew():
         level_from_skills = len(skills)  # Only count skills, not tags
         level_from_climbs = climbs // 5
         total_level = 1 + level_from_skills + level_from_climbs
+
+        # Check if climber is new (first participation in last 14 days)
+        # Try multiple variations of the name to match
+        name_variations = [
+            name,  # Display name from directory
+            climber_dir.name,  # Directory name
+            climber_dir.name.replace("-", " ").title()  # Directory name formatted
+        ]
+        is_new = any(name_variation in new_climbers_cache for name_variation in name_variations)
+
+        # Get first climb date for new climbers
+        first_climb_date = None
+        if is_new and hasattr(calculate_new_climbers, '_climber_dates'):
+            # Check if we have the climber's first date stored
+            for norm_name, date_info in calculate_new_climbers._climber_dates.items():
+                if any(normalize_climber_name(var) == norm_name for var in name_variations):
+                    first_climb_date = date_info['date'].strftime("%b %d")
+                    break
+
         crew.append({
             "name": name,
             "face": f"/climbers/{climber_dir.name}/face.png",
@@ -128,6 +304,8 @@ def get_crew():
             "level_from_climbs": level_from_climbs,
             "level_from_skills": level_from_skills,
             "level": total_level,
+            "is_new": is_new,
+            "first_climb_date": first_climb_date,
         })
     return JSONResponse(crew)
 
@@ -142,6 +320,47 @@ async def get_meta(url: str = Query(...)):
             "Cache-Control": "public, max-age=5,stale-while-revalidate=86400, immutable"
         } 
         return Response(content=json.dumps(meta_data), media_type="application/json", headers=headers)
+
+
+@app.get("/api/albums/enriched")
+async def get_enriched_albums():
+    """API endpoint that returns all albums with pre-loaded metadata from cache."""
+    # Ensure cache is initialized
+    if not cache_initialized:
+        await initialize_cache()
+
+    # Return the cached metadata, enriching it with new climber status
+    enriched_albums = []
+    for album_url, metadata in album_metadata_cache.items():
+        enriched_meta = metadata.copy()
+        if "crew" in enriched_meta:
+            # Create a list of crew members with their 'is_new' status
+            crew_with_status = []
+            for climber_name in enriched_meta["crew"]:
+                # Normalize both the climber's name and the names in the cache for comparison
+                normalized_climber = normalize_climber_name(climber_name)
+
+                # Check against directory names and original names in the cache
+                is_new = any(
+                    normalize_climber_name(cached_name) == normalized_climber
+                    for cached_name in new_climbers_cache
+                )
+
+                crew_with_status.append({
+                    "name": climber_name,
+                    "is_new": is_new
+                })
+            enriched_meta["crew"] = crew_with_status
+
+        enriched_albums.append({
+            "url": album_url,
+            "metadata": enriched_meta
+        })
+
+    headers = {
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=86400"
+    }
+    return Response(content=json.dumps(enriched_albums), media_type="application/json", headers=headers)
 
 
 @app.get("/get-image")

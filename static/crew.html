@@ -212,6 +212,7 @@
             const container = document.getElementById("crew-table-container");
             const crewCount = data.length;
             const crewLevel = data.reduce((sum, c) => sum + (Math.trunc(c.level) || 0), 0);
+            const newClimbersCount = data.filter(c => c.is_new).length;
 
             container.innerHTML = `
                 <div style="
@@ -255,6 +256,25 @@
                     ">
                         Crew Level: <span id="crew-level-num">0</span>
                     </div>
+                    ${newClimbersCount > 0 ? `
+                    <div style="
+                        font-size: 1.8em;
+                        font-weight: 700;
+                        color: #fff;
+                        background: linear-gradient(90deg, #ffae52 40%, #ff6b35 100%);
+                        background-clip: text;
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        letter-spacing: 0.04em;
+                        text-shadow: 0 2px 16px #ffae5255;
+                        border-radius: 12px;
+                        padding: 0.2em 1.2em;
+                        box-shadow: 0 2px 16px #ffae5222;
+                        animation: new-badge-pulse 2s ease-in-out infinite;
+                    ">
+                        ✨ ${newClimbersCount} New Climber${newClimbersCount > 1 ? 's' : ''}!
+                    </div>
+                    ` : ''}
                 </div>
                 <table class="crew-table">
                     <thead>
@@ -272,7 +292,12 @@
         <tr data-climber-name="${encodeURIComponent(c.name)}">
             <td data-label="Face">
                 <div class="crew-face-container">
-                    <img src="${c.face}" class="crew-face" alt="${c.name}">
+                    <img src="${c.face}" class="crew-face${c.is_new ? ' new-climber' : ''}" alt="${c.name}">
+                    ${c.is_new ? `
+                        <a href="/albums?people=${encodeURIComponent(c.name)}" class="new-climber-badge" title="First climb: ${c.first_climb_date || 'recently'}">
+                            NEW
+                        </a>
+                    ` : ''}
                 </div>
             </td>
             <td data-label="Name">${c.name}</td>
@@ -516,6 +541,13 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         function sortAndRender() {
             let sorted = [...crewData];
             sorted.sort((a, b) => {
+                // First priority: Always put new climbers at the top (unless specifically sorting by a different field)
+                if (sortKey === "level" && sortDir === -1) { // Default sorting
+                    if (a.is_new && !b.is_new) return -1;
+                    if (!a.is_new && b.is_new) return 1;
+                }
+                
+                // Regular sorting logic
                 let vA = a[sortKey], vB = b[sortKey];
                 if (sortKey === "skills") vA = (a.skills.length + (a.tags ? a.tags.length : 0)), vB = (b.skills.length + (b.tags ? b.tags.length : 0));
                 if (sortKey === "location") vA = a.location[0] || "", vB = b.location[0] || "";

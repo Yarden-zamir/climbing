@@ -96,21 +96,33 @@ const populateCard = async (card, meta) => {
 	if (meta.crew && Array.isArray(meta.crew) && meta.crew.length > 0) {
 		const faceStack = document.createElement('div');
 		faceStack.className = 'album-crew-stack';
-		meta.crew.forEach((climber, i) => {
+		
+		// The crew data now comes enriched with 'is_new' status
+		renderCrewFaces(meta.crew, faceStack);
+		
+		card.style.position = 'relative';
+		card.appendChild(faceStack);
+	}
+	
+	function renderCrewFaces(crewWithStatus, faceStack) {
+		crewWithStatus.forEach(climber => {
+			const climberName = climber.name;
+			const isNew = climber.is_new;
+
 			const faceLink = document.createElement('a');
-			faceLink.href = `/crew?highlight=${encodeURIComponent(climber)}`;
+			faceLink.href = `/crew?highlight=${encodeURIComponent(climberName)}`;
 			faceLink.className = 'album-crew-face-link';
-			faceLink.title = climber;
+			faceLink.title = climberName;
 			faceLink.tabIndex = 0;
+			
 			const faceImg = document.createElement('img');
-			faceImg.src = `/climbers/${encodeURIComponent(climber)}/face.png`;
-			faceImg.alt = climber;
-			faceImg.className = 'album-crew-face';
+			faceImg.src = `/climbers/${encodeURIComponent(climberName)}/face.png`;
+			faceImg.alt = climberName;
+			faceImg.className = `album-crew-face${isNew ? ' new-climber' : ''}`;
+			
 			faceLink.appendChild(faceImg);
 			faceStack.appendChild(faceLink);
 		});
-		card.style.position = 'relative';
-		card.appendChild(faceStack);
 	}
 };
 
@@ -436,20 +448,67 @@ function enableMobileCardHighlight() {
 		enableMobileCardHighlight();
 	}
 
+	async function processEnrichedAlbums(enrichedAlbums) {
+		const placeholders = document.querySelectorAll(".album-card.loading");
+		
+		// Extract all unique people from the enriched data
+		enrichedAlbums.forEach(({ metadata }) => {
+			if (metadata.crew && Array.isArray(metadata.crew)) {
+				metadata.crew.forEach(person => {
+					if (person && person.name) {
+						allPeople.add(person.name); // Add the name string, not the object
+					}
+				});
+			}
+		});
+
+		// Initialize filter functionality
+		initFilterPopup();
+		populatePersonFilters();
+		
+		// Load filters from URL parameters
+		loadFiltersFromUrl();
+
+		// Process enriched albums (no need to fetch metadata, it's already included)
+		enrichedAlbums.forEach((album, index) => {
+			const placeholder = placeholders[index];
+			const meta = album.metadata;
+			
+			if (meta && !meta.error && meta.imageUrl) {
+				// Store album for filtering
+				allAlbums.push({ card: placeholder, meta });
+				
+				populateCard(placeholder, meta);
+			} else {
+				placeholder.remove();
+			}
+		});
+		
+		// Apply initial filters if any were loaded from URL
+		syncFiltersWithUI();
+		
+		enableMobileCardHighlight();
+	}
+
 	async function loadAlbums() {
 		try {
 			showSkeletonCards();
 			
-			// Load albums from albums.json instead of albums.txt
-			const response = await fetch("static/albums.json");
-			if (!response.ok) throw new Error("Could not load albums.json");
+			// Use the new enriched endpoint that returns albums with pre-loaded metadata
+			const response = await fetch("/api/albums/enriched");
+			if (!response.ok) throw new Error("Could not load enriched album data");
 			
-			const albumsData = await response.json();
-			const urls = Object.keys(albumsData); // Extract URLs from object keys
+			const enrichedAlbums = await response.json();
 			
-			console.log(`Loaded ${urls.length} album URLs from albums.json`);
+			// Ensure we have enough skeleton cards for all albums
+			const existingPlaceholders = container.querySelectorAll('.album-card.loading').length;
+			if (enrichedAlbums.length > existingPlaceholders) {
+				for (let i = existingPlaceholders; i < enrichedAlbums.length; i++) {
+					container.appendChild(createPlaceholderCard(i));
+				}
+			}
 			
-			await processAlbums(urls);
+			await processEnrichedAlbums(enrichedAlbums);
 			
 		} catch (error) {
 			console.error("Error loading albums:", error);

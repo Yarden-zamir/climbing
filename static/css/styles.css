@@ -980,6 +980,32 @@ nav a {
   box-shadow: 0 6px 24px #03dac688;
   border-color: #03dac6;
 }
+
+/* New climber styling for album crew faces */
+.album-crew-face.new-climber {
+  border: 2px solid #ffae52;
+  animation: new-climber-glow 3s ease-in-out infinite;
+  position: relative;
+}
+
+.album-crew-face.new-climber::before {
+  content: "✨";
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+  color: #121212;
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 2px;
+  border-radius: 4px;
+  z-index: 10;
+  animation: new-badge-pulse 2s ease-in-out infinite;
+  transform: scale(0.7);
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(255, 174, 82, 0.6);
+  border: 1px solid #ff6b35;
+}
 .album-card-content {
   padding-bottom: 2.5em;
 }
@@ -1037,6 +1063,54 @@ nav a {
     box-shadow: 0 10px 30px rgba(187, 134, 252, 0.8), 
                 0 0 20px rgba(3, 218, 198, 0.4);
     animation: glow-pulse 2s infinite alternate ease-in-out;
+}
+
+/* New climber face styling */
+.crew-face.new-climber {
+    border: 3px solid #ffae52;
+    animation: new-climber-glow 3s ease-in-out infinite;
+    position: relative;
+}
+
+.crew-face.new-climber::before {
+    content: "✨ NEW";
+    position: absolute;
+    top: -10px;
+    right: -15px;
+    background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+    color: #121212;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 6px;
+    border-radius: 8px;
+    z-index: 10;
+    animation: new-badge-pulse 2s ease-in-out infinite;
+    transform: scale(0.85);
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(255, 174, 82, 0.6);
+    border: 1px solid #ff6b35;
+}
+
+@keyframes new-climber-glow {
+    0%, 100% { 
+        border-color: #ffae52;
+        box-shadow: 0 0 8px rgba(255, 174, 82, 0.4);
+    }
+    50% { 
+        border-color: #ff6b35;
+        box-shadow: 0 0 18px rgba(255, 174, 82, 0.8);
+    }
+}
+
+@keyframes new-badge-pulse {
+    0%, 100% { 
+        transform: scale(0.85);
+        opacity: 0.9;
+    }
+    50% { 
+        transform: scale(0.95);
+        opacity: 1;
+    }
 }
 
 /* Container for the face image that expands when enlarged */
