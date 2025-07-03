@@ -244,9 +244,8 @@ function enableMobileCardHighlight() {
 		// Close popup when close button is clicked
 		filterClose.addEventListener('click', closePopup);
 		
-		// Initialize clear all and select all buttons
+		// Initialize clear all button
 		document.getElementById('clear-all-btn').addEventListener('click', clearAllPeople);
-		document.getElementById('select-all-btn').addEventListener('click', selectAllPeople);
 	};
 	
 	const updateFilterFab = () => {
@@ -264,13 +263,20 @@ function enableMobileCardHighlight() {
 		
 		filtersContainer.innerHTML = sortedPeople.map(person => `
 			<div class="person-filter">
-				<label>
-					<input type="checkbox" value="${person}" onchange="handleFilterChange()">
-					<span class="checkmark"></span>
-					${person}
-				</label>
+				<input type="checkbox" value="${person}" onchange="handleFilterChange()">
+				<img src="/climbers/${encodeURIComponent(person)}/face.png" alt="${person}" class="person-face" onerror="this.style.display='none'">
+				<span>${person}</span>
 			</div>
 		`).join('');
+		
+		// Add click handlers to person filters
+		document.querySelectorAll('.person-filter').forEach(filter => {
+			filter.addEventListener('click', () => {
+				const checkbox = filter.querySelector('input[type="checkbox"]');
+				checkbox.checked = !checkbox.checked;
+				handleFilterChange();
+			});
+		});
 		
 		// Sync with current URL filters
 		loadFiltersFromUrl();
@@ -340,13 +346,6 @@ function enableMobileCardHighlight() {
 			const peopleList = Array.from(selectedPeople).join(', ');
 			statusEl.innerHTML = `✨ Showing <strong>${visibleAlbums}</strong> of <strong>${totalAlbums}</strong> albums featuring: <strong>${peopleList}</strong>`;
 		}
-	};
-	
-	const selectAllPeople = () => {
-		document.querySelectorAll('#people-filters input[type="checkbox"]').forEach(checkbox => {
-			checkbox.checked = true;
-		});
-		handleFilterChange();
 	};
 	
 	const clearAllPeople = () => {

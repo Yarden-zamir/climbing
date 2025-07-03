@@ -154,8 +154,17 @@
 		
 		.filter-popup-content {
 			padding: 1.5rem;
-			max-height: calc(100vh - 20rem);
+			max-height: calc(100vh - 26rem);
 			overflow-y: auto;
+		}
+		
+		.filter-popup-footer {
+			padding: 1.5rem;
+			border-top: 1px solid #333;
+			display: flex;
+			justify-content: center;
+			background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+			border-radius: 0 0 20px 20px;
 		}
 		
 		.filter-controls {
@@ -1081,16 +1090,15 @@
 				<button class="filter-popup-close" id="filter-popup-close">×</button>
 			</div>
 			<div class="filter-popup-content">
-				<div class="filter-controls">
-					<button class="filter-btn" id="select-all-btn">✨ Select All</button>
-					<button class="filter-btn" id="clear-all-btn">🗑️ Clear All</button>
-				</div>
 				<div id="people-filters" class="people-filters">
 					<!-- People checkboxes will be populated here -->
 				</div>
 				<div id="filter-status" class="filter-status" style="display: none;">
 					<!-- Status message will appear here -->
 				</div>
+			</div>
+			<div class="filter-popup-footer">
+				<button class="filter-btn" id="clear-all-btn">🗑️ Clear All</button>
 			</div>
 		</div>
 		
