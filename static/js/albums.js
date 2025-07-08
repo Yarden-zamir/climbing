@@ -4,6 +4,136 @@ document.addEventListener("DOMContentLoaded", () => {
 	let allPeople = new Set(); // Store all unique people
 	let selectedPeople = new Set(); // Store currently selected people
 
+	// Cropping variables
+	let currentCropper = null;
+	let currentOriginalFile = null;
+	let activeCropTarget = null; // 'add' or 'edit'
+
+	// Initialize cropping modal
+	function initCropModal() {
+		const cropModalOverlay = document.getElementById('crop-modal-overlay');
+		const cropModal = document.getElementById('crop-modal');
+		const cropCloseBtn = document.getElementById('crop-modal-close');
+		const cropCancelBtn = document.getElementById('crop-cancel-btn');
+		const cropConfirmBtn = document.getElementById('crop-confirm-btn');
+		const cropImage = document.getElementById('crop-image');
+
+		function openCropModal(file, target) {
+			currentOriginalFile = file;
+			activeCropTarget = target;
+			
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				cropImage.src = e.target.result;
+				cropModalOverlay.classList.add('active');
+				
+				// Initialize cropper after modal is visible
+				setTimeout(() => {
+					if (currentCropper) {
+						currentCropper.destroy();
+					}
+					
+					currentCropper = new Cropper(cropImage, {
+						aspectRatio: 1, // Force 1:1 aspect ratio
+						viewMode: 1,
+						dragMode: 'move',
+						autoCropArea: 0.8,
+						restore: false,
+						guides: false, // Hide grid lines
+						center: false, // Hide center indicator
+						highlight: false,
+						cropBoxMovable: true,
+						cropBoxResizable: true,
+						toggleDragModeOnDblclick: false
+					});
+				}, 100);
+			};
+			reader.readAsDataURL(file);
+		}
+
+		function closeCropModal() {
+			cropModalOverlay.classList.remove('active');
+			if (currentCropper) {
+				currentCropper.destroy();
+				currentCropper = null;
+			}
+			currentOriginalFile = null;
+			activeCropTarget = null;
+		}
+
+		function confirmCrop() {
+			if (!currentCropper) return;
+			
+			// Get cropped canvas
+			const canvas = currentCropper.getCroppedCanvas({
+				width: 400,
+				height: 400,
+				imageSmoothingEnabled: true,
+				imageSmoothingQuality: 'high'
+			});
+			
+			// Convert canvas to blob
+			canvas.toBlob((blob) => {
+				if (blob) {
+					// Create a new File object from the blob
+					const croppedFile = new File([blob], currentOriginalFile.name, {
+						type: currentOriginalFile.type,
+						lastModified: Date.now()
+					});
+					
+					// Apply the cropped image based on the target
+					if (activeCropTarget === 'add') {
+						applyImageToAdd(croppedFile, canvas.toDataURL());
+					} else if (activeCropTarget === 'edit') {
+						applyImageToEdit(croppedFile, canvas.toDataURL());
+					}
+					
+					closeCropModal();
+				}
+			}, currentOriginalFile.type, 0.9);
+		}
+
+		// Event listeners
+		cropCloseBtn.addEventListener('click', closeCropModal);
+		cropCancelBtn.addEventListener('click', closeCropModal);
+		cropConfirmBtn.addEventListener('click', confirmCrop);
+		
+		// Close on overlay click
+		cropModalOverlay.addEventListener('click', (e) => {
+			if (e.target === cropModalOverlay) {
+				closeCropModal();
+			}
+		});
+
+		return { openCropModal, closeCropModal };
+	}
+
+	const cropModal = initCropModal();
+
+	function applyImageToAdd(croppedFile, dataUrl) {
+		currentPersonImage = croppedFile;
+		const uploadContent = document.getElementById('upload-content');
+		uploadContent.innerHTML = `
+			<img src="${dataUrl}" class="image-preview" alt="Preview">
+			<div class="upload-text">
+				✅ Image uploaded (cropped)<br>
+				<small>Click to change</small>
+			</div>
+		`;
+	}
+
+	function applyImageToEdit(croppedFile, dataUrl) {
+		editCurrentPersonImage = croppedFile;
+		const uploadContent = document.getElementById('edit-upload-content');
+		uploadContent.innerHTML = `
+			<img src="${dataUrl}" class="image-preview" alt="Preview">
+			<div class="upload-text">
+				✅ Image uploaded (cropped)<br>
+				<small>Click to change</small>
+			</div>
+		`;
+	}
+
 const typewriter = (element, text, speed = 20) => {
 	return new Promise((resolve) => {
 		if (speed <= 0) {
@@ -668,18 +798,8 @@ function initEditImageUpload() {
             alert('Image size must be less than 5MB');
             return;
         }
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            uploadContent.innerHTML = `
-                <img src="${e.target.result}" class="image-preview" alt="Preview">
-                <div class="upload-text">
-                    ✅ Image uploaded<br>
-                    <small>Click to change</small>
-                </div>
-            `;
-            editCurrentPersonImage = file;
-        };
-        reader.readAsDataURL(file);
+        // Open cropping modal instead of directly setting the image
+        cropModal.openCropModal(file, 'edit');
     }
 }
 

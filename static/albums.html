@@ -10,6 +10,8 @@
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 	<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet" />
 	<link rel="stylesheet" href="/static/css/styles.css" />
+	<!-- Cropper.js CSS -->
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
 	<style>
 		/* Floating Action Button */
 		.filter-fab {
@@ -1274,6 +1276,28 @@
 			</div>
 		</div>
 	</main>
+	
+	<!-- Image Cropping Modal -->
+	<div class="crop-modal-overlay" id="crop-modal-overlay">
+		<div class="crop-modal" id="crop-modal">
+			<div class="crop-modal-header">
+				<h2 class="crop-modal-title">Crop Profile Image</h2>
+				<button class="crop-modal-close" id="crop-modal-close">×</button>
+			</div>
+			<div class="crop-modal-body">
+				<div class="crop-container">
+					<img id="crop-image" class="crop-image" alt="Image to crop">
+				</div>
+			</div>
+			<div class="crop-modal-footer">
+				<button type="button" class="crop-btn crop-btn-cancel" id="crop-cancel-btn">Cancel</button>
+				<button type="button" class="crop-btn crop-btn-confirm" id="crop-confirm-btn">Crop & Use</button>
+			</div>
+		</div>
+	</div>
+	
+	<!-- Cropper.js JavaScript -->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 	<script src="static/js/albums.js"></script>
 	<script>
 		document.addEventListener("DOMContentLoaded", () => {
@@ -1673,19 +1697,8 @@
 						return;
 					}
 					
-					// Create preview
-					const reader = new FileReader();
-					reader.onload = (e) => {
-						uploadContent.innerHTML = `
-							<img src="${e.target.result}" class="image-preview" alt="Preview">
-							<div class="upload-text">
-								✅ Image uploaded<br>
-								<small>Click to change</small>
-							</div>
-						`;
-						currentPersonImage = file;
-					};
-					reader.readAsDataURL(file);
+					// Open cropping modal instead of directly setting the image
+					cropModal.openCropModal(file, 'add');
 				}
 			}
 			

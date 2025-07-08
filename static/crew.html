@@ -6,6 +6,8 @@
     <title>Crew Progress</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/static/css/styles.css" />
+    <!-- Cropper.js CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
 </head>
 <body>
     <nav>
@@ -185,13 +187,165 @@
                 </form>
             </div>
         </div>
+        
+        <!-- Image Cropping Modal -->
+        <div class="crop-modal-overlay" id="crop-modal-overlay">
+            <div class="crop-modal" id="crop-modal">
+                <div class="crop-modal-header">
+                    <h2 class="crop-modal-title">Crop Profile Image</h2>
+                    <button class="crop-modal-close" id="crop-modal-close">×</button>
+                </div>
+                <div class="crop-modal-body">
+                    <div class="crop-container">
+                        <img id="crop-image" class="crop-image" alt="Image to crop">
+                    </div>
+                </div>
+                <div class="crop-modal-footer">
+                    <button type="button" class="crop-btn crop-btn-cancel" id="crop-cancel-btn">Cancel</button>
+                    <button type="button" class="crop-btn crop-btn-confirm" id="crop-confirm-btn">Crop & Use</button>
+                </div>
+            </div>
+        </div>
     </main>
+    
+    <!-- Cropper.js JavaScript -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
     <script>
         let crewData = [];
         let skillOrder = [];
         let tagOrder = [];
         let sortKey = "level";
         let sortDir = -1;
+        
+        // Cropping variables
+        let currentCropper = null;
+        let currentOriginalFile = null;
+        let activeCropTarget = null; // 'add' or 'edit'
+
+        // Initialize cropping modal
+        function initCropModal() {
+            const cropModalOverlay = document.getElementById('crop-modal-overlay');
+            const cropModal = document.getElementById('crop-modal');
+            const cropCloseBtn = document.getElementById('crop-modal-close');
+            const cropCancelBtn = document.getElementById('crop-cancel-btn');
+            const cropConfirmBtn = document.getElementById('crop-confirm-btn');
+            const cropImage = document.getElementById('crop-image');
+
+            function openCropModal(file, target) {
+                currentOriginalFile = file;
+                activeCropTarget = target;
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    cropImage.src = e.target.result;
+                    cropModalOverlay.classList.add('active');
+                    
+                    // Initialize cropper after modal is visible
+                    setTimeout(() => {
+                        if (currentCropper) {
+                            currentCropper.destroy();
+                        }
+                        
+                        currentCropper = new Cropper(cropImage, {
+                            aspectRatio: 1, // Force 1:1 aspect ratio
+                            viewMode: 1,
+                            dragMode: 'move',
+                            autoCropArea: 0.8,
+                            restore: false,
+                            guides: false, // Hide grid lines
+                            center: false, // Hide center indicator
+                            highlight: false,
+                            cropBoxMovable: true,
+                            cropBoxResizable: true,
+                            toggleDragModeOnDblclick: false
+                        });
+                    }, 100);
+                };
+                reader.readAsDataURL(file);
+            }
+
+            function closeCropModal() {
+                cropModalOverlay.classList.remove('active');
+                if (currentCropper) {
+                    currentCropper.destroy();
+                    currentCropper = null;
+                }
+                currentOriginalFile = null;
+                activeCropTarget = null;
+            }
+
+            function confirmCrop() {
+                if (!currentCropper) return;
+                
+                // Get cropped canvas
+                const canvas = currentCropper.getCroppedCanvas({
+                    width: 400,
+                    height: 400,
+                    imageSmoothingEnabled: true,
+                    imageSmoothingQuality: 'high'
+                });
+                
+                // Convert canvas to blob
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        // Create a new File object from the blob
+                        const croppedFile = new File([blob], currentOriginalFile.name, {
+                            type: currentOriginalFile.type,
+                            lastModified: Date.now()
+                        });
+                        
+                        // Apply the cropped image based on the target
+                        if (activeCropTarget === 'add') {
+                            applyImageToAdd(croppedFile, canvas.toDataURL());
+                        } else if (activeCropTarget === 'edit') {
+                            applyImageToEdit(croppedFile, canvas.toDataURL());
+                        }
+                        
+                        closeCropModal();
+                    }
+                }, currentOriginalFile.type, 0.9);
+            }
+
+            // Event listeners
+            cropCloseBtn.addEventListener('click', closeCropModal);
+            cropCancelBtn.addEventListener('click', closeCropModal);
+            cropConfirmBtn.addEventListener('click', confirmCrop);
+            
+            // Close on overlay click
+            cropModalOverlay.addEventListener('click', (e) => {
+                if (e.target === cropModalOverlay) {
+                    closeCropModal();
+                }
+            });
+
+            return { openCropModal, closeCropModal };
+        }
+
+        const cropModal = initCropModal();
+
+        function applyImageToAdd(croppedFile, dataUrl) {
+            currentImage = croppedFile;
+            const uploadContent = document.getElementById('upload-content');
+            uploadContent.innerHTML = `
+                <img src="${dataUrl}" alt="Preview" class="image-preview">
+                <div class="upload-text" style="margin-top: 0.5rem;">
+                    ${croppedFile.name} (cropped)<br>
+                    <small>Click to change image</small>
+                </div>
+            `;
+        }
+
+        function applyImageToEdit(croppedFile, dataUrl) {
+            editCurrentImage = croppedFile;
+            const uploadContent = document.getElementById('edit-upload-content');
+            uploadContent.innerHTML = `
+                <img src="${dataUrl}" alt="Preview" class="image-preview">
+                <div class="upload-text" style="margin-top: 0.5rem;">
+                    ${croppedFile.name} (cropped)<br>
+                    <small>Click to change image</small>
+                </div>
+            `;
+        }
 
         function computeSkillOrder(data) {
             const allSkills = new Set();
@@ -801,19 +955,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         return;
                     }
                     
-                    currentImage = file;
-                    
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        uploadContent.innerHTML = `
-                            <img src="${e.target.result}" alt="Preview" class="image-preview">
-                            <div class="upload-text" style="margin-top: 0.5rem;">
-                                ${file.name}<br>
-                                <small>Click to change image</small>
-                            </div>
-                        `;
-                    };
-                    reader.readAsDataURL(file);
+                    // Open cropping modal instead of directly setting the image
+                    cropModal.openCropModal(file, 'add');
                 }
             }
             
@@ -1206,19 +1349,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         return;
                     }
                     
-                    editCurrentImage = file;
-                    
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        uploadContent.innerHTML = `
-                            <img src="${e.target.result}" alt="Preview" class="image-preview">
-                            <div class="upload-text" style="margin-top: 0.5rem;">
-                                ${file.name}<br>
-                                <small>Click to change image</small>
-                            </div>
-                        `;
-                    };
-                    reader.readAsDataURL(file);
+                    // Open cropping modal instead of directly setting the image
+                    cropModal.openCropModal(file, 'edit');
                 }
             }
             
