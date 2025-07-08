@@ -1371,9 +1371,11 @@
 					if (data.valid) {
 						if (data.exists) {
 							showUrlError('This album already exists in the collection');
-						} else {
+						} else if (data.metadata) {
 							showUrlSuccess('Album found and accessible!');
 							showAlbumPreview(data.metadata);
+						} else {
+							showUrlError('Album metadata could not be loaded. Please check the URL.');
 						}
 					} else {
 						showUrlError(data.error || 'Invalid URL');
