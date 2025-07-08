@@ -9,10 +9,10 @@
 </head>
 <body>
     <nav>
-        <a href="/">Climbing</a>
-        <a href="/albums">Albums</a>
-        <a href="/memes">Memes</a>
         <a href="/crew" class="active">Crew</a>
+        <a href="/albums">Albums</a>
+        <a href="/knowledge">Knowledge</a>
+        <a href="/memes">Memes</a>
     </nav>
     <main class="page-fade">
         <h1>Crew Progress</h1>
@@ -551,7 +551,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 let vA = a[sortKey], vB = b[sortKey];
                 if (sortKey === "skills") vA = (a.skills.length + (a.tags ? a.tags.length : 0)), vB = (b.skills.length + (b.tags ? b.tags.length : 0));
                 if (sortKey === "location") vA = a.location[0] || "", vB = b.location[0] || "";
-                if (sortKey === "climbs") vA = a.climbs, vB = b.climbs;
+                if (sortKey === "mbs") vA = a.climbs, vB = b.climbs;
                 if (typeof vA === "string") return sortDir * vA.localeCompare(vB);
                 return sortDir * (vA - vB);
             });

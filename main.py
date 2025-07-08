@@ -472,7 +472,7 @@ async def get_image(url: str = Query(...)):
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    content = inject_css_version("static/index.html")
+    content = inject_css_version("static/crew.html")
     response = HTMLResponse(content=content, status_code=200)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
@@ -491,6 +491,16 @@ async def read_albums():
 @app.get("/memes", response_class=HTMLResponse)
 async def read_memes():
     content = inject_css_version("static/memes.html")
+    response = HTMLResponse(content=content, status_code=200)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+# Add knowledge page route
+@app.get("/knowledge", response_class=HTMLResponse)
+async def read_knowledge():
+    content = inject_css_version("static/index.html")
     response = HTMLResponse(content=content, status_code=200)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
