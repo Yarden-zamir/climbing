@@ -1163,15 +1163,8 @@
 							
 							<div class="skills-input-container">
 								<label class="form-label">Skills</label>
-								<input 
-									type="text" 
-									id="skills-input" 
-									class="skills-input" 
-									placeholder="Type to search and add skills..."
-									autocomplete="off"
-								>
-								<div class="skills-autocomplete" id="skills-autocomplete">
-									<!-- Autocomplete suggestions will appear here -->
+								<div class="skills-badges-container" id="skills-badges-container">
+									<!-- Available skills badges will appear here -->
 								</div>
 								<div class="selected-skills" id="selected-skills">
 									<!-- Selected skills will appear here -->
@@ -1246,14 +1239,9 @@
 							</div>
 							<div class="skills-input-container">
 								<label class="form-label">Skills</label>
-								<input 
-									type="text" 
-									id="edit-skills-input" 
-									class="skills-input" 
-									placeholder="Type to search and add skills..."
-									autocomplete="off"
-								>
-								<div class="skills-autocomplete" id="edit-skills-autocomplete"></div>
+								<div class="skills-badges-container" id="edit-skills-badges-container">
+									<!-- Available skills badges will appear here -->
+								</div>
 								<div class="selected-skills" id="edit-selected-skills"></div>
 							</div>
 							<div style="display: flex; gap: 0.5rem;">
@@ -1349,6 +1337,13 @@
 				allSkills = skills;
 				populateCrewSelector();
 				initNewPersonForm();
+				// Trigger initial render of skills badges
+				const skillsBadgesContainer = document.getElementById('skills-badges-container');
+				if (skillsBadgesContainer) {
+					skillsBadgesContainer.innerHTML = allSkills.map(skill => `
+						<div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+					`).join('');
+				}
 			});
 			
 			// Open modal
@@ -1570,54 +1565,32 @@
 			}
 			
 			function initSkillsAutocomplete() {
-				const skillsInput = document.getElementById('skills-input');
-				const autocomplete = document.getElementById('skills-autocomplete');
+				const skillsBadgesContainer = document.getElementById('skills-badges-container');
 				const selectedSkillsContainer = document.getElementById('selected-skills');
 				
-				skillsInput.addEventListener('input', (e) => {
-					const query = e.target.value.toLowerCase().trim();
-					
-					if (!query) {
-						autocomplete.style.display = 'none';
-						return;
-					}
-					
-					const filteredSkills = allSkills.filter(skill => 
-						skill.toLowerCase().includes(query) && 
-						!selectedSkills.includes(skill)
-					);
-					
-					if (filteredSkills.length === 0) {
-						autocomplete.style.display = 'none';
-						return;
-					}
-					
-					autocomplete.innerHTML = '';
-					filteredSkills.forEach(skill => {
-						const item = document.createElement('div');
-						item.className = 'skills-autocomplete-item';
-						item.textContent = skill;
-						item.addEventListener('click', () => addSkill(skill));
-						autocomplete.appendChild(item);
-					});
-					
-					autocomplete.style.display = 'block';
-				});
+				function renderSkillsBadges() {
+					skillsBadgesContainer.innerHTML = allSkills.map(skill => `
+						<div class="skill-badge-toggleable ${selectedSkills.includes(skill) ? 'selected' : ''}" 
+							 data-skill="${skill}">${skill}</div>
+					`).join('');
+				}
 				
-				skillsInput.addEventListener('keydown', (e) => {
-					if (e.key === 'Enter') {
-						e.preventDefault();
-						const query = e.target.value.trim();
-						if (query && !selectedSkills.includes(query)) {
-							addSkill(query);
+				// Handle badge clicks
+				skillsBadgesContainer.addEventListener('click', (e) => {
+					if (e.target.classList.contains('skill-badge-toggleable')) {
+						const skill = e.target.dataset.skill;
+						
+						if (selectedSkills.includes(skill)) {
+							// Remove skill
+							const index = selectedSkills.indexOf(skill);
+							selectedSkills.splice(index, 1);
+						} else {
+							// Add skill
+							selectedSkills.push(skill);
 						}
-					}
-				});
-				
-				// Close autocomplete when clicking outside
-				document.addEventListener('click', (e) => {
-					if (!skillsInput.contains(e.target) && !autocomplete.contains(e.target)) {
-						autocomplete.style.display = 'none';
+						
+						renderSkillsBadges();
+						updateSelectedSkills();
 					}
 				});
 				
@@ -1625,9 +1598,16 @@
 					if (selectedSkills.includes(skill)) return;
 					
 					selectedSkills.push(skill);
-					skillsInput.value = '';
-					autocomplete.style.display = 'none';
+					renderSkillsBadges();
 					updateSelectedSkills();
+				}
+				
+				// Store render function for external use
+				window.renderSkillsBadges = renderSkillsBadges;
+				
+				// Initial render once skills are loaded
+				if (allSkills.length > 0) {
+					renderSkillsBadges();
 				}
 				
 				function updateSelectedSkills() {
@@ -1646,6 +1626,7 @@
 				// Make removeSkill available globally
 				window.removeSkill = function(index) {
 					selectedSkills.splice(index, 1);
+					if (window.renderSkillsBadges) window.renderSkillsBadges();
 					updateSelectedSkills();
 				};
 			}
@@ -1704,10 +1685,16 @@
 			
 			function resetNewPersonForm() {
 				document.getElementById('new-person-name').value = '';
-				document.getElementById('skills-input').value = '';
-				document.getElementById('skills-autocomplete').style.display = 'none';
 				selectedSkills = [];
 				currentPersonImage = null;
+				
+				// Reset skills badges
+				const skillsBadgesContainer = document.getElementById('skills-badges-container');
+				if (skillsBadgesContainer && allSkills.length > 0) {
+					skillsBadgesContainer.innerHTML = allSkills.map(skill => `
+						<div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+					`).join('');
+				}
 				
 				document.getElementById('selected-skills').innerHTML = '';
 				document.getElementById('upload-content').innerHTML = `

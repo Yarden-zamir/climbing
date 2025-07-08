@@ -78,15 +78,8 @@
                     
                     <div class="skills-input-container">
                         <label class="form-label">Skills</label>
-                        <input 
-                            type="text" 
-                            id="skills-input" 
-                            class="skills-input" 
-                            placeholder="Type to search and add skills..."
-                            autocomplete="off"
-                        >
-                        <div class="skills-autocomplete" id="skills-autocomplete">
-                            <!-- Autocomplete suggestions will appear here -->
+                        <div class="skills-badges-container" id="skills-badges-container">
+                            <!-- Available skills badges will appear here -->
                         </div>
                         <div class="selected-skills" id="selected-skills">
                             <!-- Selected skills will appear here -->
@@ -162,15 +155,8 @@
                     
                     <div class="skills-input-container">
                         <label class="form-label">Skills</label>
-                        <input 
-                            type="text" 
-                            id="edit-skills-input" 
-                            class="skills-input" 
-                            placeholder="Type to search and add skills..."
-                            autocomplete="off"
-                        >
-                        <div class="skills-autocomplete" id="edit-skills-autocomplete">
-                            <!-- Autocomplete suggestions will appear here -->
+                        <div class="skills-badges-container" id="edit-skills-badges-container">
+                            <!-- Available skills badges will appear here -->
                         </div>
                         <div class="selected-skills" id="edit-selected-skills">
                             <!-- Selected skills will appear here -->
@@ -203,6 +189,28 @@
                 <div class="crop-modal-footer">
                     <button type="button" class="crop-btn crop-btn-cancel" id="crop-cancel-btn">Cancel</button>
                     <button type="button" class="crop-btn crop-btn-confirm" id="crop-confirm-btn">Crop & Use</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Skill Modal -->
+        <div class="add-crew-modal-overlay" id="add-skill-modal-overlay">
+            <div class="add-crew-modal" id="add-skill-modal">
+                <div class="add-crew-modal-header">
+                    <h3 class="add-crew-modal-title" id="add-skill-modal-title">Add Skill</h3>
+                    <button class="add-crew-modal-close" id="add-skill-modal-close">&times;</button>
+                </div>
+                <div class="add-crew-form">
+                    <div class="form-group">
+                        <label class="form-label">Available Skills</label>
+                        <div class="skills-badges-container" id="add-skill-badges-container">
+                            <!-- Available skills badges will appear here -->
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                        <button type="button" class="submit-btn" id="add-skill-cancel-btn" style="background: #666;">Cancel</button>
+                        <button type="button" class="submit-btn" id="add-skill-submit-btn">Add Skills</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -467,6 +475,7 @@
                         ? `<span class="tag-badge">${tag}</span>`
                         : ""
                 ).join("")}
+                <span class="skill-add-badge" data-crew-name="${encodeURIComponent(c.name)}" title="Add skill" style="display: none;">+</span>
             </td>
             <td data-label="Level">
                 <span class="level-badge" data-idx="${idx}" tabindex="0">
@@ -551,6 +560,11 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             document.querySelectorAll('.crew-table tbody tr').forEach(r => {
                 r.classList.remove('expanded-row');
                 r.classList.remove('highlighted-crew');
+                // Hide plus badges
+                const plusBadge = r.querySelector('.skill-add-badge');
+                if (plusBadge) {
+                    plusBadge.style.display = 'none';
+                }
             });
             
             // Clear URL parameter
@@ -648,9 +662,10 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             // Add click handler to each row for highlight
             document.querySelectorAll('.crew-table tbody tr').forEach(row => {
                 row.addEventListener('click', function (e) {
-                    // Avoid interfering with level badge, climbs badge, and crew face clicks
+                    // Avoid interfering with level badge, climbs badge, skill add badge, and crew face clicks
                     if (e.target.classList.contains('level-badge') || 
                         e.target.classList.contains('climbs-badge') || 
+                        e.target.classList.contains('skill-add-badge') ||
                         e.target.classList.contains('crew-face')) return;
                     const climberName = row.getAttribute('data-climber-name');
                     if (climberName) {
@@ -665,10 +680,23 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         });
                         document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('expanded-row'));
                         
-                        document.querySelectorAll('.crew-table tbody tr').forEach(r => r.classList.remove('highlighted-crew'));
+                        document.querySelectorAll('.crew-table tbody tr').forEach(r => {
+                            r.classList.remove('highlighted-crew');
+                            // Hide plus badges from all other rows
+                            const plusBadge = r.querySelector('.skill-add-badge');
+                            if (plusBadge) {
+                                plusBadge.style.display = 'none';
+                            }
+                        });
                         
                         if (!isCurrentlyHighlighted) {
                             row.classList.add('highlighted-crew');
+                            
+                            // Show plus badge for selected row
+                            const plusBadge = row.querySelector('.skill-add-badge');
+                            if (plusBadge) {
+                                plusBadge.style.display = 'inline-flex';
+                            }
                             
                             // Update URL
                             const url = new URL(window.location);
@@ -681,6 +709,12 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                             const url = new URL(window.location);
                             url.searchParams.delete('highlight');
                             history.pushState({}, '', url.toString());
+                            
+                            // Hide plus badge when deselecting
+                            const plusBadge = row.querySelector('.skill-add-badge');
+                            if (plusBadge) {
+                                plusBadge.style.display = 'none';
+                            }
                         }
                         
                         // Update edit FAB visibility
@@ -721,16 +755,53 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             for (const row of rows) {
                 const nameCell = row.querySelector('td[data-label="Name"]');
                 if (nameCell && norm(nameCell.textContent) === norm(highlight)) {
-                    row.classList.add("highlighted-crew");
-                    
-                    // Update edit FAB visibility
-                    if (window.updateEditFabVisibility) {
-                        window.updateEditFabVisibility();
-                    }
-                    
+                    selectCrewRow(row);
                     row.scrollIntoView({ behavior: "smooth", block: "center" });
                     break;
                 }
+            }
+        }
+
+        function selectCrewRow(row) {
+            // Clear previous selections
+            document.querySelectorAll('.crew-table tbody tr').forEach(r => {
+                r.classList.remove('highlighted-crew');
+                const plusBadge = r.querySelector('.skill-add-badge');
+                if (plusBadge) {
+                    plusBadge.style.display = 'none';
+                }
+            });
+            
+            // Select new row
+            row.classList.add('highlighted-crew');
+            const plusBadge = row.querySelector('.skill-add-badge');
+            if (plusBadge) {
+                plusBadge.style.display = 'inline-flex';
+            }
+            
+            // Update edit FAB visibility
+            if (window.updateEditFabVisibility) {
+                window.updateEditFabVisibility();
+            }
+        }
+
+        function clearCrewSelection() {
+            document.querySelectorAll('.crew-table tbody tr').forEach(row => {
+                row.classList.remove('highlighted-crew');
+                const plusBadge = row.querySelector('.skill-add-badge');
+                if (plusBadge) {
+                    plusBadge.style.display = 'none';
+                }
+            });
+            
+            // Clear URL parameter
+            const url = new URL(window.location);
+            url.searchParams.delete('highlight');
+            history.pushState({}, '', url.toString());
+            
+            // Update edit FAB visibility
+            if (window.updateEditFabVisibility) {
+                window.updateEditFabVisibility();
             }
         }
 
@@ -740,10 +811,21 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 crewData = data;
                 computeSkillOrder(crewData);
                 sortAndRender();
+                
+                // Add click handler for skill add badges
+                document.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('skill-add-badge')) {
+                        const crewName = decodeURIComponent(e.target.dataset.crewName);
+                        openAddSkillModal(crewName);
+                    }
+                });
             });
 
         // Initialize add crew functionality
         initAddCrewModal();
+        
+        // Initialize add skill functionality
+        initAddSkillModal();
 
         // Add Crew Modal Functionality
         function initAddCrewModal() {
@@ -765,6 +847,13 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 .then(skills => {
                     allSkills = skills;
                     initSkillsAutocomplete();
+                    // Trigger initial render of skills badges
+                    const skillsBadgesContainer = document.getElementById('skills-badges-container');
+                    if (skillsBadgesContainer) {
+                        skillsBadgesContainer.innerHTML = allSkills.map(skill => `
+                            <div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+                        `).join('');
+                    }
                 })
                 .catch(e => console.warn('Could not load skills:', e));
             
@@ -812,82 +901,36 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 updateSubmitButton();
             });
             
-            // Skills autocomplete functionality
+            // Skills badges functionality
             function initSkillsAutocomplete() {
-                const skillsInput = document.getElementById('skills-input');
-                const autocomplete = document.getElementById('skills-autocomplete');
+                const skillsBadgesContainer = document.getElementById('skills-badges-container');
                 const selectedSkillsDiv = document.getElementById('selected-skills');
-                let highlightedIndex = -1;
                 
-                skillsInput.addEventListener('input', (e) => {
-                    const query = e.target.value.toLowerCase().trim();
-                    
-                    if (!query) {
-                        autocomplete.style.display = 'none';
-                        return;
-                    }
-                    
-                    const matches = allSkills.filter(skill => 
-                        skill.toLowerCase().includes(query) && 
-                        !selectedSkills.includes(skill)
-                    );
-                    
-                    if (matches.length === 0) {
-                        autocomplete.style.display = 'none';
-                        return;
-                    }
-                    
-                    autocomplete.innerHTML = matches.map((skill, index) => `
-                        <div class="skill-suggestion" data-skill="${skill}" data-index="${index}">${skill}</div>
+                function renderSkillsBadges() {
+                    skillsBadgesContainer.innerHTML = allSkills.map(skill => `
+                        <div class="skill-badge-toggleable ${selectedSkills.includes(skill) ? 'selected' : ''}" 
+                             data-skill="${skill}">${skill}</div>
                     `).join('');
-                    
-                    autocomplete.style.display = 'block';
-                    highlightedIndex = -1;
-                });
+                }
                 
-                skillsInput.addEventListener('keydown', (e) => {
-                    const suggestions = autocomplete.querySelectorAll('.skill-suggestion');
-                    
-                    if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        highlightedIndex = Math.min(highlightedIndex + 1, suggestions.length - 1);
-                        updateHighlight(suggestions);
-                    } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        highlightedIndex = Math.max(highlightedIndex - 1, -1);
-                        updateHighlight(suggestions);
-                    } else if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
-                            addSkill(suggestions[highlightedIndex].dataset.skill);
+                // Handle badge clicks
+                skillsBadgesContainer.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('skill-badge-toggleable')) {
+                        const skill = e.target.dataset.skill;
+                        
+                        if (selectedSkills.includes(skill)) {
+                            // Remove skill
+                            const index = selectedSkills.indexOf(skill);
+                            selectedSkills.splice(index, 1);
+                        } else {
+                            // Add skill
+                            selectedSkills.push(skill);
                         }
-                    } else if (e.key === 'Escape') {
-                        autocomplete.style.display = 'none';
-                        highlightedIndex = -1;
-                    }
-                });
-                
-                autocomplete.addEventListener('click', (e) => {
-                    if (e.target.classList.contains('skill-suggestion')) {
-                        addSkill(e.target.dataset.skill);
-                    }
-                });
-                
-                function updateHighlight(suggestions) {
-                    suggestions.forEach((suggestion, index) => {
-                        suggestion.classList.toggle('highlighted', index === highlightedIndex);
-                    });
-                }
-                
-                function addSkill(skill) {
-                    if (!selectedSkills.includes(skill)) {
-                        selectedSkills.push(skill);
+                        
+                        renderSkillsBadges();
                         updateSelectedSkills();
-                        skillsInput.value = '';
-                        autocomplete.style.display = 'none';
-                        highlightedIndex = -1;
                     }
-                }
+                });
                 
                 function updateSelectedSkills() {
                     selectedSkillsDiv.innerHTML = selectedSkills.map((skill, index) => `
@@ -901,15 +944,14 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 // Make removeSkill available globally
                 window.removeSkill = function(index) {
                     selectedSkills.splice(index, 1);
+                    renderSkillsBadges();
                     updateSelectedSkills();
                 };
                 
-                // Hide autocomplete when clicking outside
-                document.addEventListener('click', (e) => {
-                    if (!skillsInput.contains(e.target) && !autocomplete.contains(e.target)) {
-                        autocomplete.style.display = 'none';
-                    }
-                });
+                // Initial render once skills are loaded
+                if (allSkills.length > 0) {
+                    renderSkillsBadges();
+                }
             }
             
             // Image upload functionality
@@ -1074,7 +1116,15 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 document.getElementById('name-error').style.display = 'none';
                 nameInput.classList.remove('error');
                 document.getElementById('submission-status').innerHTML = '';
-                document.getElementById('skills-autocomplete').style.display = 'none';
+                
+                // Reset skills badges
+                const skillsBadgesContainer = document.getElementById('skills-badges-container');
+                if (skillsBadgesContainer && allSkills.length > 0) {
+                    skillsBadgesContainer.innerHTML = allSkills.map(skill => `
+                        <div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+                    `).join('');
+                }
+                
                 submitBtn.textContent = 'Add Crew Member';
                 updateSubmitButton();
             }
@@ -1102,6 +1152,13 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 .then(skills => {
                     editAllSkills = skills;
                     initEditSkillsAutocomplete();
+                    // Trigger initial render of edit skills badges
+                    const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
+                    if (editSkillsBadgesContainer) {
+                        editSkillsBadgesContainer.innerHTML = editAllSkills.map(skill => `
+                            <div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+                        `).join('');
+                    }
                 })
                 .catch(e => console.warn('Could not load skills:', e));
             
@@ -1206,88 +1263,43 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 updateEditSubmitButton();
             });
             
-            // Skills autocomplete functionality
+            // Skills badges functionality
             function initEditSkillsAutocomplete() {
-                const skillsInput = document.getElementById('edit-skills-input');
-                const autocomplete = document.getElementById('edit-skills-autocomplete');
-                let highlightedIndex = -1;
+                const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
                 
-                skillsInput.addEventListener('input', (e) => {
-                    const query = e.target.value.toLowerCase().trim();
-                    
-                    if (!query) {
-                        autocomplete.style.display = 'none';
-                        return;
-                    }
-                    
-                    const matches = editAllSkills.filter(skill => 
-                        skill.toLowerCase().includes(query) && 
-                        !editSelectedSkills.includes(skill)
-                    );
-                    
-                    if (matches.length === 0) {
-                        autocomplete.style.display = 'none';
-                        return;
-                    }
-                    
-                    autocomplete.innerHTML = matches.map((skill, index) => `
-                        <div class="skill-suggestion" data-skill="${skill}" data-index="${index}">${skill}</div>
+                function renderEditSkillsBadges() {
+                    editSkillsBadgesContainer.innerHTML = editAllSkills.map(skill => `
+                        <div class="skill-badge-toggleable ${editSelectedSkills.includes(skill) ? 'selected' : ''}" 
+                             data-skill="${skill}">${skill}</div>
                     `).join('');
-                    
-                    autocomplete.style.display = 'block';
-                    highlightedIndex = -1;
-                });
+                }
                 
-                skillsInput.addEventListener('keydown', (e) => {
-                    const suggestions = autocomplete.querySelectorAll('.skill-suggestion');
-                    
-                    if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        highlightedIndex = Math.min(highlightedIndex + 1, suggestions.length - 1);
-                        updateEditHighlight(suggestions);
-                    } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        highlightedIndex = Math.max(highlightedIndex - 1, -1);
-                        updateEditHighlight(suggestions);
-                    } else if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
-                            addEditSkill(suggestions[highlightedIndex].dataset.skill);
+                // Handle badge clicks
+                editSkillsBadgesContainer.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('skill-badge-toggleable')) {
+                        const skill = e.target.dataset.skill;
+                        
+                        if (editSelectedSkills.includes(skill)) {
+                            // Remove skill
+                            const index = editSelectedSkills.indexOf(skill);
+                            editSelectedSkills.splice(index, 1);
+                        } else {
+                            // Add skill
+                            editSelectedSkills.push(skill);
                         }
-                    } else if (e.key === 'Escape') {
-                        autocomplete.style.display = 'none';
-                        highlightedIndex = -1;
-                    }
-                });
-                
-                autocomplete.addEventListener('click', (e) => {
-                    if (e.target.classList.contains('skill-suggestion')) {
-                        addEditSkill(e.target.dataset.skill);
-                    }
-                });
-                
-                function updateEditHighlight(suggestions) {
-                    suggestions.forEach((suggestion, index) => {
-                        suggestion.classList.toggle('highlighted', index === highlightedIndex);
-                    });
-                }
-                
-                function addEditSkill(skill) {
-                    if (!editSelectedSkills.includes(skill)) {
-                        editSelectedSkills.push(skill);
+                        
+                        renderEditSkillsBadges();
                         updateEditSelectedSkills();
-                        skillsInput.value = '';
-                        autocomplete.style.display = 'none';
-                        highlightedIndex = -1;
-                    }
-                }
-                
-                // Hide autocomplete when clicking outside
-                document.addEventListener('click', (e) => {
-                    if (!skillsInput.contains(e.target) && !autocomplete.contains(e.target)) {
-                        autocomplete.style.display = 'none';
                     }
                 });
+                
+                // Store render function for external use
+                window.renderEditSkillsBadges = renderEditSkillsBadges;
+                
+                // Initial render once skills are loaded
+                if (editAllSkills.length > 0) {
+                    renderEditSkillsBadges();
+                }
             }
             
             function updateEditSelectedSkills() {
@@ -1303,6 +1315,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             // Make removeEditSkill available globally
             window.removeEditSkill = function(index) {
                 editSelectedSkills.splice(index, 1);
+                if (window.renderEditSkillsBadges) window.renderEditSkillsBadges();
                 updateEditSelectedSkills();
             };
             
@@ -1526,15 +1539,133 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 if (!e.target.closest('.crew-face')) {
                     closeAllEnlargedFaces();
                 }
+                
+                // Clear crew selection when clicking outside the crew table
+                if (!e.target.closest('.crew-table') && !e.target.closest('.add-crew-modal') && !e.target.closest('.add-skill-modal')) {
+                    clearCrewSelection();
+                }
             });
             
-            // Close enlarged faces on Escape key
+            // Close enlarged faces and clear selection on Escape key
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') {
                     closeAllEnlargedFaces();
+                    clearCrewSelection();
                 }
             });
         });
+
+        // Add Skill Modal Functionality
+        function initAddSkillModal() {
+            const modalOverlay = document.getElementById('add-skill-modal-overlay');
+            const modal = document.getElementById('add-skill-modal');
+            const closeBtn = document.getElementById('add-skill-modal-close');
+            const cancelBtn = document.getElementById('add-skill-cancel-btn');
+            const submitBtn = document.getElementById('add-skill-submit-btn');
+            const badgesContainer = document.getElementById('add-skill-badges-container');
+            const modalTitle = document.getElementById('add-skill-modal-title');
+            
+            let currentCrewMember = null;
+            let selectedSkillsToAdd = [];
+            let availableSkillsForMember = [];
+            
+            // Close modal function
+            const closeModal = () => {
+                modal.classList.remove('active');
+                setTimeout(() => {
+                    modalOverlay.classList.remove('active');
+                    resetSkillModal();
+                }, 300);
+            };
+            
+            // Reset modal state
+            function resetSkillModal() {
+                currentCrewMember = null;
+                selectedSkillsToAdd = [];
+                availableSkillsForMember = [];
+                badgesContainer.innerHTML = '';
+            }
+            
+            // Render available skills badges
+            function renderAvailableSkills() {
+                badgesContainer.innerHTML = availableSkillsForMember.map(skill => `
+                    <div class="skill-badge-toggleable ${selectedSkillsToAdd.includes(skill) ? 'selected' : ''}" 
+                         data-skill="${skill}">${skill}</div>
+                `).join('');
+            }
+            
+            // Handle badge clicks
+            badgesContainer.addEventListener('click', (e) => {
+                if (e.target.classList.contains('skill-badge-toggleable')) {
+                    const skill = e.target.dataset.skill;
+                    
+                    if (selectedSkillsToAdd.includes(skill)) {
+                        // Remove skill from selection
+                        const index = selectedSkillsToAdd.indexOf(skill);
+                        selectedSkillsToAdd.splice(index, 1);
+                    } else {
+                        // Add skill to selection
+                        selectedSkillsToAdd.push(skill);
+                    }
+                    
+                    renderAvailableSkills();
+                }
+            });
+            
+            // Event listeners
+            closeBtn.addEventListener('click', closeModal);
+            cancelBtn.addEventListener('click', closeModal);
+            modalOverlay.addEventListener('click', (e) => {
+                if (e.target === modalOverlay) closeModal();
+            });
+            
+            // Submit skills
+            submitBtn.addEventListener('click', async () => {
+                if (!currentCrewMember || selectedSkillsToAdd.length === 0) return;
+                
+                try {
+                    const response = await fetch('/api/crew/add-skills', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            crew_name: currentCrewMember,
+                            skills: selectedSkillsToAdd
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        // Refresh the page to show updated skills
+                        window.location.reload();
+                    } else {
+                        const errorData = await response.json();
+                        alert('Failed to add skills: ' + (errorData.detail || 'Unknown error'));
+                    }
+                } catch (error) {
+                    alert('Network error occurred');
+                }
+            });
+            
+            // Expose openAddSkillModal function globally
+            window.openAddSkillModal = function(crewName) {
+                const member = crewData.find(c => c.name === crewName);
+                if (!member) return;
+                
+                currentCrewMember = crewName;
+                modalTitle.textContent = `Add Skills to ${crewName}`;
+                
+                // Get skills that the member doesn't already have
+                const currentSkills = member.skills || [];
+                availableSkillsForMember = skillOrder.filter(skill => !currentSkills.includes(skill));
+                
+                selectedSkillsToAdd = [];
+                renderAvailableSkills();
+                
+                modalOverlay.classList.add('active');
+                setTimeout(() => modal.classList.add('active'), 50);
+            };
+        }
     </script>
 </body>
 </html>

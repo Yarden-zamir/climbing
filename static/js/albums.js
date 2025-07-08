@@ -637,6 +637,13 @@ fetch('/api/skills')
     .then(skills => {
         editAllSkills = skills;
         initEditSkillsAutocomplete();
+        // Trigger initial render of edit skills badges
+        const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
+        if (editSkillsBadgesContainer) {
+            editSkillsBadgesContainer.innerHTML = editAllSkills.map(skill => `
+                <div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+            `).join('');
+        }
     });
 
 initEditNewPersonForm();
@@ -696,53 +703,48 @@ function initEditNewPersonForm() {
 }
 
 function initEditSkillsAutocomplete() {
-    const skillsInput = document.getElementById('edit-skills-input');
-    const autocomplete = document.getElementById('edit-skills-autocomplete');
+    const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
     const selectedSkillsContainer = document.getElementById('edit-selected-skills');
-    skillsInput.addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase().trim();
-        if (!query) {
-            autocomplete.style.display = 'none';
-            return;
-        }
-        const filteredSkills = editAllSkills.filter(skill => 
-            skill.toLowerCase().includes(query) && 
-            !editSelectedSkills.includes(skill)
-        );
-        if (filteredSkills.length === 0) {
-            autocomplete.style.display = 'none';
-            return;
-        }
-        autocomplete.innerHTML = '';
-        filteredSkills.forEach(skill => {
-            const item = document.createElement('div');
-            item.className = 'skills-autocomplete-item';
-            item.textContent = skill;
-            item.addEventListener('click', () => addEditSkill(skill));
-            autocomplete.appendChild(item);
-        });
-        autocomplete.style.display = 'block';
-    });
-    skillsInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const query = e.target.value.trim();
-            if (query && !editSelectedSkills.includes(query)) {
-                addEditSkill(query);
+    
+    function renderEditSkillsBadges() {
+        editSkillsBadgesContainer.innerHTML = editAllSkills.map(skill => `
+            <div class="skill-badge-toggleable ${editSelectedSkills.includes(skill) ? 'selected' : ''}" 
+                 data-skill="${skill}">${skill}</div>
+        `).join('');
+    }
+    
+    // Handle badge clicks
+    editSkillsBadgesContainer.addEventListener('click', (e) => {
+        if (e.target.classList.contains('skill-badge-toggleable')) {
+            const skill = e.target.dataset.skill;
+            
+            if (editSelectedSkills.includes(skill)) {
+                // Remove skill
+                const index = editSelectedSkills.indexOf(skill);
+                editSelectedSkills.splice(index, 1);
+            } else {
+                // Add skill
+                editSelectedSkills.push(skill);
             }
+            
+            renderEditSkillsBadges();
+            updateEditSelectedSkills();
         }
     });
-    document.addEventListener('click', (e) => {
-        if (!skillsInput.contains(e.target) && !autocomplete.contains(e.target)) {
-            autocomplete.style.display = 'none';
-        }
-    });
+    
     function addEditSkill(skill) {
         if (editSelectedSkills.includes(skill)) return;
         editSelectedSkills.push(skill);
-        skillsInput.value = '';
-        autocomplete.style.display = 'none';
+        renderEditSkillsBadges();
         updateEditSelectedSkills();
+    }
+    
+    // Store render function for external use
+    window.renderEditSkillsBadges = renderEditSkillsBadges;
+    
+    // Initial render once skills are loaded
+    if (editAllSkills.length > 0) {
+        renderEditSkillsBadges();
     }
     function updateEditSelectedSkills() {
         selectedSkillsContainer.innerHTML = '';
@@ -805,10 +807,17 @@ function initEditImageUpload() {
 
 function resetEditNewPersonForm() {
     document.getElementById('edit-new-person-name').value = '';
-    document.getElementById('edit-skills-input').value = '';
-    document.getElementById('edit-skills-autocomplete').style.display = 'none';
     editSelectedSkills = [];
     editCurrentPersonImage = null;
+    
+    // Reset edit skills badges
+    const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
+    if (editSkillsBadgesContainer && editAllSkills.length > 0) {
+        editSkillsBadgesContainer.innerHTML = editAllSkills.map(skill => `
+            <div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+        `).join('');
+    }
+    
     document.getElementById('edit-selected-skills').innerHTML = '';
     document.getElementById('edit-upload-content').innerHTML = `
         <div class="upload-text">

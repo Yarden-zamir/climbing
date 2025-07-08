@@ -344,9 +344,8 @@ def parse_meta_tags(html: str, url: str):
     }
 
 
-
-@app.get("/api/crew")
-def get_crew():
+def get_crew_data():
+    """Helper function that returns raw crew data (not JSONResponse)"""
     climbers_dir = Path("climbers")
     albums_path = Path("static/albums.json")
     # Load albums.json
@@ -413,6 +412,12 @@ def get_crew():
             "is_new": is_new,
             "first_climb_date": first_climb_date,
         })
+    return crew
+
+
+@app.get("/api/crew")
+def get_crew():
+    crew = get_crew_data()
     return JSONResponse(crew)
 
 # --- API Routes ---
@@ -1344,6 +1349,65 @@ async def edit_crew_member(edit_data: CrewEdit):
         "pr_number": pr_result["pr_number"]
     })
 
+
+class AddSkillsRequest(BaseModel):
+    crew_name: str
+    skills: List[str]
+
+
+@app.post("/api/crew/add-skills")
+async def add_skills_to_crew_member(request: AddSkillsRequest):
+    """Add skills to an existing crew member and create a PR for the changes."""
+
+    # Validate input
+    if not request.crew_name or not request.crew_name.strip():
+        raise HTTPException(status_code=400, detail="Crew name is required")
+    if not request.skills:
+        raise HTTPException(status_code=400, detail="At least one skill is required")
+
+    # Check if crew member exists and get their current data
+    try:
+        crew_data = get_crew_data()
+        existing_member = None
+        for member in crew_data:
+            if member.get("name", "") == request.crew_name:
+                existing_member = member
+                break
+
+        if not existing_member:
+            raise HTTPException(status_code=404, detail="Crew member not found")
+
+        # Get current skills and add new ones
+        current_skills = existing_member.get("skills", [])
+        updated_skills = current_skills + [skill for skill in request.skills if skill not in current_skills]
+
+        # Create edit data with updated skills
+        edit_data = CrewEdit(
+            original_name=request.crew_name,
+            name=request.crew_name,
+            skills=updated_skills,
+            location=existing_member.get("location", []),
+            temp_image_path=None
+        )
+
+        # Create GitHub PR
+        pr_result = create_crew_edit_pr(edit_data)
+
+        return JSONResponse({
+            "success": True,
+            "message": f"Skills added to {request.crew_name} successfully! A pull request has been created for review.",
+            "crew_name": request.crew_name,
+            "added_skills": [skill for skill in request.skills if skill not in current_skills],
+            "pr_url": pr_result["pr_url"],
+            "pr_number": pr_result["pr_number"]
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding skills to crew member: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @app.post("/api/albums/submit")
 async def submit_album(submission: AlbumSubmission):
     """Submit a new album for review and automatic PR creation."""
@@ -1369,7 +1433,7 @@ async def submit_album(submission: AlbumSubmission):
 
     if existing_crew:
         try:
-            crew_data = get_crew()
+            crew_data = get_crew_data()
             existing_names = [member.get("name", "") for member in crew_data]
             for crew_name in existing_crew:
                 if crew_name not in existing_names:
