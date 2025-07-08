@@ -675,33 +675,7 @@
 			color: #1a1a1a;
 		}
 		
-		.selected-skills {
-			display: flex;
-			flex-wrap: wrap;
-			gap: 0.5rem;
-			margin-top: 0.5rem;
-		}
-		
-		.skill-tag {
-			background: #ffae52;
-			color: #1a1a1a;
-			padding: 0.3rem 0.8rem;
-			border-radius: 20px;
-			font-size: 0.9rem;
-			font-weight: 600;
-			display: flex;
-			align-items: center;
-			gap: 0.5rem;
-		}
-		
-		.skill-tag-remove {
-			background: none;
-			border: none;
-			color: #1a1a1a;
-			cursor: pointer;
-			font-weight: bold;
-			padding: 0;
-		}
+
 		
 		.image-upload-container {
 			margin-bottom: 1rem;
@@ -1166,9 +1140,6 @@
 								<div class="skills-badges-container" id="skills-badges-container">
 									<!-- Available skills badges will appear here -->
 								</div>
-								<div class="selected-skills" id="selected-skills">
-									<!-- Selected skills will appear here -->
-								</div>
 							</div>
 							
 							<div style="display: flex; gap: 0.5rem;">
@@ -1239,10 +1210,9 @@
 							</div>
 							<div class="skills-input-container">
 								<label class="form-label">Skills</label>
-								<div class="skills-badges-container" id="edit-skills-badges-container">
+								<div class="skills-badges-container" id="edit-album-skills-badges-container">
 									<!-- Available skills badges will appear here -->
 								</div>
-								<div class="selected-skills" id="edit-selected-skills"></div>
 							</div>
 							<div style="display: flex; gap: 0.5rem;">
 								<button type="button" class="add-person-btn" id="edit-add-person-btn">Add Person</button>
@@ -1341,7 +1311,7 @@
 				const skillsBadgesContainer = document.getElementById('skills-badges-container');
 				if (skillsBadgesContainer) {
 					skillsBadgesContainer.innerHTML = allSkills.map(skill => `
-						<div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+						<div class="skill-badge-toggleable ${selectedSkills.includes(skill) ? 'selected' : ''}" data-skill="${skill}">${skill}</div>
 					`).join('');
 				}
 			});
@@ -1566,7 +1536,6 @@
 			
 			function initSkillsAutocomplete() {
 				const skillsBadgesContainer = document.getElementById('skills-badges-container');
-				const selectedSkillsContainer = document.getElementById('selected-skills');
 				
 				function renderSkillsBadges() {
 					skillsBadgesContainer.innerHTML = allSkills.map(skill => `
@@ -1590,7 +1559,6 @@
 						}
 						
 						renderSkillsBadges();
-						updateSelectedSkills();
 					}
 				});
 				
@@ -1599,7 +1567,6 @@
 					
 					selectedSkills.push(skill);
 					renderSkillsBadges();
-					updateSelectedSkills();
 				}
 				
 				// Store render function for external use
@@ -1609,26 +1576,6 @@
 				if (allSkills.length > 0) {
 					renderSkillsBadges();
 				}
-				
-				function updateSelectedSkills() {
-					selectedSkillsContainer.innerHTML = '';
-					selectedSkills.forEach((skill, index) => {
-						const tag = document.createElement('div');
-						tag.className = 'skill-tag';
-						tag.innerHTML = `
-							${skill}
-							<button type="button" class="skill-tag-remove" onclick="removeSkill(${index})">×</button>
-						`;
-						selectedSkillsContainer.appendChild(tag);
-					});
-				}
-				
-				// Make removeSkill available globally
-				window.removeSkill = function(index) {
-					selectedSkills.splice(index, 1);
-					if (window.renderSkillsBadges) window.renderSkillsBadges();
-					updateSelectedSkills();
-				};
 			}
 			
 			function initImageUpload() {
@@ -1692,11 +1639,11 @@
 				const skillsBadgesContainer = document.getElementById('skills-badges-container');
 				if (skillsBadgesContainer && allSkills.length > 0) {
 					skillsBadgesContainer.innerHTML = allSkills.map(skill => `
-						<div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+						<div class="skill-badge-toggleable ${selectedSkills.includes(skill) ? 'selected' : ''}" data-skill="${skill}">${skill}</div>
 					`).join('');
 				}
 				
-				document.getElementById('selected-skills').innerHTML = '';
+
 				document.getElementById('upload-content').innerHTML = `
 					<div class="upload-text">
 						📷 Click or drag to upload profile image<br>

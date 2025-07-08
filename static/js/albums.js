@@ -2,6 +2,9 @@ document.addEventListener("DOMContentLoaded", () => {
 	const container = document.getElementById("albums-container");
 	let allAlbums = []; // Store all album cards for filtering
 	let allPeople = new Set(); // Store all unique people
+	
+	// Make allPeople globally accessible for edit functions
+	window.allPeople = allPeople;
 	let selectedPeople = new Set(); // Store currently selected people
 
 	// Cropping variables
@@ -109,6 +112,9 @@ document.addEventListener("DOMContentLoaded", () => {
 	}
 
 	const cropModal = initCropModal();
+	
+	// Make cropModal globally accessible for edit functions
+	window.cropModal = cropModal;
 
 	function applyImageToAdd(croppedFile, dataUrl) {
 		currentPersonImage = croppedFile;
@@ -638,15 +644,15 @@ fetch('/api/skills')
         editAllSkills = skills;
         initEditSkillsAutocomplete();
         // Trigger initial render of edit skills badges
-        const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
+        const editSkillsBadgesContainer = document.getElementById('edit-album-skills-badges-container');
         if (editSkillsBadgesContainer) {
             editSkillsBadgesContainer.innerHTML = editAllSkills.map(skill => `
-                <div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+                <div class="skill-badge-toggleable ${editSelectedSkills.includes(skill) ? 'selected' : ''}" data-skill="${skill}">${skill}</div>
             `).join('');
         }
+        // Initialize form after skills are loaded
+        initEditNewPersonForm();
     });
-
-initEditNewPersonForm();
 
 function initEditNewPersonForm() {
     const showBtn = document.getElementById('edit-show-new-person-btn');
@@ -669,8 +675,6 @@ function initEditNewPersonForm() {
         showBtn.style.display = 'block';
         nameInput.removeAttribute('required');
     });
-    // Skills autocomplete
-    initEditSkillsAutocomplete();
     // Image upload
     initEditImageUpload();
     // Add person
@@ -681,7 +685,7 @@ function initEditNewPersonForm() {
             return;
         }
         // Check if person already exists
-        if (crewData.some(p => p.name.toLowerCase() === name.toLowerCase()) || 
+        if (Array.from(window.allPeople).some(p => p.toLowerCase() === name.toLowerCase()) || 
             editNewPeople.some(p => p.name.toLowerCase() === name.toLowerCase())) {
             alert('This person already exists');
             return;
@@ -692,7 +696,6 @@ function initEditNewPersonForm() {
             image: editCurrentPersonImage
         };
         editNewPeople.push(newPerson);
-        selectedCrew.add(name);
         updateEditNewPeopleList();
         // Reset and hide form
         resetEditNewPersonForm();
@@ -703,8 +706,7 @@ function initEditNewPersonForm() {
 }
 
 function initEditSkillsAutocomplete() {
-    const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
-    const selectedSkillsContainer = document.getElementById('edit-selected-skills');
+    const editSkillsBadgesContainer = document.getElementById('edit-album-skills-badges-container');
     
     function renderEditSkillsBadges() {
         editSkillsBadgesContainer.innerHTML = editAllSkills.map(skill => `
@@ -728,7 +730,6 @@ function initEditSkillsAutocomplete() {
             }
             
             renderEditSkillsBadges();
-            updateEditSelectedSkills();
         }
     });
     
@@ -736,7 +737,6 @@ function initEditSkillsAutocomplete() {
         if (editSelectedSkills.includes(skill)) return;
         editSelectedSkills.push(skill);
         renderEditSkillsBadges();
-        updateEditSelectedSkills();
     }
     
     // Store render function for external use
@@ -746,22 +746,6 @@ function initEditSkillsAutocomplete() {
     if (editAllSkills.length > 0) {
         renderEditSkillsBadges();
     }
-    function updateEditSelectedSkills() {
-        selectedSkillsContainer.innerHTML = '';
-        editSelectedSkills.forEach((skill, index) => {
-            const tag = document.createElement('div');
-            tag.className = 'skill-tag';
-            tag.innerHTML = `
-                ${skill}
-                <button type="button" class="skill-tag-remove" onclick="window.removeEditSkill(${index})">×</button>
-            `;
-            selectedSkillsContainer.appendChild(tag);
-        });
-    }
-    window.removeEditSkill = function(index) {
-        editSelectedSkills.splice(index, 1);
-        updateEditSelectedSkills();
-    };
 }
 
 function initEditImageUpload() {
@@ -801,7 +785,7 @@ function initEditImageUpload() {
             return;
         }
         // Open cropping modal instead of directly setting the image
-        cropModal.openCropModal(file, 'edit');
+        window.cropModal.openCropModal(file, 'edit');
     }
 }
 
@@ -811,14 +795,14 @@ function resetEditNewPersonForm() {
     editCurrentPersonImage = null;
     
     // Reset edit skills badges
-    const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
+    const editSkillsBadgesContainer = document.getElementById('edit-album-skills-badges-container');
     if (editSkillsBadgesContainer && editAllSkills.length > 0) {
         editSkillsBadgesContainer.innerHTML = editAllSkills.map(skill => `
-            <div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
+            <div class="skill-badge-toggleable ${editSelectedSkills.includes(skill) ? 'selected' : ''}" data-skill="${skill}">${skill}</div>
         `).join('');
     }
     
-    document.getElementById('edit-selected-skills').innerHTML = '';
+
     document.getElementById('edit-upload-content').innerHTML = `
         <div class="upload-text">
             📷 Click or drag to upload profile image<br>
@@ -894,8 +878,6 @@ function updateEditNewPeopleList() {
     });
 }
 window.removeEditNewPerson = function(index) {
-    const person = editNewPeople[index];
-    selectedCrew.delete(person.name);
     editNewPeople.splice(index, 1);
     updateEditNewPeopleList();
 };

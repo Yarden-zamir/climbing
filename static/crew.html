@@ -81,9 +81,6 @@
                         <div class="skills-badges-container" id="skills-badges-container">
                             <!-- Available skills badges will appear here -->
                         </div>
-                        <div class="selected-skills" id="selected-skills">
-                            <!-- Selected skills will appear here -->
-                        </div>
                     </div>
                     
                     <button type="submit" class="submit-btn" id="submit-crew-btn" disabled>
@@ -157,9 +154,6 @@
                         <label class="form-label">Skills</label>
                         <div class="skills-badges-container" id="edit-skills-badges-container">
                             <!-- Available skills badges will appear here -->
-                        </div>
-                        <div class="selected-skills" id="edit-selected-skills">
-                            <!-- Selected skills will appear here -->
                         </div>
                     </div>
                     
@@ -904,7 +898,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             // Skills badges functionality
             function initSkillsAutocomplete() {
                 const skillsBadgesContainer = document.getElementById('skills-badges-container');
-                const selectedSkillsDiv = document.getElementById('selected-skills');
+
                 
                 function renderSkillsBadges() {
                     skillsBadgesContainer.innerHTML = allSkills.map(skill => `
@@ -928,25 +922,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         }
                         
                         renderSkillsBadges();
-                        updateSelectedSkills();
                     }
                 });
-                
-                function updateSelectedSkills() {
-                    selectedSkillsDiv.innerHTML = selectedSkills.map((skill, index) => `
-                        <div class="skill-tag">
-                            ${skill}
-                            <button type="button" class="skill-tag-remove" onclick="removeSkill(${index})">×</button>
-                        </div>
-                    `).join('');
-                }
-                
-                // Make removeSkill available globally
-                window.removeSkill = function(index) {
-                    selectedSkills.splice(index, 1);
-                    renderSkillsBadges();
-                    updateSelectedSkills();
-                };
                 
                 // Initial render once skills are loaded
                 if (allSkills.length > 0) {
@@ -1106,7 +1083,6 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 form.reset();
                 selectedSkills = [];
                 currentImage = null;
-                document.getElementById('selected-skills').innerHTML = '';
                 document.getElementById('upload-content').innerHTML = `
                     <div class="upload-text">
                         📷 Click or drag to upload profile image<br>
@@ -1227,7 +1203,6 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 
                 // Set skills
                 editSelectedSkills = [...(member.skills || [])];
-                updateEditSelectedSkills();
                 
                 // Set current image (show existing image)
                 const editUploadContent = document.getElementById('edit-upload-content');
@@ -1289,7 +1264,6 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         }
                         
                         renderEditSkillsBadges();
-                        updateEditSelectedSkills();
                     }
                 });
                 
@@ -1301,23 +1275,6 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     renderEditSkillsBadges();
                 }
             }
-            
-            function updateEditSelectedSkills() {
-                const selectedSkillsDiv = document.getElementById('edit-selected-skills');
-                selectedSkillsDiv.innerHTML = editSelectedSkills.map((skill, index) => `
-                    <div class="skill-tag">
-                        ${skill}
-                        <button type="button" class="skill-tag-remove" onclick="removeEditSkill(${index})">×</button>
-                    </div>
-                `).join('');
-            }
-            
-            // Make removeEditSkill available globally
-            window.removeEditSkill = function(index) {
-                editSelectedSkills.splice(index, 1);
-                if (window.renderEditSkillsBadges) window.renderEditSkillsBadges();
-                updateEditSelectedSkills();
-            };
             
             // Image upload functionality
             function initEditImageUpload() {
@@ -1477,7 +1434,6 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 editCurrentImage = null;
                 selectedCrewMember = null;
                 originalCrewName = null;
-                document.getElementById('edit-selected-skills').innerHTML = '';
                 document.getElementById('edit-upload-content').innerHTML = `
                     <div class="upload-text">
                         📷 Click or drag to upload profile image<br>
