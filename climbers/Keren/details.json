@@ -1,4 +1,9 @@
 {
-    "Location": ["Some place far away, finland"],
-    "skills": ["climber"]
+    "Location": [
+        "Some place far away, finland"
+    ],
+    "skills": [
+        "climber",
+        "diversity pick"
+    ]
 }
