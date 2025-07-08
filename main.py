@@ -740,16 +740,14 @@ def create_github_pr(album_url: str, crew: List[str], new_people: List[NewPerson
                         with open(temp_image_path, "rb") as img_file:
                             image_content = img_file.read()
                         
-                        # Convert to base64 for GitHub API
-                        image_b64 = base64.b64encode(image_content).decode()
-                        
+                                                    # For binary content, pass the raw bytes directly instead of base64 string
                         repo.create_file(
                             f"climbers/{person_dir}/face.png",
                             f"Add profile image for {person_name}",
-                            image_b64,
+                            image_content,  # Use raw bytes instead of base64 string
                             branch=branch_name
                         )
-                        
+
                         # Clean up temp file
                         Path(temp_image_path).unlink()
                         
@@ -844,16 +842,14 @@ def create_crew_github_pr(crew_member: CrewSubmission):
                 with open(crew_member.temp_image_path, "rb") as img_file:
                     image_content = img_file.read()
                 
-                # Convert to base64 for GitHub API
-                image_b64 = base64.b64encode(image_content).decode()
-                
+                                # For binary content, pass raw bytes directly
                 repo.create_file(
                     f"climbers/{person_dir}/face.png",
                     f"Add profile image for {crew_member.name}",
-                    image_b64,
+                    image_content,  # Use raw bytes instead of base64 string
                     branch=branch_name
                 )
-                
+
                 # Clean up temp file
                 Path(crew_member.temp_image_path).unlink()
                 
@@ -963,12 +959,11 @@ def create_crew_edit_pr(crew_edit: CrewEdit):
                 try:
                     with open(crew_edit.temp_image_path, "rb") as img_file:
                         image_content = img_file.read()
-                    image_b64 = base64.b64encode(image_content).decode()
-
+                                        # For binary content, pass raw bytes directly
                     repo.create_file(
                         f"climbers/{new_dir}/face.png",
                         commit_message,
-                        image_b64,
+                        image_content,  # Use raw bytes instead of base64 string
                         branch=branch_name
                     )
 
@@ -1015,14 +1010,13 @@ def create_crew_edit_pr(crew_edit: CrewEdit):
                 try:
                     with open(crew_edit.temp_image_path, "rb") as img_file:
                         image_content = img_file.read()
-                    image_b64 = base64.b64encode(image_content).decode()
-
+                    
                     if original_face:
                         # Update existing image
                         repo.update_file(
                             f"climbers/{original_dir}/face.png",
                             commit_message,
-                            image_b64,
+                            image_content,  # Use raw bytes instead of base64 string
                             original_face.sha,
                             branch=branch_name
                         )
@@ -1031,7 +1025,7 @@ def create_crew_edit_pr(crew_edit: CrewEdit):
                         repo.create_file(
                             f"climbers/{original_dir}/face.png",
                             commit_message,
-                            image_b64,
+                            image_content,  # Use raw bytes instead of base64 string
                             branch=branch_name
                         )
 
@@ -1192,12 +1186,11 @@ def create_album_crew_edit_pr(album_url: str, new_crew: List[str], new_people: L
                     try:
                         with open(temp_image_path, "rb") as img_file:
                             image_content = img_file.read()
-                        # Convert to base64 for GitHub API
-                        image_b64 = base64.b64encode(image_content).decode()
+                                                # For binary content, pass raw bytes directly
                         repo.create_file(
                             f"climbers/{person_dir}/face.png",
                             f"Add profile image for {person_name}",
-                            image_b64,
+                            image_content,  # Use raw bytes instead of base64 string
                             branch=branch_name
                         )
                         # Clean up temp file
