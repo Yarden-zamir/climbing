@@ -288,59 +288,49 @@ def inject_css_version(html_path):
     return html
 
 async def fetch_url(client: httpx.AsyncClient, url: str):
-    """Fetch the content of a URL with appropriate headers"""
+    """Generic helper to fetch a URL and handle errors."""
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         }
-        response = await client.get(url, headers=headers, follow_redirects=True)
-        response.raise_for_status()  # Raise an exception for bad status codes
+        response = await client.get(
+            url, headers=headers, follow_redirects=True
+        )
+        response.raise_for_status()
         return response
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error for {url}: {e}")
-        raise HTTPException(status_code=e.response.status_code, detail=f"Failed to fetch album from URL: {e}")
-    except httpx.RequestError as e:
-        logger.error(f"Request error for {url}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to connect to album URL: {e}")
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Error fetching URL: {exc}"
+        )
 
 
 def parse_meta_tags(html: str, url: str):
-    """Parse HTML to extract meta tags for album info, including Open Graph and standard tags"""
-    soup = BeautifulSoup(html, 'html.parser')
+    """Parses OG meta tags and modifies the image URL for full size."""
+    soup = BeautifulSoup(html, "html.parser")
 
     def get_meta_tag(prop):
-        """Helper to find meta tags by property or name"""
-        tag = soup.find('meta', property=prop) or soup.find('meta', name=prop)
-        if tag:
-            # Using .attrs.get() is safer and linter-friendly
-            return tag.attrs.get('content')
-        return None
+        tag = soup.find("meta", property=prop)
+        return tag["content"] if tag else None
 
-    title_raw = get_meta_tag('og:title') or (soup.title.string if soup.title else None) or 'Untitled Album'
-    title = str(title_raw).strip()
-
-    description_raw = get_meta_tag('og:description') or ''
-    description = str(description_raw).strip()
-
-    # Try to find a high-quality image URL from various meta tags
-    image_url = (
-        get_meta_tag('og:image') or
-        get_meta_tag('twitter:image') or
-        None
+    title = (
+        get_meta_tag("og:title")
+        or (soup.title.string if soup.title else "Untitled")
     )
+    title, date = title.split(" · ")
+    description = (
+        get_meta_tag("og:description") or "No description available."
+    )
+    image_url = get_meta_tag("og:image") or ""
 
-    # Extract date if available (often in the title or description)
-    # This regex looks for patterns like "Month Day" (e.g., "Jul 15")
-    combined_text = title + " " + description
-    date_match = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d+', combined_text)
-    date = date_match.group(0) if date_match else "Unknown Date"
+    if image_url:
+        image_url = re.sub(r"=w\d+.*$", "=s0", image_url)
 
     return {
-        'url': url,
-        'title': title,
-        'description': description,
-        'imageUrl': image_url,
-        'date': date
+        "title": title,
+        "description": description,
+        "imageUrl": image_url,
+        "url": url,
+        "date": date,
     }
 
 
@@ -1455,7 +1445,7 @@ async def submit_album(submission: AlbumSubmission):
 
 @app.get("/api/albums/validate-url")
 async def validate_album_url(url: str = Query(...)):
-    """Validate if an album URL is valid, doesn't already exist, and fetch its metadata."""
+    """Validate if an album URL is valid and doesn't already exist."""
     
     # Validate URL format
     if not validate_google_photos_url(url):
@@ -1471,47 +1461,20 @@ async def validate_album_url(url: str = Query(...)):
             albums_data = json.load(f)
             if url in albums_data:
                 return JSONResponse({
-                    "valid": True,
-                    "exists": True,
-                    "error": "This album already exists in the collection"
-                })
-
-    # If it's a new URL, try to fetch metadata
-    try:
-        logger.info(f"Fetching metadata for new album URL: {url}")
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await fetch_url(client, url)
-            metadata = parse_meta_tags(response.text, url)
-            
-            # A valid public album should have a title and an image
-            if not metadata.get('title') or not metadata.get('imageUrl'):
-                logger.warning(f"Metadata missing for {url}. Title: {metadata.get('title')}, Image: {metadata.get('imageUrl')}")
-                return JSONResponse({
                     "valid": False,
-                    "error": "Could not find album details. Please check if the link is correct and the album is public."
+                    "error": "Album already exists"
                 })
-
-        logger.info(f"Successfully fetched metadata for {metadata.get('title')}")
-        return JSONResponse({
-            "valid": True,
-            "exists": False,
-            "metadata": metadata
-        })
-    except HTTPException as e:
-        # Pass along the error from fetch_url (e.g., 404 Not Found)
-        logger.error(f"HTTP exception for {url}: {e.detail}")
-        return JSONResponse({
-            "valid": False,
-            "error": f"Failed to fetch album: {e.detail}"
-        })
-    except Exception as e:
-        logger.error(f"Unexpected error validating URL {url}: {e}", exc_info=True)
-        return JSONResponse({
-            "valid": False,
-            "error": "An unexpected error occurred. The album may be private or the link is incorrect."
-        })
+    async with httpx.AsyncClient() as client:
+        response = await fetch_url(client, url)
+        meta_data = parse_meta_tags(response.text, url)
+        headers = {
+            "Cache-Control": "public, max-age=5,stale-while-revalidate=86400, immutable"
+        } 
+        meta_data["valid"] = True
+        return JSONResponse(meta_data, headers=headers)
 
 
+    return JSONResponse({"valid": True})
 # app.mount("/", StaticFiles(directory="static", html=True), name="static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 # Climbers directory is handled by custom route for case-insensitive access
