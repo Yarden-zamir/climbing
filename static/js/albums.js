@@ -86,9 +86,19 @@ document.addEventListener("DOMContentLoaded", () => {
 					
 					// Apply the cropped image based on the target
 					if (activeCropTarget === 'add') {
-						applyImageToAdd(croppedFile, canvas.toDataURL());
+						if (typeof window.applyImageToAdd === 'function') {
+							window.applyImageToAdd(croppedFile, canvas.toDataURL());
+						} else {
+							console.error('window.applyImageToAdd is not a function');
+						}
 					} else if (activeCropTarget === 'edit') {
 						applyImageToEdit(croppedFile, canvas.toDataURL());
+					} else if (activeCropTarget === 'edit-album') {
+						if (typeof window.applyImageToEditAlbum === 'function') {
+							window.applyImageToEditAlbum(croppedFile, canvas.toDataURL());
+						} else {
+							console.error('window.applyImageToEditAlbum is not a function');
+						}
 					}
 					
 					closeCropModal();
@@ -116,17 +126,7 @@ document.addEventListener("DOMContentLoaded", () => {
 	// Make cropModal globally accessible for edit functions
 	window.cropModal = cropModal;
 
-	function applyImageToAdd(croppedFile, dataUrl) {
-		currentPersonImage = croppedFile;
-		const uploadContent = document.getElementById('upload-content');
-		uploadContent.innerHTML = `
-			<img src="${dataUrl}" class="image-preview" alt="Preview">
-			<div class="upload-text">
-				✅ Image uploaded (cropped)<br>
-				<small>Click to change</small>
-			</div>
-		`;
-	}
+
 
 	function applyImageToEdit(croppedFile, dataUrl) {
 		editCurrentPersonImage = croppedFile;

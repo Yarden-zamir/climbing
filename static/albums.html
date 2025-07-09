@@ -938,7 +938,6 @@
 		
 		.album-info-image {
 			width: 100%;
-			max-height: 200px;
 			object-fit: cover;
 			border-radius: 8px;
 			margin-bottom: 1rem;
@@ -1258,6 +1257,40 @@
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 	<script src="static/js/albums.js"></script>
 	<script>
+		// Global variables for modals
+		let editAlbumCurrentPersonImage = null;
+		let addAlbumCurrentPersonImage = null;
+		
+		// Global function to handle cropped image result for edit album modal
+		window.applyImageToEditAlbum = function(croppedFile, dataUrl) {
+			editAlbumCurrentPersonImage = croppedFile;
+			const uploadContent = document.getElementById('edit-upload-content');
+			if (uploadContent) {
+				uploadContent.innerHTML = `
+					<img src="${dataUrl}" class="image-preview" alt="Preview">
+					<div class="upload-text">
+						✅ Image uploaded (cropped)<br>
+						<small>Click to change</small>
+					</div>
+				`;
+			}
+		};
+		
+		// Global function to handle cropped image result for add album modal
+		window.applyImageToAdd = function(croppedFile, dataUrl) {
+			addAlbumCurrentPersonImage = croppedFile;
+			const uploadContent = document.getElementById('upload-content');
+			if (uploadContent) {
+				uploadContent.innerHTML = `
+					<img src="${dataUrl}" class="image-preview" alt="Preview">
+					<div class="upload-text">
+						✅ Image uploaded (cropped)<br>
+						<small>Click to change</small>
+					</div>
+				`;
+			}
+		};
+
 		document.addEventListener("DOMContentLoaded", () => {
 			document.querySelectorAll('nav a').forEach(link => {
 				link.addEventListener('click', function (e) {
@@ -1296,7 +1329,6 @@
 			let urlValidationTimeout;
 			let allSkills = [];
 			let selectedSkills = [];
-			let currentPersonImage = null;
 			
 			// Fetch crew data and skills
 			Promise.all([
@@ -1516,7 +1548,7 @@
 					const newPerson = {
 						name: name,
 						skills: [...selectedSkills],
-						image: currentPersonImage
+						image: addAlbumCurrentPersonImage
 					};
 					
 					newPeople.push(newPerson);
@@ -1626,14 +1658,14 @@
 					}
 					
 					// Open cropping modal instead of directly setting the image
-					cropModal.openCropModal(file, 'add');
+					window.cropModal.openCropModal(file, 'add');
 				}
 			}
 			
 			function resetNewPersonForm() {
 				document.getElementById('new-person-name').value = '';
 				selectedSkills = [];
-				currentPersonImage = null;
+				addAlbumCurrentPersonImage = null;
 				
 				// Reset skills badges
 				const skillsBadgesContainer = document.getElementById('skills-badges-container');
@@ -1846,7 +1878,7 @@
 				selectedCrew.clear();
 				newPeople = [];
 				selectedSkills = [];
-				currentPersonImage = null;
+				addAlbumCurrentPersonImage = null;
 				hideUrlFeedback();
 				hideAlbumPreview();
 				updateNewPeopleList();
@@ -1889,6 +1921,7 @@
 			let currentEditAlbum = null;
 			let crewData = [];
 			let selectedCrew = new Set();
+			let editNewPeople = [];
 			
 			// Fetch crew data
 			fetch('/api/crew')
@@ -1897,6 +1930,12 @@
 					crewData = crew;
 				})
 				.catch(e => console.warn('Could not load crew:', e));
+			
+			// Initialize new person form functionality
+			initEditNewPersonFormModal();
+			
+			// Initialize image upload for edit modal
+			initEditImageUploadModal();
 			
 			// Toggle edit mode
 			editAlbumFab.addEventListener('click', () => {
@@ -2038,6 +2077,40 @@
 				editSubmitBtn.textContent = 'Updating...';
 				
 				try {
+					// Upload images for new people first
+					const processedNewPeople = [];
+					for (const person of editNewPeople) {
+						let tempImagePath = null;
+						
+						// Upload image if provided
+						if (person.image) {
+							try {
+								const formData = new FormData();
+								formData.append('file', person.image);
+								formData.append('person_name', person.name);
+								
+								const uploadResponse = await fetch('/api/upload-face', {
+									method: 'POST',
+									body: formData
+								});
+								
+								if (uploadResponse.ok) {
+									const uploadData = await uploadResponse.json();
+									tempImagePath = uploadData.temp_path;
+								}
+							} catch (uploadError) {
+								console.warn('Failed to upload image for', person.name, ':', uploadError);
+							}
+						}
+						
+						processedNewPeople.push({
+							name: person.name,
+							skills: person.skills || [],
+							location: person.location || [],
+							temp_image_path: tempImagePath
+						});
+					}
+					
 					const response = await fetch('/api/albums/edit-crew', {
 						method: 'POST',
 						headers: {
@@ -2045,7 +2118,8 @@
 						},
 						body: JSON.stringify({
 							album_url: currentEditAlbum.url,
-							crew: newCrew
+							crew: newCrew,
+							new_people: processedNewPeople
 						})
 					});
 					
@@ -2094,10 +2168,203 @@
 			function resetEditForm() {
 				selectedCrew.clear();
 				currentEditAlbum = null;
+				editNewPeople = [];
+				editAlbumCurrentPersonImage = null;
 				document.getElementById('edit-submission-status').innerHTML = '';
 				editSubmitBtn.textContent = 'Update Crew';
 				editSubmitBtn.disabled = false;
+				
+				// Reset new people list
+				document.getElementById('edit-new-people-list').innerHTML = '';
+				
+				// Reset new person form
+				const editNewPersonForm = document.getElementById('edit-new-person-form');
+				const editShowBtn = document.getElementById('edit-show-new-person-btn');
+				if (editNewPersonForm.style.display === 'block') {
+					editNewPersonForm.style.display = 'none';
+					editShowBtn.style.display = 'block';
+				}
+				
+				// Reset image upload area
+				resetEditNewPersonFormModal();
 			}
+			
+			function initEditNewPersonFormModal() {
+				const showBtn = document.getElementById('edit-show-new-person-btn');
+				const cancelBtn = document.getElementById('edit-cancel-person-btn');
+				const addBtn = document.getElementById('edit-add-person-btn');
+				const form = document.getElementById('edit-new-person-form');
+				const nameInput = document.getElementById('edit-new-person-name');
+				
+				// Show form
+				showBtn.addEventListener('click', () => {
+					showBtn.style.display = 'none';
+					form.style.display = 'block';
+				});
+				
+				// Cancel form
+				cancelBtn.addEventListener('click', () => {
+					form.style.display = 'none';
+					showBtn.style.display = 'block';
+					resetEditNewPersonFormModal();
+				});
+				
+				// Add person
+				addBtn.addEventListener('click', () => {
+					const name = nameInput.value.trim();
+					if (!name) {
+						alert('Please enter a name');
+						return;
+					}
+					
+					// Check if person already exists
+					if (crewData.some(p => p.name.toLowerCase() === name.toLowerCase()) || 
+						editNewPeople.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+						alert('This person already exists');
+						return;
+					}
+					
+					const newPerson = {
+						name: name,
+						skills: [],  // Skills functionality would need to be implemented
+						image: editAlbumCurrentPersonImage  // Include the cropped image file
+					};
+					
+					editNewPeople.push(newPerson);
+					selectedCrew.add(name);
+					updateEditNewPeopleList();
+					
+					// Reset and hide form
+					resetEditNewPersonFormModal();
+					form.style.display = 'none';
+					showBtn.style.display = 'block';
+				});
+			}
+			
+			function resetEditNewPersonFormModal() {
+				document.getElementById('edit-new-person-name').value = '';
+				editAlbumCurrentPersonImage = null;
+				
+				// Reset image upload area
+				document.getElementById('edit-upload-content').innerHTML = `
+					<div class="upload-text">
+						📷 Click or drag to upload profile image<br>
+						<small>(JPG, PNG, max 5MB)</small>
+					</div>
+				`;
+			}
+			
+			function updateEditNewPeopleList() {
+				const list = document.getElementById('edit-new-people-list');
+				list.innerHTML = '';
+				editNewPeople.forEach((person, index) => {
+					const item = document.createElement('div');
+					item.style.cssText = `
+						display: flex;
+						align-items: center;
+						gap: 1rem;
+						padding: 1rem;
+						background: #333;
+						border-radius: 12px;
+						margin-bottom: 0.5rem;
+						border: 2px solid #444;
+					`;
+					const imagePreview = person.image ? 
+						`<img src="${URL.createObjectURL(person.image)}" style="
+							width: 40px;
+							height: 40px;
+							border-radius: 50%;
+							object-fit: cover;
+							border: 2px solid #ffae52;
+						" alt="${person.name}">` : 
+						`<div style="
+							width: 40px;
+							height: 40px;
+							border-radius: 50%;
+							background: #555;
+							display: flex;
+							align-items: center;
+							justify-content: center;
+							color: #ccc;
+							font-size: 1.2rem;
+						">👤</div>`;
+					
+					item.innerHTML = `
+						${imagePreview}
+						<div style="flex: 1;">
+							<div style="color: #ffae52; font-weight: 600;">${person.name}</div>
+							<div style="color: #888; font-size: 0.9rem;">New person</div>
+						</div>
+						<button type="button" style="
+							background: #cf6679;
+							color: white;
+							border: none;
+							padding: 0.4rem 0.8rem;
+							border-radius: 6px;
+							cursor: pointer;
+							font-size: 0.9rem;
+							font-weight: 600;
+						" onclick="removeEditNewPerson(${index})">Remove</button>
+					`;
+					list.appendChild(item);
+				});
+			}
+			
+			// Global function to remove new person
+			window.removeEditNewPerson = function(index) {
+				const person = editNewPeople[index];
+				selectedCrew.delete(person.name);
+				editNewPeople.splice(index, 1);
+				updateEditNewPeopleList();
+			};
+			
+			function initEditImageUploadModal() {
+				const uploadArea = document.getElementById('edit-image-upload-area');
+				const uploadInput = document.getElementById('edit-image-upload-input');
+				
+				uploadArea.addEventListener('click', () => {
+					uploadInput.click();
+				});
+				
+				uploadArea.addEventListener('dragover', (e) => {
+					e.preventDefault();
+					uploadArea.classList.add('dragover');
+				});
+				
+				uploadArea.addEventListener('dragleave', () => {
+					uploadArea.classList.remove('dragover');
+				});
+				
+				uploadArea.addEventListener('drop', (e) => {
+					e.preventDefault();
+					uploadArea.classList.remove('dragover');
+					const files = e.dataTransfer.files;
+					if (files.length > 0) {
+						handleEditImageUploadModal(files[0]);
+					}
+				});
+				
+				uploadInput.addEventListener('change', (e) => {
+					if (e.target.files.length > 0) {
+						handleEditImageUploadModal(e.target.files[0]);
+					}
+				});
+			}
+			
+			function handleEditImageUploadModal(file) {
+				if (!file.type.startsWith('image/')) {
+					alert('Please select an image file');
+					return;
+				}
+				if (file.size > 5 * 1024 * 1024) {
+					alert('Image size must be less than 5MB');
+					return;
+				}
+				// Open cropping modal
+				window.cropModal.openCropModal(file, 'edit-album');
+			}
+			
+
 		}
 	</script>
 </body>
