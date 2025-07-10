@@ -157,9 +157,19 @@
                         </div>
                     </div>
                     
-                    <button type="submit" class="submit-btn" id="edit-submit-crew-btn" disabled>
-                        Update Crew Member
-                    </button>
+                    <div style="display: flex; gap: 1rem;">
+                        <button type="submit" class="submit-btn" id="edit-submit-crew-btn" disabled style="flex: 1;">
+                            Update Crew Member
+                        </button>
+                        <button type="button" class="submit-btn" id="delete-crew-btn" style="
+                            background: linear-gradient(135deg, #cf6679 0%, #b71c1c 100%);
+                            color: white;
+                            padding: 0.75rem 1rem;
+                            font-size: 0.9rem;
+                        ">
+                            🗑️ Delete
+                        </button>
+                    </div>
                     
                     <div id="edit-submission-status" style="margin-top: 1rem; text-align: center;">
                         <!-- Submission status will appear here -->
@@ -1056,15 +1066,19 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         ✅ ${data.message}
                     </div>
                     <div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
-                        <strong>Crew Member:</strong> ${data.crew_name}
+                        Crew member has been added and is now live!
                     </div>
-                    <a href="${data.pr_url}" target="_blank" style="
-                        color: #03dac6;
-                        text-decoration: underline;
+                    <button onclick="window.location.reload()" style="
+                        background: #03dac6;
+                        color: #1a1a1a;
+                        border: none;
+                        padding: 0.5rem 1rem;
+                        border-radius: 8px;
+                        cursor: pointer;
                         font-weight: 600;
                     ">
-                        View Pull Request #${data.pr_number}
-                    </a>
+                        Refresh Page
+                    </button>
                 `;
             }
             
@@ -1115,12 +1129,52 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             const editForm = document.getElementById('edit-crew-form');
             const editNameInput = document.getElementById('edit-crew-name');
             const editSubmitBtn = document.getElementById('edit-submit-crew-btn');
+            const deleteCrewBtn = document.getElementById('delete-crew-btn');
             
             let editAllSkills = [];
             let editSelectedSkills = [];
             let editCurrentImage = null;
             let selectedCrewMember = null;
             let originalCrewName = null;
+            
+            // Delete crew member functionality
+            if (deleteCrewBtn) {
+                deleteCrewBtn.addEventListener('click', async () => {
+                if (!selectedCrewMember) {
+                    alert('No crew member selected. Please select a crew member first.');
+                    return;
+                }
+                
+                const confirmed = confirm(`Are you sure you want to delete "${selectedCrewMember.name}"?\n\nThis action cannot be undone and will:\n- Remove the crew member from the team\n- Remove them from all albums\n- Update climb counts accordingly\n\nProceed with deletion?`);
+                
+                if (!confirmed) return;
+                
+                deleteCrewBtn.disabled = true;
+                deleteCrewBtn.textContent = '🗑️ Deleting...';
+                
+                try {
+                    const response = await fetch(`/api/crew/delete?crew_name=${encodeURIComponent(selectedCrewMember.name)}`, {
+                        method: 'DELETE'
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        showEditSubmissionSuccess({
+                            message: data.message,
+                            isDeleted: true
+                        });
+                    } else {
+                        showEditSubmissionError(data.detail || 'Delete failed');
+                    }
+                } catch (error) {
+                    showEditSubmissionError('Network error occurred during deletion');
+                } finally {
+                    deleteCrewBtn.disabled = false;
+                    deleteCrewBtn.textContent = '🗑️ Delete';
+                }
+            });
+            }
             
             // Fetch available skills
             fetch('/api/skills')
@@ -1153,7 +1207,11 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         editCrewFab.title = `Edit ${selectedCrewMember?.name || 'Crew Member'}`;
                     }
                 } else {
-                    selectedCrewMember = null;
+                    // Don't clear selectedCrewMember if modal is open
+                    const modalIsOpen = editModalOverlay.classList.contains('active');
+                    if (!modalIsOpen) {
+                        selectedCrewMember = null;
+                    }
                     
                     // Hide edit FAB with animation
                     editCrewFab.classList.remove('show');
@@ -1183,6 +1241,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 setTimeout(() => {
                     editModalOverlay.classList.remove('active');
                     resetEditForm();
+                    // Clear selection when modal closes
+                    selectedCrewMember = null;
                 }, 300);
             };
             
@@ -1400,21 +1460,50 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             
             function showEditSubmissionSuccess(data) {
                 const status = document.getElementById('edit-submission-status');
-                status.innerHTML = `
-                    <div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
-                        ✅ ${data.message}
-                    </div>
-                    <div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
-                        <strong>Updated:</strong> ${data.crew_name}
-                    </div>
-                    <a href="${data.pr_url}" target="_blank" style="
-                        color: #03dac6;
-                        text-decoration: underline;
-                        font-weight: 600;
-                    ">
-                        View Pull Request #${data.pr_number}
-                    </a>
-                `;
+                
+                if (data.isDeleted) {
+                    // Special handling for deletion
+                    status.innerHTML = `
+                        <div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+                            ✅ ${data.message}
+                        </div>
+                        <div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+                            The crew member has been permanently removed from the team.
+                        </div>
+                        <button onclick="window.location.reload()" style="
+                            background: #03dac6;
+                            color: #1a1a1a;
+                            border: none;
+                            padding: 0.5rem 1rem;
+                            border-radius: 8px;
+                            cursor: pointer;
+                            font-weight: 600;
+                        ">
+                            Refresh Page
+                        </button>
+                    `;
+                } else {
+                    // Regular update success
+                    status.innerHTML = `
+                        <div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+                            ✅ ${data.message}
+                        </div>
+                        <div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+                            Crew member has been updated and is now live!
+                        </div>
+                        <button onclick="window.location.reload()" style="
+                            background: #03dac6;
+                            color: #1a1a1a;
+                            border: none;
+                            padding: 0.5rem 1rem;
+                            border-radius: 8px;
+                            cursor: pointer;
+                            font-weight: 600;
+                        ">
+                            Refresh Page
+                        </button>
+                    `;
+                }
             }
             
             function showEditSubmissionError(message) {
@@ -1432,7 +1521,6 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 editForm.reset();
                 editSelectedSkills = [];
                 editCurrentImage = null;
-                selectedCrewMember = null;
                 originalCrewName = null;
                 document.getElementById('edit-upload-content').innerHTML = `
                     <div class="upload-text">
@@ -1497,7 +1585,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 }
                 
                 // Clear crew selection when clicking outside the crew table
-                if (!e.target.closest('.crew-table') && !e.target.closest('.add-crew-modal') && !e.target.closest('.add-skill-modal')) {
+                if (!e.target.closest('.crew-table') && !e.target.closest('.add-crew-modal') && !e.target.closest('.add-skill-modal') && !e.target.closest('#edit-crew-modal-overlay')) {
                     clearCrewSelection();
                 }
             });

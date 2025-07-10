@@ -1221,9 +1221,19 @@
 						<div id="edit-new-people-list" style="margin-top: 1rem;"></div>
 					</div>
 					
-					<button type="submit" class="submit-btn" id="edit-submit-btn">
-						Update Crew
-					</button>
+					<div style="display: flex; gap: 1rem;">
+						<button type="submit" class="submit-btn" id="edit-submit-btn" style="flex: 1;">
+							Update Crew
+						</button>
+						<button type="button" class="submit-btn" id="delete-album-btn" style="
+							background: linear-gradient(135deg, #cf6679 0%, #b71c1c 100%);
+							color: white;
+							padding: 0.75rem 1rem;
+							font-size: 0.9rem;
+						">
+							🗑️ Delete
+						</button>
+					</div>
 					
 					<div id="edit-submission-status" style="margin-top: 1rem; text-align: center;">
 						<!-- Submission status will appear here -->
@@ -1849,15 +1859,19 @@
 						✅ ${data.message}
 					</div>
 					<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
-						<strong>Album:</strong> ${data.album_title}
+						Album has been added and is now live!
 					</div>
-					<a href="${data.pr_url}" target="_blank" style="
-						color: #ffae52;
-						text-decoration: underline;
+					<button onclick="window.location.reload()" style="
+						background: #03dac6;
+						color: #1a1a1a;
+						border: none;
+						padding: 0.5rem 1rem;
+						border-radius: 8px;
+						cursor: pointer;
 						font-weight: 600;
 					">
-						View Pull Request #${data.pr_number}
-					</a>
+						Refresh Page
+					</button>
 				`;
 			}
 			
@@ -1915,6 +1929,7 @@
 			const editCloseBtn = document.getElementById('edit-album-modal-close');
 			const editForm = document.getElementById('edit-album-form');
 			const editSubmitBtn = document.getElementById('edit-submit-btn');
+			const deleteAlbumBtn = document.getElementById('delete-album-btn');
 			
 			let isEditMode = false;
 			let currentEditAlbum = null;
@@ -1929,6 +1944,41 @@
 					crewData = crew;
 				})
 				.catch(e => console.warn('Could not load crew:', e));
+			
+			// Delete album functionality
+			deleteAlbumBtn.addEventListener('click', async () => {
+				if (!currentEditAlbum) return;
+				
+				const albumTitle = currentEditAlbum.meta.title || 'this album';
+				const confirmed = confirm(`Are you sure you want to delete "${albumTitle}"?\n\nThis action cannot be undone and will:\n- Remove the album from the collection\n- Update all crew members' climb counts\n- Remove all references to this album\n\nProceed with deletion?`);
+				
+				if (!confirmed) return;
+				
+				deleteAlbumBtn.disabled = true;
+				deleteAlbumBtn.textContent = '🗑️ Deleting...';
+				
+				try {
+					const response = await fetch(`/api/albums/delete?album_url=${encodeURIComponent(currentEditAlbum.url)}`, {
+						method: 'DELETE'
+					});
+					
+					const data = await response.json();
+					
+					if (response.ok) {
+						showEditSubmissionSuccess({
+							message: data.message,
+							isDeleted: true
+						});
+					} else {
+						showEditSubmissionError(data.detail || 'Delete failed');
+					}
+				} catch (error) {
+					showEditSubmissionError('Network error occurred during deletion');
+				} finally {
+					deleteAlbumBtn.disabled = false;
+					deleteAlbumBtn.textContent = '🗑️ Delete Album';
+				}
+			});
 			
 			// Initialize new person form functionality
 			initEditNewPersonFormModal();
@@ -2136,21 +2186,50 @@
 			
 			function showEditSubmissionSuccess(data) {
 				const status = document.getElementById('edit-submission-status');
-				status.innerHTML = `
-					<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
-						✅ ${data.message}
-					</div>
-					<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
-						<strong>Album:</strong> ${data.album_title}
-					</div>
-					<a href="${data.pr_url}" target="_blank" style="
-						color: #bb86fc;
-						text-decoration: underline;
-						font-weight: 600;
-					">
-						View Pull Request #${data.pr_number}
-					</a>
-				`;
+				
+				if (data.isDeleted) {
+					// Special handling for deletion
+					status.innerHTML = `
+						<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+							✅ ${data.message}
+						</div>
+						<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+							The album has been permanently removed from the collection.
+						</div>
+						<button onclick="window.location.reload()" style="
+							background: #03dac6;
+							color: #1a1a1a;
+							border: none;
+							padding: 0.5rem 1rem;
+							border-radius: 8px;
+							cursor: pointer;
+							font-weight: 600;
+						">
+							Refresh Page
+						</button>
+					`;
+				} else {
+					// Regular update success
+					status.innerHTML = `
+						<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+							✅ ${data.message}
+						</div>
+						<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+							Album crew has been updated and is now live!
+						</div>
+						<button onclick="window.location.reload()" style="
+							background: #03dac6;
+							color: #1a1a1a;
+							border: none;
+							padding: 0.5rem 1rem;
+							border-radius: 8px;
+							cursor: pointer;
+							font-weight: 600;
+						">
+							Refresh Page
+						</button>
+					`;
+				}
 			}
 			
 			function showEditSubmissionError(message) {
