@@ -5,7 +5,7 @@ from PIL import Image
 from pathlib import Path
 from fastapi.responses import JSONResponse
 import datetime
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import json
 import httpx
 import re
@@ -25,6 +25,11 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 import sys
+
+# OAuth imports
+from config import settings
+from auth import oauth_handler, get_current_user, require_auth
+from fastapi import Depends
 
 # Configure logging
 
@@ -1233,7 +1238,7 @@ Please review and merge when ready!
 
 
 @app.post("/api/albums/edit-crew")
-async def edit_album_crew(edit_data: AlbumCrewEdit):
+async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(get_current_user)):
     """Edit crew members for an existing album and create a PR."""
 
     # Validate album URL format
@@ -1271,7 +1276,7 @@ async def edit_album_crew(edit_data: AlbumCrewEdit):
     })
 
 @app.post("/api/crew/submit")
-async def submit_crew_member(submission: CrewSubmission):
+async def submit_crew_member(submission: CrewSubmission, user: dict = Depends(get_current_user)):
     """Submit a new crew member for review and automatic PR creation."""
     
     # Validate name is provided
@@ -1301,7 +1306,7 @@ async def submit_crew_member(submission: CrewSubmission):
 
 
 @app.post("/api/crew/edit")
-async def edit_crew_member(edit_data: CrewEdit):
+async def edit_crew_member(edit_data: CrewEdit, user: dict = Depends(get_current_user)):
     """Edit an existing crew member and create a PR for the changes."""
 
     # Validate names are provided
@@ -1399,7 +1404,7 @@ async def add_skills_to_crew_member(request: AddSkillsRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/albums/submit")
-async def submit_album(submission: AlbumSubmission):
+async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_current_user)):
     """Submit a new album for review and automatic PR creation."""
     
     # Validate album URL format
@@ -1475,6 +1480,107 @@ async def validate_album_url(url: str = Query(...)):
 
 
     return JSONResponse({"valid": True})
+
+
+# ============= OAuth Authentication Routes =============
+
+@app.get("/auth/login")
+async def login():
+    """Initiate Google OAuth login"""
+    if not settings.validate_oauth_config():
+        raise HTTPException(
+            status_code=500,
+            detail="OAuth not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
+        )
+
+    auth_url = oauth_handler.generate_auth_url()
+    return RedirectResponse(url=auth_url)
+
+
+@app.get("/auth/callback")
+async def auth_callback(code: str = None, state: str = None, error: str = None):
+    """Handle OAuth callback from Google"""
+
+    if error:
+        logger.error(f"OAuth error: {error}")
+        return RedirectResponse(url="/?error=oauth_error")
+
+    if not code:
+        logger.error("No authorization code received")
+        return RedirectResponse(url="/?error=no_code")
+
+    try:
+        # Exchange code for token
+        token_data = await oauth_handler.exchange_code_for_token(code)
+        access_token = token_data.get("access_token")
+
+        if not access_token:
+            logger.error("No access token received")
+            return RedirectResponse(url="/?error=no_token")
+
+        # Get user info
+        user_info = await oauth_handler.get_user_info(access_token)
+
+        # Prepare user session data
+        user_session_data = {
+            "id": user_info.get("id"),
+            "email": user_info.get("email"),
+            "name": user_info.get("name"),
+            "picture": user_info.get("picture"),
+            "verified_email": user_info.get("verified_email", False),
+            "authenticated": True,
+            "login_time": datetime.datetime.now().isoformat()
+        }
+
+        # Create session and redirect
+        response = RedirectResponse(url="/")
+        oauth_handler.session_manager.set_session_cookie(response, user_session_data)
+
+        logger.info(f"User logged in: {user_info.get('email')}")
+        return response
+
+    except Exception as e:
+        logger.error(f"OAuth callback error: {e}", exc_info=True)
+        return RedirectResponse(url="/?error=auth_failed")
+
+
+@app.get("/auth/logout")
+async def logout():
+    """Logout user and clear session"""
+    response = RedirectResponse(url="/")
+    oauth_handler.session_manager.clear_session_cookie(response)
+    return response
+
+
+@app.get("/api/auth/user")
+async def get_auth_user(user: dict = Depends(get_current_user)):
+    """Get current authenticated user info"""
+    if user:
+        return {
+            "authenticated": True,
+            "user": {
+                "id": user.get("id"),
+                "email": user.get("email"),
+                "name": user.get("name"),
+                "picture": user.get("picture"),
+                "verified_email": user.get("verified_email", False)
+            }
+        }
+    else:
+        return {"authenticated": False, "user": None}
+
+
+@app.get("/api/auth/status")
+async def auth_status(user: dict = Depends(get_current_user)):
+    """Get authentication status"""
+    return {
+        "authenticated": user is not None,
+        "user_email": user.get("email") if user else None
+    }
+
+
+# ============= End OAuth Routes =============
+
 # app.mount("/", StaticFiles(directory="static", html=True), name="static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 # Climbers directory is handled by custom route for case-insensitive access
