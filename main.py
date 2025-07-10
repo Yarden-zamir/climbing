@@ -527,6 +527,16 @@ async def read_crew():
     return response
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+async def read_privacy():
+    content = inject_css_version("static/privacy.html")
+    response = HTMLResponse(content=content, status_code=200)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @app.get("/climbers/{climber_name}/{file_path:path}")
 async def get_climber_file(climber_name: str, file_path: str):
     """Case-insensitive climber file access"""

@@ -11,6 +11,186 @@ body {
 	padding-top: 70px;
 }
 
+/* Privacy Link Styling */
+.privacy-link {
+	position: fixed;
+	bottom: 1.5rem;
+	left: 1.5rem;
+	z-index: 999;
+	background: linear-gradient(135deg, #444 0%, #666 100%);
+	border: none;
+	border-radius: 25px;
+	width: 48px;
+	height: 48px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	text-decoration: none;
+	color: #a0a0a0;
+	font-size: 1.2rem;
+	transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+	box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+	overflow: hidden;
+	opacity: 0;
+	transform: translateY(20px);
+	visibility: hidden;
+}
+
+.privacy-link.visible {
+	opacity: 1;
+	transform: translateY(0);
+	visibility: visible;
+}
+
+.privacy-link::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: -100%;
+	width: 100%;
+	height: 100%;
+	background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+	transition: left 0.5s;
+}
+
+.privacy-link:hover::before {
+	left: 100%;
+}
+
+.privacy-link:hover {
+	background: linear-gradient(135deg, #bb86fc 0%, #6200ea 100%);
+	color: white;
+	width: 130px;
+	box-shadow: 0 6px 20px rgba(187, 134, 252, 0.4);
+}
+
+.privacy-link-icon {
+	transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+	z-index: 2;
+}
+
+.privacy-link:hover .privacy-link-icon {
+	transform: translateX(-25px);
+}
+
+.privacy-link-text {
+	position: absolute;
+	right: 16px;
+	font-size: 0.9rem;
+	font-weight: 500;
+	white-space: nowrap;
+	opacity: 0;
+	transform: translateX(20px);
+	transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+	z-index: 2;
+	color: inherit;
+}
+
+.privacy-link:hover .privacy-link-text {
+	opacity: 1;
+	transform: translateX(0);
+}
+
+@media (max-width: 600px) {
+	.privacy-link {
+		bottom: 1rem;
+		left: 1rem;
+		width: 44px;
+		height: 44px;
+		font-size: 1.1rem;
+	}
+	
+	.privacy-link:hover {
+		width: 115px;
+	}
+	
+	.privacy-link:hover .privacy-link-icon {
+		transform: translateX(-20px);
+	}
+	
+	.privacy-link-text {
+		right: 14px;
+		font-size: 0.85rem;
+	}
+}
+
+/* Footer Styling */
+footer {
+	background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+	border-top: 1px solid #333;
+	padding: 2rem 0;
+	margin-top: 4rem;
+	text-align: center;
+}
+
+footer p {
+	color: #888;
+	font-size: 0.9rem;
+	margin: 0;
+	line-height: 1.5;
+}
+
+/* Privacy Policy Styling */
+.important-notice, .final-reminder {
+	background-color: #2d1b1e;
+	border: 2px solid #cf6679;
+	border-radius: 8px;
+	padding: 1.5rem;
+	margin: 2rem 0;
+	box-shadow: 0 4px 15px rgba(207, 102, 121, 0.2);
+}
+
+.important-notice h2, .final-reminder h2 {
+	color: #ff6b7a;
+	margin-top: 0;
+	font-size: 1.4rem;
+	font-weight: 700;
+}
+
+.important-notice p, .final-reminder p {
+	margin-bottom: 0.5rem;
+	font-weight: 500;
+	line-height: 1.6;
+}
+
+.important-notice p strong, .final-reminder p strong {
+	color: #ffb3ba;
+}
+
+.container {
+	max-width: 1200px;
+	margin: 0 auto;
+	padding: 2rem;
+	line-height: 1.6;
+}
+
+.container h2 {
+	color: #bb86fc;
+	margin-top: 3rem;
+	margin-bottom: 1rem;
+	font-size: 1.5rem;
+}
+
+.container h3 {
+	color: #03dac6;
+	margin-top: 2rem;
+	margin-bottom: 1rem;
+	font-size: 1.2rem;
+}
+
+.container ul {
+	margin: 1rem 0;
+	padding-left: 2rem;
+}
+
+.container li {
+	margin-bottom: 0.5rem;
+}
+
+.container p {
+	margin: 1rem 0;
+}
+
 /* Fancy Animated Heading */
 h1 {
 	font-size: 2.4rem;
