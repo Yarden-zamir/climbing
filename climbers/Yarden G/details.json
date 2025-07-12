@@ -1,4 +1,12 @@
 {
-    "Location": ["Binyamina"],
-    "skills": ["climber", "belayer", "lead belayer", "lead climber"]
+    "Location": [
+        "Binyamina"
+    ],
+    "skills": [
+        "climber",
+        "belayer",
+        "lead belayer",
+        "lead climber",
+        "anchor closer"
+    ]
 }
