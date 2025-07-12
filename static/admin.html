@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Climbing App</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .admin-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .admin-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .admin-header h1 {
+            color: #2c3e50;
+            margin-bottom: 0.5rem;
+        }
+
+        .admin-header .subtitle {
+            color: #7f8c8d;
+            font-size: 1.1rem;
+        }
+
+        .admin-nav {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid #ecf0f1;
+            padding-bottom: 1rem;
+        }
+
+        .admin-nav-btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            background: #ecf0f1;
+            color: #2c3e50;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .admin-nav-btn:hover {
+            background: #d5dbdb;
+        }
+
+        .admin-nav-btn.active {
+            background: #3498db;
+            color: white;
+        }
+
+        .admin-section {
+            display: none;
+        }
+
+        .admin-section.active {
+            display: block;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #3498db;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+
+        .users-table, .resources-table {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .table-header {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .table-header h3 {
+            margin: 0;
+            color: #2c3e50;
+        }
+
+        .table-content {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .role-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .role-admin {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .role-user {
+            background: #3498db;
+            color: white;
+        }
+
+        .role-pending {
+            background: #f39c12;
+            color: white;
+        }
+
+        .action-btn {
+            padding: 0.5rem 1rem;
+            margin: 0.25rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #f39c12;
+            color: white;
+        }
+
+        .action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 2rem;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            color: #2c3e50;
+        }
+
+        .close {
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #7f8c8d;
+        }
+
+        .close:hover {
+            color: #2c3e50;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        .form-group select,
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #7f8c8d;
+        }
+
+        .empty-state .icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            .admin-container {
+                padding: 1rem;
+            }
+
+            .admin-nav {
+                flex-wrap: wrap;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+
+            .modal-content {
+                margin: 10% auto;
+                width: 95%;
+            }
+
+            .table-content {
+                font-size: 0.9rem;
+            }
+
+            th, td {
+                padding: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/" class="nav-title">🧗‍♀️ Climbing App</a>
+            <div class="nav-links">
+                <a href="/">Home</a>
+                <a href="/albums">Albums</a>
+                <a href="/crew">Crew</a>
+                <a href="/memes">Memes</a>
+                <a href="/admin" class="active">Admin</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="admin-container">
+        <div class="admin-header">
+            <h1>🛠️ Admin Panel</h1>
+            <p class="subtitle">Manage users, resources, and system settings</p>
+        </div>
+
+        <div class="admin-nav">
+            <button class="admin-nav-btn active" data-section="dashboard">Dashboard</button>
+            <button class="admin-nav-btn" data-section="users">Users</button>
+            <button class="admin-nav-btn" data-section="resources">Resources</button>
+            <button class="admin-nav-btn" data-section="migration">Migration</button>
+        </div>
+
+        <!-- Dashboard Section -->
+        <div id="dashboard" class="admin-section active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="total-users">-</div>
+                    <div class="stat-label">Total Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="admin-users">-</div>
+                    <div class="stat-label">Admin Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="total-albums">-</div>
+                    <div class="stat-label">Total Albums</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="total-crew">-</div>
+                    <div class="stat-label">Total Crew</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="unowned-resources">-</div>
+                    <div class="stat-label">Unowned Resources</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users Section -->
+        <div id="users" class="admin-section">
+            <div class="users-table">
+                <div class="table-header">
+                    <h3>User Management</h3>
+                </div>
+                <div class="table-content">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Albums</th>
+                                <th>Crew</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody">
+                            <tr>
+                                <td colspan="7" class="empty-state">
+                                    <div class="loading"></div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resources Section -->
+        <div id="resources" class="admin-section">
+            <div class="resources-table">
+                <div class="table-header">
+                    <h3>Unowned Resources</h3>
+                </div>
+                <div class="table-content">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Name/Title</th>
+                                <th>ID</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resources-tbody">
+                            <tr>
+                                <td colspan="5" class="empty-state">
+                                    <div class="loading"></div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Migration Section -->
+        <div id="migration" class="admin-section">
+            <div class="users-table">
+                <div class="table-header">
+                    <h3>System Migration</h3>
+                </div>
+                <div style="padding: 2rem;">
+                    <p>Migrate existing resources to be owned by the system. This should be done once when setting up the permission system.</p>
+                    <button id="migrate-btn" class="action-btn btn-warning">
+                        Migrate Existing Resources
+                    </button>
+                    <div id="migration-result" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Role Modal -->
+    <div id="roleModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Change User Role</h3>
+                <span class="close">&times;</span>
+            </div>
+            <form id="roleForm">
+                <div class="form-group">
+                    <label for="userRole">New Role:</label>
+                    <select id="userRole" name="role">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                        <option value="pending">Pending</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="action-btn" onclick="closeModal('roleModal')">Cancel</button>
+                    <button type="submit" class="action-btn btn-primary">Update Role</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Assign Resource Modal -->
+    <div id="assignModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Assign Resource</h3>
+                <span class="close">&times;</span>
+            </div>
+            <form id="assignForm">
+                <div class="form-group">
+                    <label for="targetUser">Assign to User:</label>
+                    <select id="targetUser" name="targetUser">
+                        <!-- Users will be populated dynamically -->
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="action-btn" onclick="closeModal('assignModal')">Cancel</button>
+                    <button type="submit" class="action-btn btn-success">Assign Resource</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/admin.js"></script>
+</body>
+</html> 

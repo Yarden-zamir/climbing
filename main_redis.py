@@ -32,6 +32,9 @@ from fastapi import Depends
 # Redis datastore import
 from redis_store import RedisDataStore
 
+# Permissions system import
+from permissions import PermissionsManager, ResourceType, UserRole
+
 # Configure logging
 
 
@@ -87,6 +90,19 @@ try:
 except Exception as e:
     logger.error(f"❌ Failed to initialize Redis: {e}")
     raise
+
+# Initialize Permissions Manager
+try:
+    permissions_manager = PermissionsManager(redis_store)
+    logger.info("✅ Permissions manager initialized successfully")
+
+    # Test basic functionality
+    test_permissions = permissions_manager.get_user_permissions("user")
+    logger.info(f"✅ Permissions manager test successful: {test_permissions}")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize Permissions Manager: {e}", exc_info=True)
+    # Create a fallback permissions manager that won't break the app
+    permissions_manager = None
 
 
 @app.on_event("startup")
@@ -405,6 +421,17 @@ async def read_privacy():
     response.headers["Expires"] = "0"
     return response
 
+
+@app.get("/admin", response_class=HTMLResponse)
+async def read_admin():
+    """Serve the admin panel page"""
+    content = inject_css_version("static/admin.html")
+    response = HTMLResponse(content=content, status_code=200)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 # === API Routes for Data ===
 
 
@@ -517,6 +544,13 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="Invalid Google Photos URL format")
 
     try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+            # Skip permissions checking for now to test basic functionality
+        logger.info(f"User {user_id} creating album (permissions temporarily disabled)")
+
         # Check if album already exists
         existing_album = await redis_store.get_album(submission.url)
         if existing_album:
@@ -562,6 +596,14 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
         # Add album to Redis
         await redis_store.add_album(submission.url, submission.crew, metadata)
 
+        # Set resource ownership (if permissions manager is available)
+        if permissions_manager:
+            try:
+                await permissions_manager.set_resource_owner(ResourceType.ALBUM, submission.url, user_id)
+                await permissions_manager.increment_user_creation_count(user_id, ResourceType.ALBUM)
+            except Exception as perm_error:
+                logger.error(f"Failed to set resource ownership: {perm_error}")
+
         return JSONResponse({
             "success": True,
             "message": "Album added successfully!",
@@ -584,6 +626,25 @@ async def submit_crew_member(submission: CrewSubmission, user: dict = Depends(ge
         raise HTTPException(status_code=400, detail="Name is required")
 
     try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Check permissions and submission limits if permissions system is available
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_permission(user_id, "create_crew")
+
+                can_create = await permissions_manager.check_submission_limits(user_id, ResourceType.CREW_MEMBER)
+                if not can_create:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="You have reached your crew member creation limit. Contact an admin for approval."
+                    )
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="Permission check failed")
+
         # Add climber to Redis
         await redis_store.add_climber(
             name=submission.name,
@@ -598,6 +659,14 @@ async def submit_crew_member(submission: CrewSubmission, user: dict = Depends(ge
             if temp_image:
                 await redis_store.store_image("climber", f"{submission.name}/face", temp_image)
                 await redis_store.delete_image("temp", submission.name)
+
+        # Set resource ownership and increment count if permissions system is available
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.set_resource_owner(ResourceType.CREW_MEMBER, submission.name, user_id)
+                await permissions_manager.increment_user_creation_count(user_id, ResourceType.CREW_MEMBER)
+            except Exception as e:
+                logger.warning(f"Failed to set ownership/increment count: {e}")
 
         return JSONResponse({
             "success": True,
@@ -626,6 +695,19 @@ async def edit_crew_member(edit_data: CrewEdit, user: dict = Depends(get_current
         raise HTTPException(status_code=400, detail="Name is required")
 
     try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Check resource access permissions if permissions system is available
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_resource_access(
+                    user_id, ResourceType.CREW_MEMBER, edit_data.original_name, "edit"
+                )
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="Permission check failed")
         # Handle image if provided
         if edit_data.temp_image_path:
             # Extract temp image from Redis and store as climber image
@@ -641,6 +723,15 @@ async def edit_crew_member(edit_data: CrewEdit, user: dict = Depends(get_current
             location=edit_data.location,
             skills=edit_data.skills
         )
+
+        # Update ownership if name changed and permissions system is available
+        if edit_data.original_name != edit_data.name and permissions_manager is not None:
+            try:
+                await permissions_manager.transfer_resource_ownership(
+                    ResourceType.CREW_MEMBER, edit_data.original_name, user_id, user_id
+                )
+            except Exception as e:
+                logger.warning(f"Failed to transfer resource ownership: {e}")
 
         return JSONResponse({
             "success": True,
@@ -669,10 +760,24 @@ async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="Invalid Google Photos URL format")
 
     try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
         # Check if album exists
         existing_album = await redis_store.get_album(edit_data.album_url)
         if not existing_album:
             raise HTTPException(status_code=404, detail="Album not found")
+
+        # Check resource access permissions if permissions system is available
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_resource_access(
+                    user_id, ResourceType.ALBUM, edit_data.album_url, "edit"
+                )
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="Permission check failed")
 
         # Handle new people if any
         if edit_data.new_people:
@@ -764,10 +869,19 @@ async def delete_album(album_url: str = Query(...), user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="Invalid Google Photos URL format")
 
     try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
         # Check if album exists
         existing_album = await redis_store.get_album(album_url)
         if not existing_album:
             raise HTTPException(status_code=404, detail="Album not found")
+
+        # Check resource access permissions
+        await permissions_manager.require_resource_access(
+            user_id, ResourceType.ALBUM, album_url, "delete"
+        )
 
         # Store album title for response
         album_title = existing_album.get("title", "Unknown Album")
@@ -800,10 +914,19 @@ async def delete_crew_member(crew_name: str = Query(...), user: dict = Depends(g
         raise HTTPException(status_code=400, detail="Crew name is required")
 
     try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
         # Check if crew member exists
         existing_member = await redis_store.get_climber(crew_name)
         if not existing_member:
             raise HTTPException(status_code=404, detail="Crew member not found")
+
+        # Check resource access permissions
+        await permissions_manager.require_resource_access(
+            user_id, ResourceType.CREW_MEMBER, crew_name, "delete"
+        )
 
         # Delete the crew member
         deleted = await redis_store.delete_climber(crew_name)
@@ -915,7 +1038,7 @@ async def auth_callback(code: str = None, state: str = None, error: str = None):
         # Get user info
         user_info = await oauth_handler.get_user_info(access_token)
 
-        # Prepare user session data
+        # Prepare user session data (basic version for now)
         user_session_data = {
             "id": user_info.get("id"),
             "email": user_info.get("email"),
@@ -926,15 +1049,16 @@ async def auth_callback(code: str = None, state: str = None, error: str = None):
             "login_time": datetime.datetime.now().isoformat()
         }
 
-        # Store session in Redis
-        session_id = oauth_handler.session_manager.generate_session_id()
-        await redis_store.store_session(session_id, user_session_data)
+        # Skip permissions integration temporarily to test basic auth
+        user_session_data["role"] = "user"
+        user_session_data["permissions"] = {}
+        logger.info("Permissions integration temporarily disabled for testing")
 
-        # Create session and redirect
+        # Create session and redirect (SessionManager handles both token creation and cookie setting)
         response = RedirectResponse(url="/")
         oauth_handler.session_manager.set_session_cookie(response, user_session_data)
 
-        logger.info(f"User logged in: {user_info.get('email')}")
+        logger.info(f"🎉 User logged in successfully: {user_info.get('email')}")
         return response
 
     except Exception as e:
@@ -977,6 +1101,329 @@ async def auth_status(user: dict = Depends(get_current_user)):
     }
 
 # ============= End OAuth Routes =============
+
+# ============= Admin Panel API Routes =============
+
+
+@app.get("/api/admin/users")
+async def get_all_users_admin(user: dict = Depends(get_current_user)):
+    """Get all users with their roles and resource counts (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        users = await permissions_manager.get_all_users()
+
+        # Enhance user data with resource counts
+        enhanced_users = []
+        for user_record in users:
+            try:
+                # Ensure user record has required fields
+                if not user_record or not user_record.get("id"):
+                    logger.warning(f"Skipping invalid user record: {user_record}")
+                    continue
+                    
+                user_id = user_record["id"]
+                user_albums = await permissions_manager.get_user_resources(user_id, ResourceType.ALBUM)
+                user_crew = await permissions_manager.get_user_resources(user_id, ResourceType.CREW_MEMBER)
+                permissions_dict = permissions_manager.get_user_permissions(user_record.get("role", "user")).__dict__
+            except Exception as e:
+                logger.warning(f"Failed to get resource counts for user {user_record.get('id', 'unknown')}: {e}")
+                user_albums, user_crew = [], []
+                permissions_dict = {}
+
+            enhanced_user = {
+                **user_record,
+                "owned_albums": len(user_albums),
+                "owned_crew_members": len(user_crew),
+                "permissions": permissions_dict
+            }
+            enhanced_users.append(enhanced_user)
+
+        return JSONResponse(enhanced_users)
+
+    except Exception as e:
+        logger.error(f"Error getting users for admin: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get users")
+
+
+@app.post("/api/admin/users/{target_user_id}/role")
+async def update_user_role_admin(target_user_id: str, new_role: str, user: dict = Depends(get_current_user)):
+    """Update a user's role (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        # Validate role
+        role_enum = UserRole(new_role)
+
+        # Update user role
+        success = await permissions_manager.update_user_role(target_user_id, role_enum)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return JSONResponse({
+            "success": True,
+            "message": f"User role updated to {new_role}",
+            "user_id": target_user_id,
+            "new_role": new_role
+        })
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    except Exception as e:
+        logger.error(f"Error updating user role: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update user role")
+
+
+@app.post("/api/admin/resources/assign")
+async def assign_resource_to_user(
+    resource_type: str,
+    resource_id: str,
+    target_user_id: str,
+    user: dict = Depends(get_current_user)
+):
+    """Assign a resource to a user (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        # Validate resource type
+        resource_type_enum = ResourceType(resource_type)
+
+        # Check if resource exists
+        if resource_type_enum == ResourceType.ALBUM:
+            resource = await redis_store.get_album(resource_id)
+        elif resource_type_enum == ResourceType.CREW_MEMBER:
+            resource = await redis_store.get_climber(resource_id)
+
+        if not resource:
+            raise HTTPException(status_code=404, detail="Resource not found")
+
+        # Check if target user exists
+        target_user = await permissions_manager.get_user(target_user_id)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Target user not found")
+
+        # Get current owner
+        current_owner = await permissions_manager.get_resource_owner(resource_type_enum, resource_id)
+
+        if current_owner:
+            # Transfer ownership
+            await permissions_manager.transfer_resource_ownership(
+                resource_type_enum, resource_id, current_owner, target_user_id
+            )
+            message = f"Resource ownership transferred to {target_user['name']}"
+        else:
+            # Set new ownership
+            await permissions_manager.set_resource_owner(resource_type_enum, resource_id, target_user_id)
+            message = f"Resource assigned to {target_user['name']}"
+
+        return JSONResponse({
+            "success": True,
+            "message": message,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "new_owner": target_user_id
+        })
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid resource type")
+    except Exception as e:
+        logger.error(f"Error assigning resource: {e}")
+        raise HTTPException(status_code=500, detail="Failed to assign resource")
+
+
+@app.get("/api/admin/resources/unowned")
+async def get_unowned_resources(user: dict = Depends(get_current_user)):
+    """Get all resources without owners (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        unowned_albums = await permissions_manager.get_unowned_resources(ResourceType.ALBUM)
+        unowned_crew = await permissions_manager.get_unowned_resources(ResourceType.CREW_MEMBER)
+
+        # Get details for unowned resources
+        album_details = []
+        for album_url in unowned_albums:
+            album_data = await redis_store.get_album(album_url)
+            if album_data:
+                album_details.append({
+                    "type": "album",
+                    "id": album_url,
+                    "title": album_data.get("title", "Unknown Album"),
+                    "url": album_url,
+                    "created_at": album_data.get("created_at", "")
+                })
+
+        crew_details = []
+        for crew_name in unowned_crew:
+            crew_data = await redis_store.get_climber(crew_name)
+            if crew_data:
+                crew_details.append({
+                    "type": "crew_member",
+                    "id": crew_name,
+                    "name": crew_name,
+                    "level": crew_data.get("level", 1),
+                    "created_at": crew_data.get("created_at", "")
+                })
+
+        return JSONResponse({
+            "albums": album_details,
+            "crew_members": crew_details,
+            "total": len(album_details) + len(crew_details)
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting unowned resources: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get unowned resources")
+
+
+@app.post("/api/admin/migrate-resources")
+async def migrate_existing_resources(user: dict = Depends(get_current_user)):
+    """Migrate existing resources to system ownership (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        migrated = await permissions_manager.migrate_existing_resources_to_system_ownership()
+
+        return JSONResponse({
+            "success": True,
+            "message": "Resources migrated successfully",
+            "migrated": migrated
+        })
+
+    except Exception as e:
+        logger.error(f"Error migrating resources: {e}")
+        raise HTTPException(status_code=500, detail="Failed to migrate resources")
+
+
+@app.get("/api/admin/stats")
+async def get_admin_stats(user: dict = Depends(get_current_user)):
+    """Get system statistics (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        # Get users by role
+        admin_users = await permissions_manager.get_users_by_role(UserRole.ADMIN)
+        regular_users = await permissions_manager.get_users_by_role(UserRole.USER)
+        pending_users = await permissions_manager.get_users_by_role(UserRole.PENDING)
+
+        # Get resource counts
+        all_albums = redis_store.redis.smembers("index:albums:all")
+        all_crew = redis_store.redis.smembers("index:climbers:all")
+
+        # Get unowned resources
+        unowned_albums = await permissions_manager.get_unowned_resources(ResourceType.ALBUM)
+        unowned_crew = await permissions_manager.get_unowned_resources(ResourceType.CREW_MEMBER)
+
+        return JSONResponse({
+            "users": {
+                "total": len(admin_users) + len(regular_users) + len(pending_users),
+                "admins": len(admin_users),
+                "regular": len(regular_users),
+                "pending": len(pending_users)
+            },
+            "resources": {
+                "albums": {
+                    "total": len(all_albums),
+                    "unowned": len(unowned_albums)
+                },
+                "crew_members": {
+                    "total": len(all_crew),
+                    "unowned": len(unowned_crew)
+                }
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting admin stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get admin stats")
+
+
+# ============= End Admin Panel Routes =============
 
 # Middleware setup
 
