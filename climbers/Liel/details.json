@@ -1,4 +1,12 @@
 {
-    "Location": ["Ein Gedy"],
-    "skills": ["climber", "belayer", "lead climber"]
+    "Location": [
+        "Ein Gedy"
+    ],
+    "skills": [
+        "climber",
+        "belayer",
+        "lead climber",
+        "anchor closer",
+        "lead belayer"
+    ]
 }
