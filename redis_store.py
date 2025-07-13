@@ -2,6 +2,7 @@ import redis
 import json
 import uuid
 import hashlib
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Set, Any, Union
 import logging
@@ -126,8 +127,8 @@ class RedisDataStore:
     # === ENHANCED CLIMBER METHODS ===
 
     async def add_climber(
-        self, name: str, location: List[str] = None, skills: List[str] = None,
-        tags: List[str] = None, achievements: List[str] = None
+        self, name: str, location: Optional[List[str]] = None, skills: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None, achievements: Optional[List[str]] = None
     ) -> None:
         """Add a new climber with validation and proper data types"""
 
@@ -237,8 +238,8 @@ class RedisDataStore:
         return climber_data
 
     async def update_climber(
-        self, original_name: str, name: str = None, location: List[str] = None,
-        skills: List[str] = None, tags: List[str] = None, achievements: List[str] = None
+        self, original_name: str, name: Optional[str] = None, location: Optional[List[str]] = None,
+        skills: Optional[List[str]] = None, tags: Optional[List[str]] = None, achievements: Optional[List[str]] = None
     ) -> None:
         """Update climber with validation and proper data types"""
 
@@ -485,3 +486,195 @@ class RedisDataStore:
                 albums.append(album)
 
         return albums
+
+    # === IMAGES ===
+
+    async def store_image(self, image_type: str, identifier: str, image_data: bytes) -> str:
+        """Store image and return Redis path"""
+        image_key = f"image:{image_type}:{identifier}"
+        self.binary_redis.set(image_key, image_data)
+
+        # Set expiration for temp images
+        if image_type == "temp":
+            self.binary_redis.expire(image_key, 3600)  # 1 hour
+
+        logger.info(f"Stored image: {image_key} ({len(image_data)} bytes)")
+        return f"/redis-image/{image_type}/{identifier}"
+
+    async def get_image(self, image_type: str, identifier: str) -> Optional[bytes]:
+        """Get image data"""
+        image_key = f"image:{image_type}:{identifier}"
+        return self.binary_redis.get(image_key)
+
+    async def delete_image(self, image_type: str, identifier: str) -> bool:
+        """Delete an image"""
+        image_key = f"image:{image_type}:{identifier}"
+        result = self.binary_redis.delete(image_key)
+        return result > 0
+
+    # === CACHING ===
+
+    async def cache_album_metadata(self, url: str, metadata: Dict, ttl: int = 300) -> None:
+        """Cache album metadata"""
+        cache_key = f"cache:album_meta:{hashlib.md5(url.encode()).hexdigest()}"
+        self.redis.setex(cache_key, ttl, json.dumps(metadata))
+
+    async def get_cached_metadata(self, url: str) -> Optional[Dict]:
+        """Get cached album metadata"""
+        cache_key = f"cache:album_meta:{hashlib.md5(url.encode()).hexdigest()}"
+        cached = self.redis.get(cache_key)
+        return json.loads(cached) if cached else None
+
+    # === MEMES ===
+
+    async def add_meme(self, meme_id: str, image_data: bytes, creator_id: str) -> None:
+        """Add a new meme"""
+        meme_key = f"meme:{meme_id}"
+
+        # Check if meme already exists
+        if self.redis.exists(meme_key):
+            raise ValueError(f"Meme already exists: {meme_id}")
+
+        # Store image data
+        image_path = await self.store_image("meme", meme_id, image_data)
+
+        # Prepare meme data
+        meme_data = {
+            "id": meme_id,
+            "image_path": image_path,
+            "creator_id": creator_id,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+
+        # Store meme
+        self.redis.hset(meme_key, mapping=meme_data)
+
+        # Update indexes
+        self.redis.sadd("index:memes:all", meme_id)
+        self.redis.sadd(f"index:memes:creator:{creator_id}", meme_id)
+
+        logger.info(f"Added meme: {meme_id} by {creator_id}")
+
+    async def get_meme(self, meme_id: str) -> Optional[Dict]:
+        """Get meme by ID"""
+        meme_key = f"meme:{meme_id}"
+        meme_data = self.redis.hgetall(meme_key)
+
+        if not meme_data:
+            return None
+
+        return meme_data
+
+    async def get_all_memes(self) -> List[Dict]:
+        """Get all memes"""
+        meme_ids = self.redis.smembers("index:memes:all")
+        if not meme_ids:
+            return []
+
+        # Use pipeline to batch Redis calls
+        pipe = self.redis.pipeline()
+        for meme_id in meme_ids:
+            pipe.hgetall(f"meme:{meme_id}")
+
+        # Execute all operations at once
+        results = pipe.execute()
+
+        memes = []
+        for meme_id, meme_data in zip(meme_ids, results):
+            if meme_data:
+                memes.append(meme_data)
+
+        # Sort by creation date (newest first)
+        memes.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return memes
+
+    async def get_memes_by_creator(self, creator_id: str) -> List[Dict]:
+        """Get all memes by a specific creator"""
+        meme_ids = self.redis.smembers(f"index:memes:creator:{creator_id}")
+        memes = []
+
+        for meme_id in meme_ids:
+            meme_data = self.redis.hgetall(f"meme:{meme_id}")
+            if meme_data:
+                memes.append(meme_data)
+
+        # Sort by creation date (newest first)
+        memes.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return memes
+
+    async def delete_meme(self, meme_id: str) -> bool:
+        """Delete a meme"""
+        meme = await self.get_meme(meme_id)
+        if not meme:
+            return False
+
+        # Remove from creator index
+        self.redis.srem(f"index:memes:creator:{meme['creator_id']}", meme_id)
+
+        # Remove from main index
+        self.redis.srem("index:memes:all", meme_id)
+
+        # Delete image
+        await self.delete_image("meme", meme_id)
+
+        # Delete meme data
+        self.redis.delete(f"meme:{meme_id}")
+
+        logger.info(f"Deleted meme: {meme_id}")
+        return True
+
+    # === SESSIONS ===
+
+    async def store_session(self, session_id: str, user_data: Dict, ttl: int = 604800) -> None:
+        """Store session with TTL (default 7 days)"""
+        session_key = f"session:{session_id}"
+        self.redis.setex(session_key, ttl, json.dumps(user_data))
+
+    async def get_session(self, session_id: str) -> Optional[Dict]:
+        """Get session data"""
+        session_key = f"session:{session_id}"
+        session_data = self.redis.get(session_key)
+        return json.loads(session_data) if session_data else None
+
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete session"""
+        session_key = f"session:{session_id}"
+        result = self.redis.delete(session_key)
+        return result > 0
+
+    # === UTILITY METHODS ===
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Health check for Redis connections"""
+        try:
+            # Test text Redis connection
+            text_info = self.redis.info()
+            text_ping = self.redis.ping()
+
+            # Test binary Redis connection
+            binary_info = self.binary_redis.info()
+            binary_ping = self.binary_redis.ping()
+
+            return {
+                "status": "healthy",
+                "text_db": {
+                    "connected": text_ping,
+                    "db_size": text_info.get("db0", {}).get("keys", 0)
+                },
+                "binary_db": {
+                    "connected": binary_ping,
+                    "db_size": binary_info.get("db1", {}).get("keys", 0)
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    async def clear_all_data(self) -> None:
+        """Clear all data - USE WITH CAUTION"""
+        self.redis.flushdb()
+        self.binary_redis.flushdb()
+        logger.warning("All Redis data cleared!")
