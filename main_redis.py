@@ -13,6 +13,7 @@ import os
 import tempfile
 import shutil
 import base64
+import uuid
 from fastapi import FastAPI, HTTPException, Query, Response, Form, File, UploadFile
 from fastapi.staticfiles import StaticFiles
 from bs4 import BeautifulSoup
@@ -510,19 +511,131 @@ async def read_admin():
 
 @app.get("/api/memes")
 async def get_memes():
-    """Get all meme images from Redis"""
+    """Get all memes from Redis"""
     try:
-        # In Redis, we'll need to store meme metadata too
-        # For now, let's implement a simple approach
-        all_images = []
+        memes = await redis_store.get_all_memes()
 
-        # This is a simplified approach - in practice, you'd want to store meme metadata in Redis
-        # For now, we'll return empty list and let frontend handle it
-        return JSONResponse([])
+        # Convert to format expected by frontend
+        memes_data = []
+        for meme in memes:
+            memes_data.append({
+                "id": meme["id"],
+                "creator_id": meme["creator_id"],
+                "created_at": meme["created_at"]
+            })
+
+        return JSONResponse(memes_data)
 
     except Exception as e:
         logger.error(f"Error getting memes: {e}")
         return JSONResponse([])
+
+
+@app.post("/api/memes/submit")
+async def submit_meme(
+    image: UploadFile = File(...),
+    user: dict = Depends(get_current_user)
+):
+    """Submit a new meme"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check if user can create memes
+    try:
+        can_create = await permissions_manager.can_user_perform_action(user_id, "create_meme")
+        if not can_create:
+            raise HTTPException(status_code=403, detail="You don't have permission to create memes")
+
+        # Check submission limits
+        can_submit = await permissions_manager.check_submission_limits(user_id, ResourceType.MEME)
+        if not can_submit:
+            raise HTTPException(status_code=403, detail="You have reached your meme submission limit")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Permission check failed")
+
+    try:
+        # Validate image
+        if not image or not image.filename:
+            raise HTTPException(status_code=400, detail="Image is required")
+
+        validate_image_file(image.content_type or "", image.size or 0)
+
+        # Read image data
+        image_data = await image.read()
+
+        # Generate unique meme ID
+        meme_id = str(uuid.uuid4())
+
+        # Create meme
+        await redis_store.add_meme(
+            meme_id=meme_id,
+            image_data=image_data,
+            creator_id=user_id
+        )
+
+        # Set resource ownership and increment count
+        await permissions_manager.set_resource_owner(ResourceType.MEME, meme_id, user_id)
+        await permissions_manager.increment_user_creation_count(user_id, ResourceType.MEME)
+
+        return JSONResponse({
+            "success": True,
+            "message": "Meme submitted successfully",
+            "meme_id": meme_id
+        })
+
+    except ValidationError as e:
+        logger.error(f"Validation error in meme submission: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error submitting meme: {e}")
+        raise HTTPException(status_code=500, detail="Failed to submit meme")
+
+
+@app.delete("/api/memes/{meme_id}")
+async def delete_meme(meme_id: str, user: dict = Depends(get_current_user)):
+    """Delete a meme"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check if meme exists
+    meme = await redis_store.get_meme(meme_id)
+    if not meme:
+        raise HTTPException(status_code=404, detail="Meme not found")
+
+    # Check permissions
+    try:
+        await permissions_manager.require_resource_access(user_id, ResourceType.MEME, meme_id, "delete")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="You don't have permission to delete this meme")
+
+    try:
+        # Delete meme
+        success = await redis_store.delete_meme(meme_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Meme not found")
+
+        return JSONResponse({
+            "success": True,
+            "message": "Meme deleted successfully"
+        })
+
+    except Exception as e:
+        logger.error(f"Error deleting meme: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete meme")
 
 
 @app.get("/api/skills")
@@ -1349,6 +1462,7 @@ async def auth_callback(code: str = None, state: str = None, error: str = None):
                 user_session_data["permissions"] = {
                     "can_create_albums": permissions.can_create_albums,
                     "can_create_crew": permissions.can_create_crew,
+                    "can_create_memes": permissions.can_create_memes,
                     "can_edit_own_resources": permissions.can_edit_own_resources,
                     "can_delete_own_resources": permissions.can_delete_own_resources,
                     "can_edit_all_resources": permissions.can_edit_all_resources,

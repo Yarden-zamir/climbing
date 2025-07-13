@@ -20,6 +20,7 @@ class ResourceType(Enum):
     """Types of resources that can be owned"""
     ALBUM = "album"
     CREW_MEMBER = "crew_member"
+    MEME = "meme"
 
 
 @dataclass
@@ -27,6 +28,7 @@ class SubmissionLimits:
     """Submission limits for different user roles"""
     max_albums: int = 1
     max_crew_members: int = 1
+    max_memes: int = 10
     requires_approval: bool = True
 
 
@@ -35,6 +37,7 @@ class UserPermissions:
     """User permissions and limits"""
     can_create_albums: bool = True
     can_create_crew: bool = True
+    can_create_memes: bool = True
     can_edit_own_resources: bool = True
     can_delete_own_resources: bool = True
     can_edit_all_resources: bool = False
@@ -58,6 +61,7 @@ class PermissionsManager:
                 submission_limits=SubmissionLimits(
                     max_albums=999999,  # Effectively unlimited
                     max_crew_members=999999,  # Effectively unlimited
+                    max_memes=999999,  # Effectively unlimited
                     requires_approval=False
                 )
             ),
@@ -65,17 +69,20 @@ class PermissionsManager:
                 submission_limits=SubmissionLimits(
                     max_albums=1,
                     max_crew_members=1,
+                    max_memes=10,  # Users can create up to 10 memes
                     requires_approval=True
                 )
             ),
             UserRole.PENDING: UserPermissions(
                 can_create_albums=False,
                 can_create_crew=False,
+                can_create_memes=False,
                 can_edit_own_resources=False,
                 can_delete_own_resources=False,
                 submission_limits=SubmissionLimits(
                     max_albums=0,
                     max_crew_members=0,
+                    max_memes=0,
                     requires_approval=True
                 )
             )
@@ -112,6 +119,7 @@ class PermissionsManager:
                 "last_login": datetime.now().isoformat(),
                 "albums_created": "0",
                 "crew_members_created": "0",
+                "memes_created": "0",
                 "is_approved": "true"  # Auto-approve for now, can be changed later
             }
 
@@ -133,6 +141,7 @@ class PermissionsManager:
         # Convert numeric fields
         user_data["albums_created"] = int(user_data.get("albums_created", "0"))
         user_data["crew_members_created"] = int(user_data.get("crew_members_created", "0"))
+        user_data["memes_created"] = int(user_data.get("memes_created", "0"))
         user_data["is_approved"] = user_data.get("is_approved", "false") == "true"
 
         return user_data
@@ -269,6 +278,8 @@ class PermissionsManager:
             return permissions.can_create_albums
         elif action == "create_crew":
             return permissions.can_create_crew
+        elif action == "create_meme":
+            return permissions.can_create_memes
         elif action == "edit_resource":
             if permissions.can_edit_all_resources:
                 return True
@@ -304,6 +315,9 @@ class PermissionsManager:
         elif resource_type == ResourceType.CREW_MEMBER:
             current_count = user.get("crew_members_created", 0)
             return current_count < limits.max_crew_members
+        elif resource_type == ResourceType.MEME:
+            current_count = user.get("memes_created", 0)
+            return current_count < limits.max_memes
 
         return True
 
@@ -315,6 +329,8 @@ class PermissionsManager:
             self.redis_store.redis.hincrby(user_key, "albums_created", 1)
         elif resource_type == ResourceType.CREW_MEMBER:
             self.redis_store.redis.hincrby(user_key, "crew_members_created", 1)
+        elif resource_type == ResourceType.MEME:
+            self.redis_store.redis.hincrby(user_key, "memes_created", 1)
 
     # === AUTHORIZATION HELPERS ===
 

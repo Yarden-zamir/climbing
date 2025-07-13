@@ -608,6 +608,109 @@ class RedisDataStore:
         cached = self.redis.get(cache_key)
         return json.loads(cached) if cached else None
 
+    # === MEMES ===
+
+    async def add_meme(self, meme_id: str, image_data: bytes, creator_id: str) -> None:
+        """Add a new meme"""
+        meme_key = f"meme:{meme_id}"
+
+        # Check if meme already exists
+        if self.redis.exists(meme_key):
+            raise ValueError(f"Meme already exists: {meme_id}")
+
+        # Store image data
+        image_path = await self.store_image("meme", meme_id, image_data)
+
+        # Prepare meme data
+        meme_data = {
+            "id": meme_id,
+            "image_path": image_path,
+            "creator_id": creator_id,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+
+        # Store meme
+        self.redis.hset(meme_key, mapping=meme_data)
+
+        # Update indexes
+        self.redis.sadd("index:memes:all", meme_id)
+        self.redis.sadd(f"index:memes:creator:{creator_id}", meme_id)
+
+        logger.info(f"Added meme: {meme_id} by {creator_id}")
+
+    async def get_meme(self, meme_id: str) -> Optional[Dict]:
+        """Get meme by ID"""
+        meme_key = f"meme:{meme_id}"
+        meme_data = self.redis.hgetall(meme_key)
+
+        if not meme_data:
+            return None
+
+        return meme_data
+
+    async def get_all_memes(self) -> List[Dict]:
+        """Get all memes"""
+        meme_ids = self.redis.smembers("index:memes:all")
+        if not meme_ids:
+            return []
+
+        # Use pipeline to batch Redis calls
+        pipe = self.redis.pipeline()
+        for meme_id in meme_ids:
+            pipe.hgetall(f"meme:{meme_id}")
+
+        # Execute all operations at once
+        results = pipe.execute()
+
+        memes = []
+        for meme_id, meme_data in zip(meme_ids, results):
+            if meme_data:
+                memes.append(meme_data)
+
+        # Sort by creation date (newest first)
+        memes.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return memes
+
+    async def get_memes_by_creator(self, creator_id: str) -> List[Dict]:
+        """Get all memes by a specific creator"""
+        meme_ids = self.redis.smembers(f"index:memes:creator:{creator_id}")
+        memes = []
+
+        for meme_id in meme_ids:
+            meme_data = self.redis.hgetall(f"meme:{meme_id}")
+            if meme_data:
+                memes.append(meme_data)
+
+        # Sort by creation date (newest first)
+        memes.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return memes
+
+
+
+
+
+    async def delete_meme(self, meme_id: str) -> bool:
+        """Delete a meme"""
+        meme = await self.get_meme(meme_id)
+        if not meme:
+            return False
+
+        # Remove from creator index
+        self.redis.srem(f"index:memes:creator:{meme['creator_id']}", meme_id)
+
+        # Remove from main index
+        self.redis.srem("index:memes:all", meme_id)
+
+        # Delete image
+        await self.delete_image("meme", meme_id)
+
+        # Delete meme data
+        self.redis.delete(f"meme:{meme_id}")
+
+        logger.info(f"Deleted meme: {meme_id}")
+        return True
+
     # === NEW CLIMBERS MANAGEMENT ===
 
     async def calculate_new_climbers(self) -> Set[str]:

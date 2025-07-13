@@ -262,6 +262,32 @@ class AdminPanel {
             .join('');
     }
 
+    getResourceTypeClass(type) {
+        switch (type) {
+            case 'album':
+                return 'role-user';
+            case 'crew_member':
+                return 'role-admin';
+            case 'meme':
+                return 'role-pending';
+            default:
+                return 'role-user';
+        }
+    }
+
+    getResourceTypeLabel(type) {
+        switch (type) {
+            case 'album':
+                return 'ALBUM';
+            case 'crew_member':
+                return 'CREW';
+            case 'meme':
+                return 'MEME';
+            default:
+                return type.toUpperCase();
+        }
+    }
+
     async loadAllResources() {
         try {
             const response = await fetch('/api/admin/resources/all');
@@ -294,8 +320,8 @@ class AdminPanel {
         tbody.innerHTML = this.resources.map(resource => `
             <tr>
                 <td>
-                    <span class="role-badge ${resource.type === 'album' ? 'role-user' : 'role-admin'}">
-                        ${resource.type === 'album' ? 'ALBUM' : 'CREW'}
+                    <span class="role-badge ${this.getResourceTypeClass(resource.type)}">
+                        ${this.getResourceTypeLabel(resource.type)}
                     </span>
                 </td>
                 <td>${resource.title || resource.name}</td>
