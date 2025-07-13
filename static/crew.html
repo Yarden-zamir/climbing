@@ -157,9 +157,19 @@
                         </div>
                     </div>
                     
-                    <button type="submit" class="submit-btn" id="edit-submit-crew-btn" disabled>
-                        Update Crew Member
-                    </button>
+                    <div style="display: flex; gap: 1rem;">
+                        <button type="submit" class="submit-btn" id="edit-submit-crew-btn" disabled>
+                            Update Crew Member
+                        </button>
+                        <button type="button" class="submit-btn" id="delete-crew-btn" style="
+                            background: linear-gradient(135deg, #cf6679 0%, #b71c1c 100%);
+                            color: white;
+                            padding: 0.75rem 1rem;
+                            font-size: 0.9rem;
+                        ">
+                            🗑️ Delete
+                        </button>
+                    </div>
                     
                     <div id="edit-submission-status" style="margin-top: 1rem; text-align: center;">
                         <!-- Submission status will appear here -->
@@ -187,23 +197,30 @@
             </div>
         </div>
 
-        <!-- Add Skill Modal -->
-        <div class="add-crew-modal-overlay" id="add-skill-modal-overlay">
-            <div class="add-crew-modal" id="add-skill-modal">
+        <!-- Add Items Modal (Skills, Tags, Achievements) -->
+        <div class="add-crew-modal-overlay" id="add-items-modal-overlay">
+            <div class="add-crew-modal" id="add-items-modal">
                 <div class="add-crew-modal-header">
-                    <h3 class="add-crew-modal-title" id="add-skill-modal-title">Add Skill</h3>
-                    <button class="add-crew-modal-close" id="add-skill-modal-close">&times;</button>
+                    <h3 class="add-crew-modal-title" id="add-items-modal-title">Add Items</h3>
+                    <button class="add-crew-modal-close" id="add-items-modal-close">&times;</button>
                 </div>
                 <div class="add-crew-form">
                     <div class="form-group">
-                        <label class="form-label">Available Skills</label>
-                        <div class="skills-badges-container" id="add-skill-badges-container">
-                            <!-- Available skills badges will appear here -->
+                        <label class="form-label">Item Type</label>
+                        <select id="item-type-select" class="form-input" style="margin-bottom: 1rem;">
+                            <option value="skills">Skills</option>
+                            <option value="achievements">Achievements</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" id="available-items-label">Available Items</label>
+                        <div class="skills-badges-container" id="add-items-badges-container">
+                            <!-- Available items badges will appear here -->
                         </div>
                     </div>
                     <div style="display: flex; gap: 1rem; justify-content: flex-end;">
-                        <button type="button" class="submit-btn" id="add-skill-cancel-btn" style="background: #666;">Cancel</button>
-                        <button type="button" class="submit-btn" id="add-skill-submit-btn">Add Skills</button>
+                        <button type="button" class="submit-btn" id="add-items-cancel-btn" style="background: #666;">Cancel</button>
+                        <button type="button" class="submit-btn" id="add-items-submit-btn">Add Items</button>
                     </div>
                 </div>
             </div>
@@ -216,8 +233,37 @@
         let crewData = [];
         let skillOrder = [];
         let tagOrder = [];
+        let achievementOrder = [];
         let sortKey = "level";
         let sortDir = -1;
+        
+        // Function to format first onion climb tooltip with days ago and date
+        function getFirstClimbTooltip(firstClimbDate) {
+            if (!firstClimbDate) {
+                return 'first onion climb: recently';
+            }
+            
+            try {
+                // Parse the date (format: "Jul 15, 2024")
+                const climbDate = new Date(firstClimbDate);
+                const today = new Date();
+                
+                // Calculate the difference in days
+                const diffTime = today - climbDate;
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                
+                if (diffDays === 0) {
+                    return `first onion climb: today, ${firstClimbDate}`;
+                } else if (diffDays === 1) {
+                    return `first onion climb: 1 day ago, ${firstClimbDate}`;
+                } else {
+                    return `first onion climb: ${diffDays} days ago, ${firstClimbDate}`;
+                }
+            } catch (error) {
+                console.warn('Error parsing first onion climb date:', firstClimbDate, error);
+                return `first onion climb: ${firstClimbDate}`;
+            }
+        }
         
         // Cropping variables
         let currentCropper = null;
@@ -290,11 +336,13 @@
                 // Convert canvas to blob
                 canvas.toBlob((blob) => {
                     if (blob) {
+                        console.log('Canvas blob created:', blob.size, blob.type);
                         // Create a new File object from the blob
                         const croppedFile = new File([blob], currentOriginalFile.name, {
                             type: currentOriginalFile.type,
                             lastModified: Date.now()
                         });
+                        console.log('Cropped file created:', croppedFile.name, croppedFile.type, croppedFile.size);
                         
                         // Apply the cropped image based on the target
                         if (activeCropTarget === 'add') {
@@ -304,6 +352,8 @@
                         }
                         
                         closeCropModal();
+                    } else {
+                        console.error('Failed to create canvas blob');
                     }
                 }, currentOriginalFile.type, 0.9);
             }
@@ -325,17 +375,7 @@
 
         const cropModal = initCropModal();
 
-        function applyImageToAdd(croppedFile, dataUrl) {
-            currentImage = croppedFile;
-            const uploadContent = document.getElementById('upload-content');
-            uploadContent.innerHTML = `
-                <img src="${dataUrl}" alt="Preview" class="image-preview">
-                <div class="upload-text" style="margin-top: 0.5rem;">
-                    ${croppedFile.name} (cropped)<br>
-                    <small>Click to change image</small>
-                </div>
-            `;
-        }
+
 
         function applyImageToEdit(croppedFile, dataUrl) {
             editCurrentImage = croppedFile;
@@ -352,9 +392,11 @@
         function computeSkillOrder(data) {
             const allSkills = new Set();
             const allTags = new Set();
+            const allAchievements = new Set();
             data.forEach(c => {
                 (c.skills || []).forEach(s => allSkills.add(s));
                 (c.tags || []).forEach(t => allTags.add(t));
+                (c.achievements || []).forEach(a => allAchievements.add(a));
             });
             skillOrder = Array.from(allSkills).sort((a, b) =>
                 a.toLowerCase().localeCompare(b.toLowerCase())
@@ -362,12 +404,19 @@
             tagOrder = Array.from(allTags).sort((a, b) =>
                 a.toLowerCase().localeCompare(b.toLowerCase())
             );
+            achievementOrder = Array.from(allAchievements).sort((a, b) =>
+                a.toLowerCase().localeCompare(b.toLowerCase())
+            );
         }
 
         function renderTable(data) {
             const container = document.getElementById("crew-table-container");
-            const crewCount = data.length;
-            const crewLevel = data.reduce((sum, c) => sum + (Math.trunc(c.level) || 0), 0);
+            
+            // Filter out crew members with "Is Etherial" tag for team calculations
+            const nonEtherialCrew = data.filter(c => !c.tags || !c.tags.includes("Is Etherial"));
+            
+            const crewCount = nonEtherialCrew.length;
+            const crewLevel = nonEtherialCrew.reduce((sum, c) => sum + (Math.trunc(c.level) || 0), 0);
             const newClimbersCount = data.filter(c => c.is_new).length;
 
             container.innerHTML = `
@@ -450,7 +499,7 @@
                 <div class="crew-face-container">
                     <img src="${c.face}" class="crew-face${c.is_new ? ' new-climber' : ''}" alt="${c.name}">
                     ${c.is_new ? `
-                        <a href="/albums?people=${encodeURIComponent(c.name)}" class="new-climber-badge" title="First climb: ${c.first_climb_date || 'recently'}">
+                        <a href="/albums?people=${encodeURIComponent(c.name)}" class="new-climber-badge" title="${getFirstClimbTooltip(c.first_climb_date)}">
                             NEW
                         </a>
                     ` : ''}
@@ -467,6 +516,11 @@
                 ${tagOrder.map(tag =>
                     c.tags && c.tags.includes(tag)
                         ? `<span class="tag-badge">${tag}</span>`
+                        : ""
+                ).join("")}
+                ${achievementOrder.map(achievement =>
+                    c.achievements && c.achievements.includes(achievement)
+                        ? `<span class="achievement-badge">${achievement}</span>`
                         : ""
                 ).join("")}
                 <span class="skill-add-badge" data-crew-name="${encodeURIComponent(c.name)}" title="Add skill" style="display: none;">+</span>
@@ -744,16 +798,23 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             const params = new URLSearchParams(window.location.search);
             const highlight = params.get("highlight");
             if (!highlight) return;
-            const norm = s => s.toLowerCase().replace(/[\s\-_]+/g, "");
-            const rows = document.querySelectorAll(".crew-table tbody tr");
-            for (const row of rows) {
-                const nameCell = row.querySelector('td[data-label="Name"]');
-                if (nameCell && norm(nameCell.textContent) === norm(highlight)) {
-                    selectCrewRow(row);
-                    row.scrollIntoView({ behavior: "smooth", block: "center" });
-                    break;
+            
+            // Add a small delay to ensure DOM is fully rendered and stable
+            setTimeout(() => {
+                const norm = s => s.toLowerCase().replace(/[\s\-_]+/g, "");
+                const rows = document.querySelectorAll(".crew-table tbody tr");
+                for (const row of rows) {
+                    const nameCell = row.querySelector('td[data-label="Name"]');
+                    if (nameCell && norm(nameCell.textContent) === norm(highlight)) {
+                        selectCrewRow(row);
+                        // Use requestAnimationFrame to ensure the DOM is painted before scrolling
+                        requestAnimationFrame(() => {
+                            row.scrollIntoView({ behavior: "smooth", block: "center" });
+                        });
+                        break;
+                    }
                 }
-            }
+            }, 100);
         }
 
         function selectCrewRow(row) {
@@ -799,27 +860,366 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             }
         }
 
-        fetch("/api/crew")
-            .then(r => r.json())
-            .then(data => {
+        // Auto-refresh function for crew data
+        async function autoRefreshCrew(showLoadingState = true) {
+            try {
+                                 if (showLoadingState) {
+                     // Show loading indicator
+                     const container = document.getElementById("crew-table-container");
+                     const loadingHTML = `
+                         <div class="refresh-loading" style="text-align: center; padding: 2rem; color: #03dac6;">
+                             <div style="font-size: 1.2em; margin-bottom: 1rem;">
+                                 <span class="refresh-spinner">🔄</span> Refreshing crew data...
+                             </div>
+                             <div style="font-size: 0.9em; color: #ccc;">Please wait while we update the latest information</div>
+                         </div>
+                     `;
+                     container.innerHTML = loadingHTML;
+                 }
+                
+                const response = await fetch("/api/crew");
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
                 crewData = data;
                 computeSkillOrder(crewData);
                 sortAndRender();
                 
-                // Add click handler for skill add badges
+                // Re-add click handler for skill add badges
                 document.addEventListener('click', (e) => {
                     if (e.target.classList.contains('skill-add-badge')) {
                         const crewName = decodeURIComponent(e.target.dataset.crewName);
-                        openAddSkillModal(crewName);
+                        openAddItemsModal(crewName);
                     }
                 });
-            });
+                
+                return true;
+            } catch (error) {
+                console.error('Error refreshing crew data:', error);
+                
+                                 // Show error message
+                 const container = document.getElementById("crew-table-container");
+                 container.innerHTML = `
+                     <div class="refresh-error" style="text-align: center; padding: 2rem; color: #cf6679;">
+                         <div style="font-size: 1.2em; margin-bottom: 1rem;">❌ Failed to refresh crew data</div>
+                         <div style="font-size: 0.9em; color: #ccc; margin-bottom: 1rem;">
+                             Error: ${error.message}
+                         </div>
+                         <button onclick="autoRefreshCrew()" style="
+                             background: #03dac6;
+                             color: #1a1a1a;
+                             border: none;
+                             padding: 0.5rem 1rem;
+                             border-radius: 8px;
+                             cursor: pointer;
+                             font-weight: 600;
+                         ">
+                             Try Again
+                         </button>
+                     </div>
+                 `;
+                
+                return false;
+            }
+        }
 
-        // Initialize add crew functionality
+                 // Particle Animation System
+        class ParticleSystem {
+            constructor() {
+                this.container = null;
+                this.init();
+            }
+            
+            init() {
+                // Create particle container if it doesn't exist
+                if (!document.querySelector('.particle-container')) {
+                    this.container = document.createElement('div');
+                    this.container.className = 'particle-container';
+                    document.body.appendChild(this.container);
+                } else {
+                    this.container = document.querySelector('.particle-container');
+                }
+            }
+            
+            createParticles(element, type, count = 15) {
+                if (!element || !this.container) return;
+                
+                const rect = element.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                for (let i = 0; i < count; i++) {
+                    const particle = document.createElement('div');
+                    particle.className = `particle ${type}`;
+                    
+                    // Random offset from center - more focused for new items
+                    const multiplier = type.includes('created') ? 0.8 : 1.5;
+                    const offsetX = (Math.random() - 0.5) * rect.width * multiplier;
+                    const offsetY = (Math.random() - 0.5) * rect.height * multiplier;
+                    
+                    particle.style.left = (centerX + offsetX) + 'px';
+                    particle.style.top = (centerY + offsetY) + 'px';
+                    
+                    // Add random delay for staggered effect
+                    particle.style.animationDelay = (Math.random() * 0.5) + 's';
+                    
+                    // Add rotation for variety
+                    const randomRotation = Math.random() * 360;
+                    particle.style.transform = `rotate(${randomRotation}deg)`;
+                    
+                    this.container.appendChild(particle);
+                    
+                    // Remove particle after animation
+                    setTimeout(() => {
+                        if (particle.parentNode) {
+                            particle.parentNode.removeChild(particle);
+                        }
+                    }, 2500);
+                }
+            }
+            
+            animateItemChange(element, changeType) {
+                if (!element) return;
+                
+                // Add highlight animation to the item itself
+                element.classList.add(`item-being-${changeType}`);
+                
+                // Remove class after animation
+                setTimeout(() => {
+                    element.classList.remove(`item-being-${changeType}`);
+                }, changeType === 'deleted' ? 500 : changeType === 'updated' ? 600 : 1000);
+            }
+
+            // Create a horizontal red line of particles at the element's former position
+            // Accepts either a DOM element or a DOMRect-like object.
+            createLineParticles(target, count = 30) {
+                if (!this.container) return;
+                const rect = target instanceof Element ? target.getBoundingClientRect() : target;
+                const centerY = rect.top + rect.height / 2;
+                for (let i = 0; i < count; i++) {
+                    const particle = document.createElement('div');
+                    particle.className = 'particle red';
+                    // Evenly distribute along the width with small vertical jitter
+                    const x = rect.left + Math.random() * rect.width;
+                    const y = centerY + (Math.random() - 0.5) * 6;
+                    particle.style.left = `${x}px`;
+                    particle.style.top = `${y}px`;
+                    particle.style.animationDelay = (Math.random() * 0.2) + 's';
+                    this.container.appendChild(particle);
+                    setTimeout(() => particle.remove(), 2000);
+                }
+            }
+        }
+        
+        // Global particle system instance
+        const particleSystem = new ParticleSystem();
+        
+        // Enhanced auto-refresh function with change detection and particles
+        let previousCrewData = [];
+        
+        async function autoRefreshCrewWithParticles(showLoadingState = true, detectChanges = true) {
+            try {
+                // Save scroll position before refresh
+                const scrollPosition = window.pageYOffset || document.documentElement.scrollTop;
+                
+                if (showLoadingState) {
+                    // Show loading indicator
+                    const container = document.getElementById("crew-table-container");
+                    const loadingHTML = `
+                        <div class="refresh-loading" style="text-align: center; padding: 2rem; color: #03dac6;">
+                            <div style="font-size: 1.2em; margin-bottom: 1rem;">
+                                <span class="refresh-spinner">🔄</span> Refreshing crew data...
+                            </div>
+                            <div style="font-size: 0.9em; color: #ccc;">Please wait while we update the latest information</div>
+                        </div>
+                    `;
+                    container.innerHTML = loadingHTML;
+                }
+                
+                const response = await fetch("/api/crew");
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const newData = await response.json();
+                
+                // Update global data
+                crewData = newData;
+                
+                // Detect changes and create particles
+                if (detectChanges && previousCrewData.length > 0) {
+                    await detectCrewChangesAndAnimate(previousCrewData, newData);
+                } else {
+                    // If not detecting changes, render immediately
+                    computeSkillOrder(crewData);
+                    sortAndRender();
+                }
+                
+                previousCrewData = [...newData]; // Store copy for next comparison
+                
+                // Restore scroll position after refresh
+                setTimeout(() => {
+                    window.scrollTo(0, scrollPosition);
+                }, 50);
+                
+                // Re-add click handler for skill add badges
+                document.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('skill-add-badge')) {
+                        const crewName = decodeURIComponent(e.target.dataset.crewName);
+                        openAddItemsModal(crewName);
+                    }
+                });
+                
+                return true;
+            } catch (error) {
+                console.error('Error refreshing crew data:', error);
+                
+                // Show error message
+                const container = document.getElementById("crew-table-container");
+                container.innerHTML = `
+                    <div class="refresh-error" style="text-align: center; padding: 2rem; color: #cf6679;">
+                        <div style="font-size: 1.2em; margin-bottom: 1rem;">❌ Failed to refresh crew data</div>
+                        <div style="font-size: 0.9em; color: #ccc; margin-bottom: 1rem;">
+                            Error: ${error.message}
+                        </div>
+                        <button onclick="autoRefreshCrew()" style="
+                            background: #03dac6;
+                            color: #1a1a1a;
+                            border: none;
+                            padding: 0.5rem 1rem;
+                            border-radius: 8px;
+                            cursor: pointer;
+                            font-weight: 600;
+                        ">
+                            Try Again
+                        </button>
+                    </div>
+                `;
+                
+                return false;
+            }
+        }
+        
+        async function detectCrewChangesAndAnimate(oldData, newData) {
+            // Wait a bit for DOM to be ready
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            const oldNames = new Set(oldData.map(member => member.name));
+            const newNames = new Set(newData.map(member => member.name));
+            
+            // Find added members (blue particles)
+            const addedMembers = newData.filter(member => !oldNames.has(member.name));
+            
+            // Find deleted members (red particles) 
+            const deletedMembers = oldData.filter(member => !newNames.has(member.name));
+            
+            // Find updated members (green particles)
+            const updatedMembers = newData.filter(newMember => {
+                const oldMember = oldData.find(old => old.name === newMember.name);
+                if (!oldMember) return false;
+                
+                // Check if any significant properties changed
+                return JSON.stringify(oldMember.skills) !== JSON.stringify(newMember.skills) ||
+                       JSON.stringify(oldMember.achievements) !== JSON.stringify(newMember.achievements) ||
+                       oldMember.level !== newMember.level ||
+                       oldMember.climbs !== newMember.climbs;
+            });
+            
+            // If there are new members, render table without them first
+            if (addedMembers.length > 0) {
+                // Temporarily remove new members from crewData for initial render
+                const existingMembers = crewData.filter(member => oldNames.has(member.name));
+                const originalCrewData = [...crewData];
+                
+                crewData = existingMembers;
+                computeSkillOrder(crewData);
+                sortAndRender();
+                
+                // Restore the full data
+                crewData = originalCrewData;
+                computeSkillOrder(crewData);
+            } else {
+                // No new members, render normally
+                computeSkillOrder(crewData);
+                sortAndRender();
+            }
+            
+            // Animate deletions first (with red particles) - small delay so they're visible
+            setTimeout(() => {
+                for (const member of deletedMembers) {
+                    const rowElement = document.querySelector(`tr[data-climber-name="${encodeURIComponent(member.name)}"]`);
+                    if (rowElement) {
+                        const rect = rowElement.getBoundingClientRect();
+                        rowElement.remove();
+                        particleSystem.createLineParticles(rect, 30);
+                    }
+                }
+            }, 300);
+            
+            // Then animate additions (with blue particles) and auto-select new crew
+            setTimeout(() => {
+                // Re-render the table with new members
+                sortAndRender();
+                
+                // Animate each new member
+                for (const member of addedMembers) {
+                    const rowElement = document.querySelector(`tr[data-climber-name="${encodeURIComponent(member.name)}"]`);
+                    if (rowElement) {
+                        // Hide the row initially
+                        rowElement.style.opacity = '0';
+                        rowElement.style.transform = 'translateY(-20px)';
+                        
+                        // Animate the row appearing
+                        setTimeout(() => {
+                            rowElement.style.transition = 'all 0.6s ease-out';
+                            rowElement.style.opacity = '1';
+                            rowElement.style.transform = 'translateY(0)';
+                        }, 50);
+                        
+                        particleSystem.animateItemChange(rowElement, 'added');
+                        
+                        // Auto-select the newly added crew member
+                        selectCrewRow(rowElement);
+                        
+                        // Scroll to the new member first, then create particles
+                        rowElement.scrollIntoView({ behavior: "smooth", block: "center" });
+                        
+                        // Create particles after scroll animation completes
+                        setTimeout(() => {
+                            particleSystem.createParticles(rowElement, 'blue created', 25);
+                        }, 800); // Wait for scroll animation to complete
+                    }
+                }
+            }, 500);
+            
+            // Finally animate updates (with green particles)
+            setTimeout(() => {
+                for (const member of updatedMembers) {
+                    const rowElement = document.querySelector(`tr[data-climber-name="${encodeURIComponent(member.name)}"]`);
+                    if (rowElement) {
+                        particleSystem.animateItemChange(rowElement, 'updated');
+                        particleSystem.createParticles(rowElement, 'green updated', 10);
+                    }
+                }
+            }, 700);
+        }
+
+        // Make both functions available globally
+        window.autoRefreshCrew = autoRefreshCrewWithParticles;
+        window.particleSystem = particleSystem;
+         
+         // Initial load (store initial data for comparison)
+         autoRefreshCrewWithParticles(false, false).then(() => {
+             previousCrewData = [...crewData]; // Store initial state
+         });
+
+         // Initialize add crew functionality
         initAddCrewModal();
         
-        // Initialize add skill functionality
-        initAddSkillModal();
+        // Initialize add items functionality
+        initAddItemsModal();
 
         // Add Crew Modal Functionality
         function initAddCrewModal() {
@@ -834,6 +1234,24 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             let allSkills = [];
             let selectedSkills = [];
             let currentImage = null;
+            
+            // Function to apply cropped image to add form
+            function applyImageToAdd(croppedFile, dataUrl) {
+                console.log('applyImageToAdd called with:', croppedFile.name, croppedFile.type, croppedFile.size);
+                currentImage = croppedFile;
+                console.log('currentImage set to:', currentImage);
+                const uploadContent = document.getElementById('upload-content');
+                uploadContent.innerHTML = `
+                    <img src="${dataUrl}" alt="Preview" class="image-preview">
+                    <div class="upload-text" style="margin-top: 0.5rem;">
+                        ${croppedFile.name} (cropped)<br>
+                        <small>Click to change image</small>
+                    </div>
+                `;
+            }
+            
+            // Make applyImageToAdd accessible globally for crop modal
+            window.applyImageToAdd = applyImageToAdd;
             
             // Fetch available skills
             fetch('/api/skills')
@@ -863,6 +1281,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             
             // Close modal
             const closeModal = () => {
+                console.log('closeModal called - currentImage:', currentImage);
+                console.trace('closeModal stack trace');
                 modal.classList.remove('active');
                 setTimeout(() => {
                     modalOverlay.classList.remove('active');
@@ -991,6 +1411,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             // Form submission
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
+                console.log('Form submit event triggered - currentImage:', currentImage);
                 
                 const name = nameInput.value.trim();
                 const city = document.getElementById('location-city').value.trim();
@@ -998,43 +1419,29 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 const location = [city, country].filter(Boolean);
                 
                 submitBtn.disabled = true;
-                submitBtn.textContent = 'Submitting...';
+                submitBtn.textContent = 'Adding...';
                 
                 try {
-                    let tempImagePath = null;
+                    // Create FormData for multipart submission
+                    const formData = new FormData();
+                    formData.append('name', name);
+                    formData.append('skills', JSON.stringify(selectedSkills));
+                    formData.append('location', JSON.stringify(location));
+                    formData.append('achievements', JSON.stringify([])); // Empty achievements for now
                     
-                    // Upload image if provided
+                    // Add image if provided
+                    console.log('currentImage:', currentImage);
                     if (currentImage) {
-                        try {
-                            const formData = new FormData();
-                            formData.append('file', currentImage);
-                            formData.append('person_name', name);
-                            
-                            const uploadResponse = await fetch('/api/upload-face', {
-                                method: 'POST',
-                                body: formData
-                            });
-                            
-                            if (uploadResponse.ok) {
-                                const uploadData = await uploadResponse.json();
-                                tempImagePath = uploadData.temp_path;
-                            }
-                        } catch (uploadError) {
-                            console.warn('Failed to upload image:', uploadError);
-                        }
+                        console.log('Adding image to formData:', currentImage.name, currentImage.type, currentImage.size);
+                        formData.append('image', currentImage);
+                    } else {
+                        console.log('No image to add');
                     }
                     
                     const response = await fetch('/api/crew/submit', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            name,
-                            skills: selectedSkills,
-                            location,
-                            temp_image_path: tempImagePath
-                        })
+                        credentials: 'include', // Include cookies for authentication
+                        body: formData // Don't set Content-Type header, let browser set it with boundary
                     });
                     
                     const data = await response.json();
@@ -1049,23 +1456,21 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 }
             });
             
-            function showSubmissionSuccess(data) {
+            async function showSubmissionSuccess(data) {
                 const status = document.getElementById('submission-status');
                 status.innerHTML = `
-                    <div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+                    <div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
                         ✅ ${data.message}
                     </div>
-                    <div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
-                        <strong>Crew Member:</strong> ${data.crew_name}
+                    <div style="color: #ccc; font-size: 0.9rem;">
+                        Crew member has been added and is now live!
                     </div>
-                    <a href="${data.pr_url}" target="_blank" style="
-                        color: #03dac6;
-                        text-decoration: underline;
-                        font-weight: 600;
-                    ">
-                        View Pull Request #${data.pr_number}
-                    </a>
                 `;
+                
+                // Close modal immediately and refresh in background
+                closeModal();
+                // Start auto-refresh in background after modal closes (particles will be focused on the new crew row)
+                autoRefreshCrewWithParticles(true, true);
             }
             
             function showSubmissionError(message) {
@@ -1080,9 +1485,12 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             }
             
             function resetForm() {
+                console.log('resetForm called - currentImage before reset:', currentImage);
+                console.trace('resetForm stack trace');
                 form.reset();
                 selectedSkills = [];
                 currentImage = null;
+                console.log('resetForm called - currentImage after reset:', currentImage);
                 document.getElementById('upload-content').innerHTML = `
                     <div class="upload-text">
                         📷 Click or drag to upload profile image<br>
@@ -1115,12 +1523,52 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             const editForm = document.getElementById('edit-crew-form');
             const editNameInput = document.getElementById('edit-crew-name');
             const editSubmitBtn = document.getElementById('edit-submit-crew-btn');
+            const deleteCrewBtn = document.getElementById('delete-crew-btn');
             
             let editAllSkills = [];
             let editSelectedSkills = [];
             let editCurrentImage = null;
             let selectedCrewMember = null;
             let originalCrewName = null;
+            
+            // Delete crew member functionality
+            if (deleteCrewBtn) {
+                deleteCrewBtn.addEventListener('click', async () => {
+                if (!selectedCrewMember) {
+                    alert('No crew member selected. Please select a crew member first.');
+                    return;
+                }
+                
+                const confirmed = confirm(`Are you sure you want to delete "${selectedCrewMember.name}"?\n\nThis action cannot be undone and will:\n- Remove the crew member from the team\n- Remove them from all albums\n- Update climb counts accordingly\n\nProceed with deletion?`);
+                
+                if (!confirmed) return;
+                
+                deleteCrewBtn.disabled = true;
+                deleteCrewBtn.textContent = '🗑️ Deleting...';
+                
+                try {
+                    const response = await fetch(`/api/crew/delete?crew_name=${encodeURIComponent(selectedCrewMember.name)}`, {
+                        method: 'DELETE'
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        showEditSubmissionSuccess({
+                            message: data.message,
+                            isDeleted: true
+                        });
+                    } else {
+                        showEditSubmissionError(data.detail || 'Delete failed');
+                    }
+                } catch (error) {
+                    showEditSubmissionError('Network error occurred during deletion');
+                } finally {
+                    deleteCrewBtn.disabled = false;
+                    deleteCrewBtn.textContent = '🗑️ Delete';
+                }
+            });
+            }
             
             // Fetch available skills
             fetch('/api/skills')
@@ -1134,6 +1582,10 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         editSkillsBadgesContainer.innerHTML = editAllSkills.map(skill => `
                             <div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
                         `).join('');
+                    }
+                    // If modal is open and skills were manually rendered, re-render with full skills
+                    if (editModalOverlay.classList.contains('active') && window.renderEditSkillsBadges) {
+                        window.renderEditSkillsBadges();
                     }
                 })
                 .catch(e => console.warn('Could not load skills:', e));
@@ -1153,7 +1605,11 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         editCrewFab.title = `Edit ${selectedCrewMember?.name || 'Crew Member'}`;
                     }
                 } else {
-                    selectedCrewMember = null;
+                    // Don't clear selectedCrewMember if modal is open
+                    const modalIsOpen = editModalOverlay.classList.contains('active');
+                    if (!modalIsOpen) {
+                        selectedCrewMember = null;
+                    }
                     
                     // Hide edit FAB with animation
                     editCrewFab.classList.remove('show');
@@ -1183,6 +1639,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 setTimeout(() => {
                     editModalOverlay.classList.remove('active');
                     resetEditForm();
+                    // Clear selection when modal closes
+                    selectedCrewMember = null;
                 }, 300);
             };
             
@@ -1203,6 +1661,19 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 
                 // Set skills
                 editSelectedSkills = [...(member.skills || [])];
+                
+                // Update skills badges UI to show selected skills
+                if (editAllSkills && editAllSkills.length > 0 && window.renderEditSkillsBadges) {
+                    window.renderEditSkillsBadges();
+                } else {
+                    // If skills aren't loaded yet, render them manually
+                    const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
+                    if (editSkillsBadgesContainer) {
+                        editSkillsBadgesContainer.innerHTML = (member.skills || []).map(skill => `
+                            <div class="skill-badge-toggleable selected" data-skill="${skill}">${skill}</div>
+                        `).join('');
+                    }
+                }
                 
                 // Set current image (show existing image)
                 const editUploadContent = document.getElementById('edit-upload-content');
@@ -1345,41 +1816,23 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 editSubmitBtn.textContent = 'Updating...';
                 
                 try {
-                    let tempImagePath = null;
+                    // Create FormData for multipart submission
+                    const formData = new FormData();
+                    formData.append('original_name', originalCrewName);
+                    formData.append('name', name);
+                    formData.append('skills', JSON.stringify(editSelectedSkills));
+                    formData.append('location', JSON.stringify(location));
+                    formData.append('achievements', JSON.stringify([])); // Empty achievements for now
                     
-                    // Upload new image if provided
+                    // Add image if provided
                     if (editCurrentImage) {
-                        try {
-                            const formData = new FormData();
-                            formData.append('file', editCurrentImage);
-                            formData.append('person_name', name);
-                            
-                            const uploadResponse = await fetch('/api/upload-face', {
-                                method: 'POST',
-                                body: formData
-                            });
-                            
-                            if (uploadResponse.ok) {
-                                const uploadData = await uploadResponse.json();
-                                tempImagePath = uploadData.temp_path;
-                            }
-                        } catch (uploadError) {
-                            console.warn('Failed to upload image:', uploadError);
-                        }
+                        formData.append('image', editCurrentImage);
                     }
                     
                     const response = await fetch('/api/crew/edit', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            original_name: originalCrewName,
-                            name,
-                            skills: editSelectedSkills,
-                            location,
-                            temp_image_path: tempImagePath
-                        })
+                        credentials: 'include', // Include cookies for authentication
+                        body: formData // Don't set Content-Type header, let browser set it with boundary
                     });
                     
                     const data = await response.json();
@@ -1398,23 +1851,123 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 }
             });
             
-            function showEditSubmissionSuccess(data) {
+            async function showEditSubmissionSuccess(data) {
                 const status = document.getElementById('edit-submission-status');
-                status.innerHTML = `
-                    <div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
-                        ✅ ${data.message}
-                    </div>
-                    <div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
-                        <strong>Updated:</strong> ${data.crew_name}
-                    </div>
-                    <a href="${data.pr_url}" target="_blank" style="
-                        color: #03dac6;
-                        text-decoration: underline;
-                        font-weight: 600;
-                    ">
-                        View Pull Request #${data.pr_number}
-                    </a>
-                `;
+                
+                if (data.isDeleted) {
+                    // Special handling for deletion
+                    status.innerHTML = `
+                        <div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+                            ✅ ${data.message}
+                        </div>
+                        <div style="color: #ccc; font-size: 0.9rem;">
+                            The crew member has been permanently removed from the team.
+                        </div>
+                    `;
+                    
+                    // Find and animate the crew member's row immediately before refresh
+                    if (selectedCrewMember) {
+                        const rowElement = document.querySelector(`tr[data-climber-name="${encodeURIComponent(selectedCrewMember.name)}"]`);
+                        if (rowElement && particleSystem) {
+                            // Animate the row with red particles and fade out
+                            particleSystem.animateItemChange(rowElement, 'deleted');
+                            particleSystem.createParticles(rowElement, 'red deleted', 18);
+                            
+                            // Also add a dramatic fade-out effect to the row
+                            rowElement.style.transition = 'all 1.5s ease-out';
+                            rowElement.style.opacity = '0.3';
+                            rowElement.style.transform = 'scale(0.95)';
+                            rowElement.style.backgroundColor = 'rgba(255, 107, 107, 0.1)';
+                        }
+                    }
+                    
+                    // Create immediate delete particles from the modal
+                    const modal = document.getElementById('edit-crew-modal');
+                    if (modal && particleSystem) {
+                        particleSystem.createParticles(modal, 'red deleted', 18);
+                    }
+                } else {
+                    // Regular update success
+                    status.innerHTML = `
+                        <div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+                            ✅ ${data.message}
+                        </div>
+                        <div style="color: #ccc; font-size: 0.9rem;">
+                            Crew member has been updated and is now live!
+                        </div>
+                    `;
+                    
+                    // Create immediate update particles from the modal
+                    const modal = document.getElementById('edit-crew-modal');
+                    if (modal && particleSystem) {
+                        particleSystem.createParticles(modal, 'green updated', 15);
+                    }
+                }
+                
+                // Close modal immediately and refresh in background
+                closeEditModal();
+                
+                // For deletions, do smooth removal instead of hard refresh
+                if (data.isDeleted && selectedCrewMember) {
+                    // Smooth deletion: remove from data and fade out element
+                    const memberName = selectedCrewMember.name;
+                    const rowElement = document.querySelector(`tr[data-climber-name="${encodeURIComponent(memberName)}"]`);
+                    
+                    if (rowElement) {
+                        // Add smooth fade-out animation
+                        rowElement.style.transition = 'all 0.8s ease-out';
+                        rowElement.style.opacity = '0';
+                        rowElement.style.transform = 'translateX(-100px) scale(0.95)';
+                        rowElement.style.maxHeight = rowElement.offsetHeight + 'px';
+                        
+                        // After fade-out, slide up and remove
+                        setTimeout(() => {
+                            rowElement.style.maxHeight = '0';
+                            rowElement.style.padding = '0';
+                            rowElement.style.margin = '0';
+                            rowElement.style.borderWidth = '0';
+                            
+                            setTimeout(() => {
+                                // Remove from data array
+                                crewData = crewData.filter(member => member.name !== memberName);
+                                previousCrewData = [...crewData];
+                                
+                                // Remove element from DOM
+                                rowElement.remove();
+                                
+                                // Clear selection
+                                selectedCrewMember = null;
+                                
+                                // Update edit FAB visibility
+                                if (window.updateEditFabVisibility) {
+                                    window.updateEditFabVisibility();
+                                }
+                                
+                                // Re-render stats
+                                computeSkillOrder(crewData);
+                                const container = document.getElementById("crew-table-container");
+                                const tableBody = container.querySelector('.crew-table tbody');
+                                if (tableBody) {
+                                    // Update crew count (excluding "Is Etherial" members)
+                                    const crewCountEl = document.getElementById("crew-count-num");
+                                    const crewLevelEl = document.getElementById("crew-level-num");
+                                    if (crewCountEl) {
+                                        const nonEtherialCrew = crewData.filter(c => !c.tags || !c.tags.includes("Is Etherial"));
+                                        crewCountEl.textContent = nonEtherialCrew.length;
+                                    }
+                                    if (crewLevelEl) {
+                                        const nonEtherialCrew = crewData.filter(c => !c.tags || !c.tags.includes("Is Etherial"));
+                                        const totalLevel = nonEtherialCrew.reduce((sum, c) => sum + c.level, 0);
+                                        crewLevelEl.textContent = totalLevel;
+                                    }
+                                }
+                            }, 400);
+                        }, 800);
+                    }
+                } else {
+                    // Start auto-refresh in background after modal closes
+                    autoRefreshCrewWithParticles(true, true);
+                }
             }
             
             function showEditSubmissionError(message) {
@@ -1432,7 +1985,6 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 editForm.reset();
                 editSelectedSkills = [];
                 editCurrentImage = null;
-                selectedCrewMember = null;
                 originalCrewName = null;
                 document.getElementById('edit-upload-content').innerHTML = `
                     <div class="upload-text">
@@ -1497,7 +2049,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 }
                 
                 // Clear crew selection when clicking outside the crew table
-                if (!e.target.closest('.crew-table') && !e.target.closest('.add-crew-modal') && !e.target.closest('.add-skill-modal')) {
+                if (!e.target.closest('.crew-table') && !e.target.closest('.add-crew-modal') && !e.target.closest('.add-skill-modal') && !e.target.closest('#edit-crew-modal-overlay')) {
                     clearCrewSelection();
                 }
             });
@@ -1511,60 +2063,109 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             });
         });
 
-        // Add Skill Modal Functionality
-        function initAddSkillModal() {
-            const modalOverlay = document.getElementById('add-skill-modal-overlay');
-            const modal = document.getElementById('add-skill-modal');
-            const closeBtn = document.getElementById('add-skill-modal-close');
-            const cancelBtn = document.getElementById('add-skill-cancel-btn');
-            const submitBtn = document.getElementById('add-skill-submit-btn');
-            const badgesContainer = document.getElementById('add-skill-badges-container');
-            const modalTitle = document.getElementById('add-skill-modal-title');
+        // Add Items Modal Functionality (Skills, Tags, Achievements)
+        function initAddItemsModal() {
+            const modalOverlay = document.getElementById('add-items-modal-overlay');
+            const modal = document.getElementById('add-items-modal');
+            const closeBtn = document.getElementById('add-items-modal-close');
+            const cancelBtn = document.getElementById('add-items-cancel-btn');
+            const submitBtn = document.getElementById('add-items-submit-btn');
+            const badgesContainer = document.getElementById('add-items-badges-container');
+            const modalTitle = document.getElementById('add-items-modal-title');
+            const itemTypeSelect = document.getElementById('item-type-select');
+            const availableItemsLabel = document.getElementById('available-items-label');
             
             let currentCrewMember = null;
-            let selectedSkillsToAdd = [];
-            let availableSkillsForMember = [];
+            let selectedItemsToAdd = [];
+            let availableItemsForMember = [];
+            let currentItemType = 'skills';
+            let allSkillsData = [];
+            let allAchievementsData = [];
+            
+            // Fetch all available data
+            Promise.all([
+                fetch('/api/skills').then(r => r.json()),
+                fetch('/api/achievements').then(r => r.json())
+            ]).then(([skills, achievements]) => {
+                allSkillsData = skills;
+                allAchievementsData = achievements;
+            }).catch(e => console.warn('Could not load data:', e));
             
             // Close modal function
             const closeModal = () => {
                 modal.classList.remove('active');
                 setTimeout(() => {
                     modalOverlay.classList.remove('active');
-                    resetSkillModal();
+                    resetItemsModal();
                 }, 300);
             };
             
             // Reset modal state
-            function resetSkillModal() {
+            function resetItemsModal() {
                 currentCrewMember = null;
-                selectedSkillsToAdd = [];
-                availableSkillsForMember = [];
+                selectedItemsToAdd = [];
+                availableItemsForMember = [];
+                currentItemType = 'skills';
+                itemTypeSelect.value = 'skills';
                 badgesContainer.innerHTML = '';
             }
             
-            // Render available skills badges
-            function renderAvailableSkills() {
-                badgesContainer.innerHTML = availableSkillsForMember.map(skill => `
-                    <div class="skill-badge-toggleable ${selectedSkillsToAdd.includes(skill) ? 'selected' : ''}" 
-                         data-skill="${skill}">${skill}</div>
+            // Render available items badges
+            function renderAvailableItems() {
+                const badgeClass = currentItemType === 'achievements' ? 'achievement-badge-toggleable' : 'skill-badge-toggleable';
+                badgesContainer.innerHTML = availableItemsForMember.map(item => `
+                    <div class="${badgeClass} ${selectedItemsToAdd.includes(item) ? 'selected' : ''}" 
+                         data-item="${item}">${currentItemType === 'achievements' ? '🏆 ' : ''}${item}</div>
                 `).join('');
+            }
+            
+            // Handle item type change
+            itemTypeSelect.addEventListener('change', (e) => {
+                currentItemType = e.target.value;
+                updateAvailableItems();
+            });
+            
+            // Update available items based on crew member and item type
+            function updateAvailableItems() {
+                if (!currentCrewMember) return;
+                
+                const member = crewData.find(c => c.name === currentCrewMember);
+                if (!member) return;
+                
+                let allItems = [];
+                let currentItems = [];
+                
+                if (currentItemType === 'skills') {
+                    allItems = allSkillsData;
+                    currentItems = member.skills || [];
+                    availableItemsLabel.textContent = 'Available Skills';
+                } else if (currentItemType === 'achievements') {
+                    allItems = allAchievementsData;
+                    currentItems = member.achievements || [];
+                    availableItemsLabel.textContent = 'Available Achievements';
+                }
+                
+                // Filter out items the member already has
+                availableItemsForMember = allItems.filter(item => !currentItems.includes(item));
+                selectedItemsToAdd = [];
+                renderAvailableItems();
             }
             
             // Handle badge clicks
             badgesContainer.addEventListener('click', (e) => {
-                if (e.target.classList.contains('skill-badge-toggleable')) {
-                    const skill = e.target.dataset.skill;
+                if (e.target.classList.contains('skill-badge-toggleable') || e.target.classList.contains('achievement-badge-toggleable')) {
+                    const item = e.target.dataset.item;
                     
-                    if (selectedSkillsToAdd.includes(skill)) {
-                        // Remove skill from selection
-                        const index = selectedSkillsToAdd.indexOf(skill);
-                        selectedSkillsToAdd.splice(index, 1);
+                    if (selectedItemsToAdd.includes(item)) {
+                        // Remove item from selection
+                        const index = selectedItemsToAdd.indexOf(item);
+                        selectedItemsToAdd.splice(index, 1);
                     } else {
-                        // Add skill to selection
-                        selectedSkillsToAdd.push(skill);
+                        // Add item to selection
+                        selectedItemsToAdd.push(item);
                     }
                     
-                    renderAvailableSkills();
+                    renderAvailableItems();
                 }
             });
             
@@ -1575,48 +2176,87 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 if (e.target === modalOverlay) closeModal();
             });
             
-            // Submit skills
+            // Submit items
             submitBtn.addEventListener('click', async () => {
-                if (!currentCrewMember || selectedSkillsToAdd.length === 0) return;
+                if (!currentCrewMember || selectedItemsToAdd.length === 0) return;
                 
                 try {
-                    const response = await fetch('/api/crew/add-skills', {
+                    let endpoint, data;
+                    
+                    if (currentItemType === 'skills') {
+                        endpoint = '/api/crew/add-skills';
+                        data = {
+                            crew_name: currentCrewMember,
+                            skills: selectedItemsToAdd
+                        };
+                    } else if (currentItemType === 'achievements') {
+                        endpoint = '/api/crew/add-achievements';
+                        data = {
+                            crew_name: currentCrewMember,
+                            achievements: selectedItemsToAdd
+                        };
+                    }
+                    
+                    const response = await fetch(endpoint, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({
-                            crew_name: currentCrewMember,
-                            skills: selectedSkillsToAdd
-                        })
+                        body: JSON.stringify(data)
                     });
                     
                     if (response.ok) {
-                        // Refresh the page to show updated skills
-                        window.location.reload();
+                        // Show success message and auto-refresh
+                        const responseData = await response.json();
+                        
+                        // Update modal content to show success
+                        const modalTitle = document.getElementById('add-items-modal-title');
+                        const badgesContainer = document.getElementById('add-items-badges-container');
+                        
+                                                modalTitle.textContent = `✅ ${currentItemType} Added Successfully!`;
+                        badgesContainer.innerHTML = `
+                            <div class="refresh-success" style="text-align: center; padding: 2rem; color: #03dac6;">
+                                <div style="font-size: 1.2em; margin-bottom: 1rem;">
+                                    ${responseData.message}
+                                </div>
+                                <div style="font-size: 0.9em; color: #ccc;">
+                                    ${currentItemType} have been added and are now live!
+                                </div>
+                            </div>
+                        `;
+                        
+                        // Create immediate success particles from the modal
+                        const modal = document.getElementById('add-items-modal');
+                        if (modal && particleSystem) {
+                            particleSystem.createParticles(modal, 'green updated', 16);
+                        }
+                        
+                        // Close modal immediately and refresh in background
+                        closeModal();
+                        // Start auto-refresh in background after modal closes
+                        autoRefreshCrewWithParticles(true, true);
                     } else {
                         const errorData = await response.json();
-                        alert('Failed to add skills: ' + (errorData.detail || 'Unknown error'));
+                        alert(`Failed to add ${currentItemType}: ` + (errorData.detail || 'Unknown error'));
                     }
                 } catch (error) {
                     alert('Network error occurred');
                 }
             });
             
-            // Expose openAddSkillModal function globally
-            window.openAddSkillModal = function(crewName) {
+            // Expose openAddItemsModal function globally
+            window.openAddItemsModal = function(crewName) {
                 const member = crewData.find(c => c.name === crewName);
                 if (!member) return;
                 
                 currentCrewMember = crewName;
-                modalTitle.textContent = `Add Skills to ${crewName}`;
+                modalTitle.textContent = `Add Items to ${crewName}`;
                 
-                // Get skills that the member doesn't already have
-                const currentSkills = member.skills || [];
-                availableSkillsForMember = skillOrder.filter(skill => !currentSkills.includes(skill));
+                // Set initial item type to skills
+                currentItemType = 'skills';
+                itemTypeSelect.value = 'skills';
                 
-                selectedSkillsToAdd = [];
-                renderAvailableSkills();
+                updateAvailableItems();
                 
                 modalOverlay.classList.add('active');
                 setTimeout(() => modal.classList.add('active'), 50);

@@ -252,7 +252,7 @@ const populateCard = async (card, meta) => {
 			faceLink.tabIndex = 0;
 			
 			const faceImg = document.createElement('img');
-			faceImg.src = `/climbers/${encodeURIComponent(climberName)}/face.png`;
+			faceImg.src = climber.image_url || `/redis-image/climber/${encodeURIComponent(climberName)}/face`;
 			faceImg.alt = climberName;
 			faceImg.className = `album-crew-face${isNew ? ' new-climber' : ''}`;
 			
@@ -400,7 +400,7 @@ function enableMobileCardHighlight() {
 		filtersContainer.innerHTML = sortedPeople.map(person => `
 			<div class="person-filter">
 				<input type="checkbox" value="${person}" onchange="handleFilterChange()">
-				<img src="/climbers/${encodeURIComponent(person)}/face.png" alt="${person}" class="person-face" onerror="this.style.display='none'">
+				<img src="/redis-image/climber/${encodeURIComponent(person)}/face" alt="${person}" class="person-face" onerror="this.style.display='none'">
 				<span>${person}</span>
 			</div>
 		`).join('');
@@ -602,6 +602,70 @@ function enableMobileCardHighlight() {
 		enableMobileCardHighlight();
 	}
 
+	// Auto-refresh function for albums data
+	async function autoRefreshAlbums(showLoadingState = true) {
+		try {
+			if (showLoadingState) {
+				// Show loading indicator
+				container.innerHTML = `
+					<div class="refresh-loading" style="text-align: center; padding: 2rem; color: #03dac6;">
+						<div style="font-size: 1.2em; margin-bottom: 1rem;">
+							<span class="refresh-spinner">🔄</span> Refreshing albums...
+						</div>
+						<div style="font-size: 0.9em; color: #ccc;">Please wait while we update the latest albums</div>
+					</div>
+				`;
+			}
+			
+			// Use the new enriched endpoint that returns albums with pre-loaded metadata
+			const response = await fetch("/api/albums/enriched");
+			if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+			
+			const enrichedAlbums = await response.json();
+			
+			// Clear existing content
+			container.innerHTML = '';
+			
+			// Reset global variables
+			allAlbums = [];
+			allPeople.clear();
+			
+			// Create placeholder cards for all albums
+			for (let i = 0; i < enrichedAlbums.length; i++) {
+				container.appendChild(createPlaceholderCard(i));
+			}
+			
+			await processEnrichedAlbums(enrichedAlbums);
+			
+			return true;
+		} catch (error) {
+			console.error("Error refreshing albums:", error);
+			
+			// Show error message
+			container.innerHTML = `
+				<div class="refresh-error" style="text-align: center; padding: 2rem; color: #cf6679;">
+					<div style="font-size: 1.2em; margin-bottom: 1rem;">❌ Failed to refresh albums</div>
+					<div style="font-size: 0.9em; color: #ccc; margin-bottom: 1rem;">
+						Error: ${error.message}
+					</div>
+					<button onclick="autoRefreshAlbums()" style="
+						background: #03dac6;
+						color: #1a1a1a;
+						border: none;
+						padding: 0.5rem 1rem;
+						border-radius: 8px;
+						cursor: pointer;
+						font-weight: 600;
+					">
+						Try Again
+					</button>
+				</div>
+			`;
+			
+			return false;
+		}
+	}
+
 	async function loadAlbums() {
 		try {
 			showSkeletonCards();
@@ -629,7 +693,258 @@ function enableMobileCardHighlight() {
 		}
 	}
 
-	loadAlbums();
+	// Particle Animation System for Albums
+	class AlbumParticleSystem {
+		constructor() {
+			this.container = null;
+			this.init();
+		}
+		
+		init() {
+			// Create particle container if it doesn't exist
+			if (!document.querySelector('.particle-container')) {
+				this.container = document.createElement('div');
+				this.container.className = 'particle-container';
+				document.body.appendChild(this.container);
+			} else {
+				this.container = document.querySelector('.particle-container');
+			}
+		}
+		
+		createParticles(element, type, count = 15) {
+			if (!element || !this.container) return;
+			
+			const rect = element.getBoundingClientRect();
+			const centerX = rect.left + rect.width / 2;
+			const centerY = rect.top + rect.height / 2;
+			
+			for (let i = 0; i < count; i++) {
+				const particle = document.createElement('div');
+				particle.className = `particle ${type}`;
+				
+							// Random offset from center - more focused for new items
+			const multiplier = type.includes('created') ? 0.6 : 1.2;
+			const offsetX = (Math.random() - 0.5) * rect.width * multiplier;
+			const offsetY = (Math.random() - 0.5) * rect.height * multiplier;
+				
+				particle.style.left = (centerX + offsetX) + 'px';
+				particle.style.top = (centerY + offsetY) + 'px';
+				
+				// Add random delay for staggered effect
+				particle.style.animationDelay = (Math.random() * 0.4) + 's';
+				
+				// Add rotation for variety
+				const randomRotation = Math.random() * 360;
+				particle.style.transform = `rotate(${randomRotation}deg)`;
+				
+				this.container.appendChild(particle);
+				
+				// Remove particle after animation
+				setTimeout(() => {
+					if (particle.parentNode) {
+						particle.parentNode.removeChild(particle);
+					}
+				}, 2500);
+			}
+		}
+
+		// Create a horizontal red line of particles (for deletions)
+		createLineParticles(target, count = 40) {
+			if (!this.container) return;
+			const rect = target instanceof Element ? target.getBoundingClientRect() : target;
+			const centerY = rect.top + rect.height / 2;
+			for (let i = 0; i < count; i++) {
+				const particle = document.createElement('div');
+				particle.className = 'particle red';
+				const x = rect.left + Math.random() * rect.width;
+				const y = centerY + (Math.random() - 0.5) * 6;
+				particle.style.left = `${x}px`;
+				particle.style.top = `${y}px`;
+				particle.style.animationDelay = (Math.random() * 0.2) + 's';
+				this.container.appendChild(particle);
+				setTimeout(() => particle.remove(), 2000);
+			}
+		}
+		
+		animateItemChange(element, changeType) {
+			if (!element) return;
+			
+			// Add highlight animation to the item itself
+			element.classList.add(`item-being-${changeType}`);
+			
+			// Remove class after animation
+			setTimeout(() => {
+				element.classList.remove(`item-being-${changeType}`);
+			}, changeType === 'deleted' ? 500 : changeType === 'updated' ? 600 : 1000);
+		}
+	}
+	
+	// Global album particle system instance
+	const albumParticleSystem = new AlbumParticleSystem();
+	
+	// Enhanced auto-refresh function with change detection and particles for albums
+	let previousAlbumData = [];
+	
+	async function autoRefreshAlbumsWithParticles(showLoadingState = true, detectChanges = true) {
+		try {
+			if (showLoadingState) {
+				// Show loading indicator
+				container.innerHTML = `
+					<div class="refresh-loading" style="text-align: center; padding: 2rem; color: #03dac6;">
+						<div style="font-size: 1.2em; margin-bottom: 1rem;">
+							<span class="refresh-spinner">🔄</span> Refreshing albums...
+						</div>
+						<div style="font-size: 0.9em; color: #ccc;">Please wait while we update the latest albums</div>
+					</div>
+				`;
+			}
+			
+					// Save scroll position before refresh
+		const scrollPosition = window.pageYOffset || document.documentElement.scrollTop;
+		
+		// Use the new enriched endpoint that returns albums with pre-loaded metadata
+		const response = await fetch("/api/albums/enriched");
+		if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+		
+		const enrichedAlbums = await response.json();
+		
+		// Detect changes and create particles before updating DOM
+		if (detectChanges && previousAlbumData.length > 0) {
+			await detectAlbumChangesAndAnimate(previousAlbumData, enrichedAlbums);
+		}
+		
+		// Clear existing content
+		container.innerHTML = '';
+		
+		// Reset global variables
+		allAlbums = [];
+		allPeople.clear();
+		
+		// Create placeholder cards for all albums
+		for (let i = 0; i < enrichedAlbums.length; i++) {
+			container.appendChild(createPlaceholderCard(i));
+		}
+		
+		await processEnrichedAlbums(enrichedAlbums);
+		
+		// Restore scroll position after refresh
+		setTimeout(() => {
+			window.scrollTo(0, scrollPosition);
+		}, 50);
+		
+		// Store current data for next comparison
+		previousAlbumData = [...enrichedAlbums];
+			
+			return true;
+		} catch (error) {
+			console.error("Error refreshing albums:", error);
+			
+			// Show error message
+			container.innerHTML = `
+				<div class="refresh-error" style="text-align: center; padding: 2rem; color: #cf6679;">
+					<div style="font-size: 1.2em; margin-bottom: 1rem;">❌ Failed to refresh albums</div>
+					<div style="font-size: 0.9em; color: #ccc; margin-bottom: 1rem;">
+						Error: ${error.message}
+					</div>
+					<button onclick="autoRefreshAlbums()" style="
+						background: #03dac6;
+						color: #1a1a1a;
+						border: none;
+						padding: 0.5rem 1rem;
+						border-radius: 8px;
+						cursor: pointer;
+						font-weight: 600;
+					">
+						Try Again
+					</button>
+				</div>
+			`;
+			
+			return false;
+		}
+	}
+	
+	async function detectAlbumChangesAndAnimate(oldData, newData) {
+		// Wait a bit for DOM to be ready
+		await new Promise(resolve => setTimeout(resolve, 100));
+		
+		const oldUrls = new Set(oldData.map(album => album.url));
+		const newUrls = new Set(newData.map(album => album.url));
+		
+		// Find added albums (blue particles)
+		const addedAlbums = newData.filter(album => !oldUrls.has(album.url));
+		
+		// Find deleted albums (red particles) 
+		const deletedAlbums = oldData.filter(album => !newUrls.has(album.url));
+		
+		// Find updated albums (green particles)
+		const updatedAlbums = newData.filter(newAlbum => {
+			const oldAlbum = oldData.find(old => old.url === newAlbum.url);
+			if (!oldAlbum) return false;
+			
+			// Check if crew changed
+			const oldCrew = JSON.stringify((oldAlbum.metadata?.crew || []).map(c => c.name).sort());
+			const newCrew = JSON.stringify((newAlbum.metadata?.crew || []).map(c => c.name).sort());
+			
+			return oldCrew !== newCrew;
+		});
+		
+		// Animate deletions first (with red particles) - small delay so they're visible
+		setTimeout(() => {
+			for (const album of deletedAlbums) {
+				const albumCard = document.querySelector(`[data-album-url="${album.url}"]`);
+				if (albumCard) {
+					const rect = albumCard.getBoundingClientRect();
+					albumCard.remove();
+					albumParticleSystem.createLineParticles(rect, 40);
+				}
+			}
+		}, 300);
+		
+		// Then animate additions (with blue particles)
+		setTimeout(() => {
+			for (const album of addedAlbums) {
+				const albumCard = document.querySelector(`[data-album-url="${album.url}"]`);
+				if (albumCard) {
+					albumParticleSystem.animateItemChange(albumCard, 'added');
+					
+					// Scroll to the new album if it's visible
+					albumCard.scrollIntoView({ behavior: "smooth", block: "center" });
+					
+					// Create particles after scroll animation
+					setTimeout(() => {
+						albumParticleSystem.createParticles(albumCard, 'blue created', 25);
+					}, 800);
+				}
+			}
+		}, 500);
+		
+		// Finally animate updates (with green particles)
+		setTimeout(() => {
+			for (const album of updatedAlbums) {
+				const albumCard = document.querySelector(`[data-album-url="${album.url}"]`);
+				if (albumCard) {
+					albumParticleSystem.animateItemChange(albumCard, 'updated');
+					albumParticleSystem.createParticles(albumCard, 'green updated', 10);
+				}
+			}
+		}, 700);
+	}
+
+	// Make both functions available globally for error buttons
+	window.autoRefreshAlbums = autoRefreshAlbumsWithParticles;
+	window.albumParticleSystem = albumParticleSystem;
+	
+	// Initial load (store initial data for comparison)
+	loadAlbums().then(() => {
+		// Store initial album data for future comparisons
+		fetch("/api/albums/enriched")
+			.then(response => response.json())
+			.then(data => {
+				previousAlbumData = [...data];
+			})
+			.catch(e => console.warn('Could not store initial album data:', e));
+	});
 });
 
 let editNewPeople = [];

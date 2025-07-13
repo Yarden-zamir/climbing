@@ -1221,9 +1221,19 @@
 						<div id="edit-new-people-list" style="margin-top: 1rem;"></div>
 					</div>
 					
-					<button type="submit" class="submit-btn" id="edit-submit-btn">
+					<div style="display: flex; gap: 1rem;">
+						<button type="submit" class="submit-btn" id="edit-submit-btn" style="flex: 1;">
 						Update Crew
 					</button>
+						<button type="button" class="submit-btn" id="delete-album-btn" style="
+							background: linear-gradient(135deg, #cf6679 0%, #b71c1c 100%);
+							color: white;
+							padding: 0.75rem 1rem;
+							font-size: 0.9rem;
+						">
+							🗑️ Delete
+						</button>
+					</div>
 					
 					<div id="edit-submission-status" style="margin-top: 1rem; text-align: center;">
 						<!-- Submission status will appear here -->
@@ -1791,7 +1801,8 @@
 						let processedPerson = {
 							name: person.name,
 							skills: person.skills || [],
-							location: []
+							location: [],
+							achievements: []
 						};
 						
 						// Upload image if provided
@@ -1842,23 +1853,21 @@
 				}
 			});
 			
-			function showSubmissionSuccess(data) {
+			async function showSubmissionSuccess(data) {
 				const status = document.getElementById('submission-status');
 				status.innerHTML = `
-					<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+					<div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
 						✅ ${data.message}
 					</div>
-					<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
-						<strong>Album:</strong> ${data.album_title}
+					<div style="color: #ccc; font-size: 0.9rem;">
+						Album has been added and is now live!
 					</div>
-					<a href="${data.pr_url}" target="_blank" style="
-						color: #ffae52;
-						text-decoration: underline;
-						font-weight: 600;
-					">
-						View Pull Request #${data.pr_number}
-					</a>
 				`;
+				
+				// Close modal immediately and refresh in background
+				closeModal();
+				// Start auto-refresh in background after modal closes (particles will be focused on the new album card)
+				autoRefreshAlbumsWithParticles(true, true);
 			}
 			
 			function showSubmissionError(message) {
@@ -1915,6 +1924,7 @@
 			const editCloseBtn = document.getElementById('edit-album-modal-close');
 			const editForm = document.getElementById('edit-album-form');
 			const editSubmitBtn = document.getElementById('edit-submit-btn');
+			const deleteAlbumBtn = document.getElementById('delete-album-btn');
 			
 			let isEditMode = false;
 			let currentEditAlbum = null;
@@ -1929,6 +1939,41 @@
 					crewData = crew;
 				})
 				.catch(e => console.warn('Could not load crew:', e));
+			
+			// Delete album functionality
+			deleteAlbumBtn.addEventListener('click', async () => {
+				if (!currentEditAlbum) return;
+				
+				const albumTitle = currentEditAlbum.meta.title || 'this album';
+				const confirmed = confirm(`Are you sure you want to delete "${albumTitle}"?\n\nThis action cannot be undone and will:\n- Remove the album from the collection\n- Update all crew members' climb counts\n- Remove all references to this album\n\nProceed with deletion?`);
+				
+				if (!confirmed) return;
+				
+				deleteAlbumBtn.disabled = true;
+				deleteAlbumBtn.textContent = '🗑️ Deleting...';
+				
+				try {
+					const response = await fetch(`/api/albums/delete?album_url=${encodeURIComponent(currentEditAlbum.url)}`, {
+						method: 'DELETE'
+					});
+					
+					const data = await response.json();
+					
+					if (response.ok) {
+						showEditSubmissionSuccess({
+							message: data.message,
+							isDeleted: true
+						});
+					} else {
+						showEditSubmissionError(data.detail || 'Delete failed');
+					}
+				} catch (error) {
+					showEditSubmissionError('Network error occurred during deletion');
+				} finally {
+					deleteAlbumBtn.disabled = false;
+					deleteAlbumBtn.textContent = '🗑️ Delete Album';
+				}
+			});
 			
 			// Initialize new person form functionality
 			initEditNewPersonFormModal();
@@ -2012,10 +2057,14 @@
 					<div class="album-info-url">${currentEditAlbum.url}</div>
 				`;
 				
-				// Get current crew for this album
-				const currentCrew = albumMeta.crew || [];
-				selectedCrew.clear();
-				currentCrew.forEach(member => selectedCrew.add(member));
+							// Get current crew for this album
+			const currentCrew = albumMeta.crew || [];
+			selectedCrew.clear();
+			currentCrew.forEach(member => {
+				// Ensure we only add the name string, not the full object
+				const memberName = typeof member === 'string' ? member : member.name;
+				selectedCrew.add(memberName);
+			});
 				
 				// Populate crew selector
 				populateEditCrewSelector();
@@ -2040,10 +2089,14 @@
 						checkbox.checked = !checkbox.checked;
 						
 						if (checkbox.checked) {
-							selectedCrew.add(person.name);
+							// Ensure we only add the name string, never the full object
+							const memberName = typeof person === 'string' ? person : person.name;
+							selectedCrew.add(memberName);
 							option.classList.add('selected');
 						} else {
-							selectedCrew.delete(person.name);
+							// Ensure we delete the name string, never the full object
+							const memberName = typeof person === 'string' ? person : person.name;
+							selectedCrew.delete(memberName);
 							option.classList.remove('selected');
 						}
 					});
@@ -2072,12 +2125,26 @@
 				
 				const newCrew = Array.from(selectedCrew);
 				
+				// Validate crew selection
+				if (newCrew.length === 0) {
+					showEditSubmissionError('Please select at least one crew member');
+					return;
+				}
+				
+				// Validate crew limit
+				if (newCrew.length > 10) {
+					showEditSubmissionError('Maximum 10 crew members allowed');
+					return;
+				}
+				
 				editSubmitBtn.disabled = true;
 				editSubmitBtn.textContent = 'Updating...';
 				
 				try {
 					// Upload images for new people first
 					const processedNewPeople = [];
+					let imageUploadErrors = [];
+					
 					for (const person of editNewPeople) {
 						let tempImagePath = null;
 						
@@ -2096,9 +2163,13 @@
 								if (uploadResponse.ok) {
 									const uploadData = await uploadResponse.json();
 									tempImagePath = uploadData.temp_path;
+								} else {
+									const errorData = await uploadResponse.json().catch(() => ({ detail: 'Unknown error' }));
+									imageUploadErrors.push(`Failed to upload image for ${person.name}: ${errorData.detail}`);
 								}
 							} catch (uploadError) {
-								console.warn('Failed to upload image for', person.name, ':', uploadError);
+								console.error('Image upload error:', uploadError);
+								imageUploadErrors.push(`Failed to upload image for ${person.name}: Network error`);
 							}
 						}
 						
@@ -2106,60 +2177,233 @@
 							name: person.name,
 							skills: person.skills || [],
 							location: person.location || [],
+							achievements: person.achievements || [],
 							temp_image_path: tempImagePath
 						});
 					}
+					
+					// Show warnings for image upload failures but continue
+					if (imageUploadErrors.length > 0) {
+						console.warn('Image upload errors:', imageUploadErrors);
+					}
+					
+														// Ensure crew is always an array of strings
+					const cleanCrew = newCrew.map(member => {
+						if (typeof member === 'string') {
+							return member;
+						} else if (member && typeof member === 'object' && member.name) {
+							return member.name;
+						} else {
+							console.warn('Invalid crew member:', member);
+							return String(member);
+						}
+					});
+					
+					const requestPayload = {
+						album_url: currentEditAlbum.url,
+						crew: cleanCrew,
+						new_people: processedNewPeople
+					};
+				
+				console.log('Selected crew before processing:', Array.from(selectedCrew));
+				console.log('New crew after Array.from:', newCrew);
+				console.log('Clean crew after processing:', cleanCrew);
+				console.log('Submitting edit request:', requestPayload);
 					
 					const response = await fetch('/api/albums/edit-crew', {
 						method: 'POST',
 						headers: {
 							'Content-Type': 'application/json',
 						},
-						body: JSON.stringify({
-							album_url: currentEditAlbum.url,
-							crew: newCrew,
-							new_people: processedNewPeople
-						})
+						body: JSON.stringify(requestPayload)
 					});
 					
 					const data = await response.json();
 					
 					if (response.ok) {
-						showEditSubmissionSuccess(data);
+						let successMessage = data.message;
+						
+						// Add info about created climbers
+						if (data.created_climbers && data.created_climbers.length > 0) {
+							successMessage += `\n\nNew climbers created: ${data.created_climbers.join(', ')}`;
+						}
+						
+						// Add warnings about image uploads if any failed
+						if (imageUploadErrors.length > 0) {
+							successMessage += `\n\nNote: Some images failed to upload:\n${imageUploadErrors.join('\n')}`;
+						}
+						
+						showEditSubmissionSuccess({ ...data, message: successMessage });
 					} else {
-						showEditSubmissionError(data.detail || 'Update failed');
+						// Handle different error types
+						let errorMessage = data.detail || 'Update failed';
+						
+						// If it's a validation error (422), pass the whole response for better error display
+						if (response.status === 422) {
+							try {
+								errorMessage = JSON.stringify(data);
+							} catch (e) {
+								errorMessage = `Invalid data: ${errorMessage}`;
+							}
+						} else if (response.status === 400) {
+							errorMessage = `Validation error: ${errorMessage}`;
+						} else if (response.status === 403) {
+							errorMessage = `Permission denied: ${errorMessage}`;
+						} else if (response.status === 404) {
+							errorMessage = `Album not found: ${errorMessage}`;
+						} else if (response.status >= 500) {
+							errorMessage = `Server error: ${errorMessage}`;
+						}
+						
+						showEditSubmissionError(errorMessage);
 					}
 				} catch (error) {
-					showEditSubmissionError('Network error occurred');
+					console.error('Edit submission error:', error);
+					
+					let errorMessage = 'Network error occurred';
+					if (error.name === 'TypeError' && error.message.includes('fetch')) {
+						errorMessage = 'Unable to connect to server. Please check your internet connection.';
+					} else if (error.name === 'AbortError') {
+						errorMessage = 'Request timed out. Please try again.';
+					}
+					
+					showEditSubmissionError(errorMessage);
+				} finally {
+					editSubmitBtn.disabled = false;
+					editSubmitBtn.textContent = 'Update Crew';
 				}
 			});
 			
-			function showEditSubmissionSuccess(data) {
+			async function showEditSubmissionSuccess(data) {
 				const status = document.getElementById('edit-submission-status');
+				
+				if (data.isDeleted) {
+					// Special handling for deletion
 				status.innerHTML = `
-					<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+					<div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
 						✅ ${data.message}
 					</div>
-					<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
-						<strong>Album:</strong> ${data.album_title}
+					<div style="color: #ccc; font-size: 0.9rem;">
+							The album has been permanently removed from the collection.
 					</div>
-					<a href="${data.pr_url}" target="_blank" style="
-						color: #bb86fc;
-						text-decoration: underline;
-						font-weight: 600;
-					">
-						View Pull Request #${data.pr_number}
-					</a>
+					`;
+					
+					// Find and animate the album card immediately before refresh
+					if (currentEditAlbum) {
+						const albumCard = document.querySelector(`[data-album-url="${currentEditAlbum.url}"]`);
+						if (albumCard && window.albumParticleSystem) {
+							const rect = albumCard.getBoundingClientRect();
+							albumCard.remove();
+							window.albumParticleSystem.createLineParticles(rect, 40);
+							// Update data arrays immediately
+							if (window.allAlbums) {
+								window.allAlbums = window.allAlbums.filter(album => album.meta.url !== currentEditAlbum.url);
+							}
+							if (window.previousAlbumData) {
+								window.previousAlbumData = window.previousAlbumData.filter(album => album.url !== currentEditAlbum.url);
+							}
+							currentEditAlbum = null;
+						}
+					}
+					
+					// Create immediate delete particles from the modal
+					const modal = document.getElementById('edit-album-modal');
+					if (modal && window.albumParticleSystem) {
+						window.albumParticleSystem.createParticles(modal, 'red deleted', 18);
+					}
+				} else {
+					// Regular update success
+					status.innerHTML = `
+						<div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+							✅ ${data.message}
+						</div>
+						<div style="color: #ccc; font-size: 0.9rem;">
+							Album crew has been updated and is now live!
+						</div>
 				`;
+				
+					// Create immediate update particles from the modal
+					const modal = document.getElementById('edit-album-modal');
+					if (modal && window.albumParticleSystem) {
+						window.albumParticleSystem.createParticles(modal, 'green updated', 15);
+					}
+				}
+				
+				// Close modal immediately and refresh in background
+				closeEditModal();
+				
+				// For deletions, do smooth removal instead of hard refresh
+				if (data.isDeleted && currentEditAlbum) {
+					// Smooth deletion: find and fade out the album card
+					const albumCard = document.querySelector(`[data-album-url="${currentEditAlbum.url}"]`);
+					
+					if (albumCard) {
+						// Add smooth fade-out animation
+						albumCard.style.transition = 'all 0.8s ease-out';
+						albumCard.style.opacity = '0';
+						albumCard.style.transform = 'scale(0.8) translateY(20px)';
+						
+						// After fade-out, remove and let grid auto-adjust
+						setTimeout(() => {
+							albumCard.remove();
+							
+							// Update data arrays
+							if (window.allAlbums) {
+								window.allAlbums = window.allAlbums.filter(album => album.meta.url !== currentEditAlbum.url);
+							}
+							if (window.previousAlbumData) {
+								window.previousAlbumData = window.previousAlbumData.filter(album => album.url !== currentEditAlbum.url);
+							}
+							
+							// Clear current edit album
+							currentEditAlbum = null;
+						}, 800);
+					}
+				} else {
+					// Start auto-refresh in background after modal closes
+					autoRefreshAlbumsWithParticles(true, true);
+				}
 			}
 			
 			function showEditSubmissionError(message) {
 				const status = document.getElementById('edit-submission-status');
-				status.innerHTML = `
-					<div style="color: #cf6679; font-weight: 600;">
-						❌ ${message}
-					</div>
-				`;
+				
+				// Handle validation errors from server
+				let errorHtml = `<div style="color: #cf6679; font-weight: 600;">❌ ${message}</div>`;
+				
+				// Parse validation errors if it's JSON
+				try {
+					const parsedError = JSON.parse(message);
+					if (parsedError.detail && Array.isArray(parsedError.detail)) {
+						errorHtml = `<div style="color: #cf6679; font-weight: 600;">❌ Validation Errors:</div>`;
+						parsedError.detail.forEach(error => {
+							const field = error.loc ? error.loc.join('.') : 'unknown';
+							errorHtml += `<div style="color: #cf6679; font-size: 0.9rem; margin-top: 0.5rem; padding-left: 1rem;">• ${field}: ${error.msg}</div>`;
+						});
+					}
+				} catch (e) {
+					// If it's not JSON, check if it contains validation error structure
+					if (message.includes('"detail":[') && message.includes('"type"')) {
+						try {
+							const match = message.match(/\{\"detail\":\[(.*?)\]\}/);
+							if (match) {
+								const fullJson = `{"detail":[${match[1]}]}`;
+								const parsedError = JSON.parse(fullJson);
+								if (parsedError.detail && Array.isArray(parsedError.detail)) {
+									errorHtml = `<div style="color: #cf6679; font-weight: 600;">❌ Validation Errors:</div>`;
+									parsedError.detail.forEach(error => {
+										const field = error.loc ? error.loc.join('.') : 'unknown';
+										errorHtml += `<div style="color: #cf6679; font-size: 0.9rem; margin-top: 0.5rem; padding-left: 1rem;">• ${field}: ${error.msg}</div>`;
+									});
+								}
+							}
+						} catch (e2) {
+							// Fall back to original message
+						}
+					}
+				}
+				
+				status.innerHTML = errorHtml;
 				editSubmitBtn.disabled = false;
 				editSubmitBtn.textContent = 'Update Crew';
 			}
@@ -2216,20 +2460,35 @@
 						return;
 					}
 					
+					// Validate name length
+					if (name.length < 2) {
+						alert('Name must be at least 2 characters long');
+						return;
+					}
+					
+					if (name.length > 50) {
+						alert('Name must be less than 50 characters');
+						return;
+					}
+					
 					// Check if person already exists
 					if (crewData.some(p => p.name.toLowerCase() === name.toLowerCase()) || 
-						editNewPeople.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+						editNewPeople.some(p => p.name.toLowerCase() === name.toLowerCase()) ||
+						selectedCrew.has(name)) {
 						alert('This person already exists');
 						return;
 					}
 					
 					const newPerson = {
 						name: name,
-						skills: [],  // Skills functionality would need to be implemented
-						image: editAlbumCurrentPersonImage  // Include the cropped image file
+						skills: editSelectedSkills || [],
+						location: [], // TODO: Add location input fields to the form
+						achievements: [], // TODO: Add achievements input fields to the form
+						image: editAlbumCurrentPersonImage
 					};
 					
 					editNewPeople.push(newPerson);
+					// Ensure we only add the name string to selectedCrew
 					selectedCrew.add(name);
 					updateEditNewPeopleList();
 					

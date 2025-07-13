@@ -9,6 +9,22 @@ class AuthManager {
         this.init();
     }
 
+    // Helper method to get profile picture URL
+    getProfilePictureUrl(user) {
+        if (!user || !user.id) return '/static/favicon/favicon-32x32.png';
+        
+        // If picture starts with /redis-image/ or /api/profile-picture/, use it as is
+        if (user.picture && (
+            user.picture.startsWith('/redis-image/') || 
+            user.picture.startsWith('/api/profile-picture/')
+        )) {
+            return user.picture;
+        }
+        
+        // Otherwise use our cached endpoint
+        return `/api/profile-picture/${user.id}`;
+    }
+
     async init() {
         await this.checkAuthStatus();
         this.setupEventListeners();
@@ -141,9 +157,21 @@ class AuthManager {
         // Extract first name for cleaner display
         const firstName = this.currentUser.name.split(' ')[0];
         
+        // Check if user is admin
+        const isAdmin = this.currentUser.role === 'admin' || 
+                       (this.currentUser.permissions && this.currentUser.permissions.can_manage_users);
+        
+        // Generate admin panel link if user is admin
+        const adminPanelLink = isAdmin ? `
+            <a href="/admin" class="dropdown-item">
+                <span>🛠️</span> Admin Panel
+            </a>
+            <hr class="dropdown-divider">
+        ` : '';
+        
         userDropdown.innerHTML = `
             <button class="user-profile-btn">
-                <img src="${this.currentUser.picture || '/static/favicon/favicon-32x32.png'}" 
+                <img src="${this.getProfilePictureUrl(this.currentUser)}" 
                      alt="${this.currentUser.name}" 
                      class="user-avatar">
                 <span class="user-name">${firstName}</span>
@@ -155,6 +183,7 @@ class AuthManager {
                     <div class="profile-email">${this.currentUser.email}</div>
                 </div>
                 <hr class="dropdown-divider">
+                ${adminPanelLink}
                 <a href="/auth/logout" class="logout-btn dropdown-item">
                     <span>🚪</span> Logout
                 </a>
@@ -194,7 +223,7 @@ class AuthManager {
         });
 
         userAvatarElements.forEach(el => {
-            el.src = this.currentUser.picture || '/static/favicon/favicon-32x32.png';
+            el.src = this.getProfilePictureUrl(this.currentUser);
             el.alt = this.currentUser.name;
         });
     }

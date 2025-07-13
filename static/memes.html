@@ -20,11 +20,102 @@
 			<a href="/knowledge">Knowledge</a>
 			<a href="/memes" class="active">Memes</a>
 		</nav>
-		<main class="page-fade">
-			<div id="memes-container" class="albums-grid">
-				<!-- Meme cards will be injected here by JavaScript -->
+		
+			<main class="page-fade">
+		<h1>Memes</h1>
+		
+		<div id="memes-container" class="memes-grid">
+			<!-- Meme cards will be injected here by JavaScript -->
+		</div>
+		
+		<!-- Loading state -->
+		<div id="loading" class="loading-state">
+			<div class="loading-spinner"></div>
+			<p>Loading memes...</p>
+		</div>
+		
+		<!-- Add Meme FAB -->
+		<button class="add-meme-fab" id="add-meme-fab">
+			<span class="add-meme-fab-icon">➕</span>
+		</button>
+	</main>
+
+			<!-- Add Meme Modal -->
+	<div class="add-meme-modal-overlay" id="add-meme-modal-overlay">
+		<div class="add-meme-modal" id="add-meme-modal">
+			<div class="add-meme-modal-header">
+				<h2 class="add-meme-modal-title">Add New Meme</h2>
+				<button class="add-meme-modal-close" id="add-meme-modal-close">×</button>
 			</div>
-		</main>
+			<form class="add-meme-form" id="add-meme-form" enctype="multipart/form-data">
+				<div class="form-group">
+					<label class="form-label" for="meme-image">Image *</label>
+					<input type="file" id="meme-image" name="image" accept="image/*" required>
+					<div class="image-preview" id="image-preview"></div>
+				</div>
+				
+				<button type="submit" class="submit-btn" id="submit-meme-btn" disabled>
+					Add Meme
+				</button>
+				
+				<div id="submission-status" style="margin-top: 1rem; text-align: center;">
+					<!-- Submission status will appear here -->
+				</div>
+			</form>
+		</div>
+	</div>
+	
+	<!-- Meme View Modal -->
+	<div id="meme-view-modal" class="modal">
+		<div class="modal-content">
+			<span class="close">&times;</span>
+			<div class="modal-body">
+				<div class="modal-image-container">
+					<img id="modal-image" src="" alt="">
+				</div>
+				<div class="modal-info">
+					<div class="modal-meta">
+						<span id="modal-creator"></span>
+						<span id="modal-date"></span>
+					</div>
+					<div class="modal-actions" id="modal-actions">
+						<!-- Delete buttons will be added here for owners -->
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+		<!-- Edit Modal -->
+		<div id="edit-modal" class="modal">
+			<div class="modal-content">
+				<span class="close">&times;</span>
+				<div class="modal-body">
+					<h3>Edit Meme</h3>
+					<form id="edit-meme-form">
+						<div class="form-group">
+							<label for="edit-title">Title *</label>
+							<input type="text" id="edit-title" name="title" required maxlength="200">
+						</div>
+						
+						<div class="form-group">
+							<label for="edit-description">Description</label>
+							<textarea id="edit-description" name="description" maxlength="1000"></textarea>
+						</div>
+						
+						<div class="form-group">
+							<label for="edit-tags">Tags (comma-separated)</label>
+							<input type="text" id="edit-tags" name="tags">
+						</div>
+						
+						<div class="form-actions">
+							<button type="submit" class="btn btn-primary">Update Meme</button>
+							<button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
 
 		<!-- ✅ Add Masonry and imagesLoaded libraries -->
 		<script src="https://unpkg.com/masonry-layout@4/dist/masonry.pkgd.min.js"></script>
