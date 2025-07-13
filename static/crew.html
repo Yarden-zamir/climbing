@@ -411,8 +411,12 @@
 
         function renderTable(data) {
             const container = document.getElementById("crew-table-container");
-            const crewCount = data.length;
-            const crewLevel = data.reduce((sum, c) => sum + (Math.trunc(c.level) || 0), 0);
+            
+            // Filter out crew members with "Is Etherial" tag for team calculations
+            const nonEtherialCrew = data.filter(c => !c.tags || !c.tags.includes("Is Etherial"));
+            
+            const crewCount = nonEtherialCrew.length;
+            const crewLevel = nonEtherialCrew.reduce((sum, c) => sum + (Math.trunc(c.level) || 0), 0);
             const newClimbersCount = data.filter(c => c.is_new).length;
 
             container.innerHTML = `
@@ -1944,12 +1948,16 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                                 const container = document.getElementById("crew-table-container");
                                 const tableBody = container.querySelector('.crew-table tbody');
                                 if (tableBody) {
-                                    // Update crew count
+                                    // Update crew count (excluding "Is Etherial" members)
                                     const crewCountEl = document.getElementById("crew-count-num");
                                     const crewLevelEl = document.getElementById("crew-level-num");
-                                    if (crewCountEl) crewCountEl.textContent = crewData.length;
+                                    if (crewCountEl) {
+                                        const nonEtherialCrew = crewData.filter(c => !c.tags || !c.tags.includes("Is Etherial"));
+                                        crewCountEl.textContent = nonEtherialCrew.length;
+                                    }
                                     if (crewLevelEl) {
-                                        const totalLevel = crewData.reduce((sum, c) => sum + c.level, 0);
+                                        const nonEtherialCrew = crewData.filter(c => !c.tags || !c.tags.includes("Is Etherial"));
+                                        const totalLevel = nonEtherialCrew.reduce((sum, c) => sum + c.level, 0);
                                         crewLevelEl.textContent = totalLevel;
                                     }
                                 }
