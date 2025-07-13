@@ -975,10 +975,30 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 // Add highlight animation to the item itself
                 element.classList.add(`item-being-${changeType}`);
                 
-                // Remove class after animation - updated for faster timing
+                // Remove class after animation
                 setTimeout(() => {
                     element.classList.remove(`item-being-${changeType}`);
                 }, changeType === 'deleted' ? 500 : changeType === 'updated' ? 600 : 1000);
+            }
+
+            // Create a horizontal red line of particles at the element's former position
+            // Accepts either a DOM element or a DOMRect-like object.
+            createLineParticles(target, count = 30) {
+                if (!this.container) return;
+                const rect = target instanceof Element ? target.getBoundingClientRect() : target;
+                const centerY = rect.top + rect.height / 2;
+                for (let i = 0; i < count; i++) {
+                    const particle = document.createElement('div');
+                    particle.className = 'particle red';
+                    // Evenly distribute along the width with small vertical jitter
+                    const x = rect.left + Math.random() * rect.width;
+                    const y = centerY + (Math.random() - 0.5) * 6;
+                    particle.style.left = `${x}px`;
+                    particle.style.top = `${y}px`;
+                    particle.style.animationDelay = (Math.random() * 0.2) + 's';
+                    this.container.appendChild(particle);
+                    setTimeout(() => particle.remove(), 2000);
+                }
             }
         }
         
@@ -1014,17 +1034,19 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 
                 const newData = await response.json();
                 
+                // Update global data
+                crewData = newData;
+                
                 // Detect changes and create particles
                 if (detectChanges && previousCrewData.length > 0) {
                     await detectCrewChangesAndAnimate(previousCrewData, newData);
+                } else {
+                    // If not detecting changes, render immediately
+                    computeSkillOrder(crewData);
+                    sortAndRender();
                 }
                 
-                // Update global data
-                crewData = newData;
                 previousCrewData = [...newData]; // Store copy for next comparison
-                
-                computeSkillOrder(crewData);
-                sortAndRender();
                 
                 // Restore scroll position after refresh
                 setTimeout(() => {
@@ -1094,22 +1116,57 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                        oldMember.climbs !== newMember.climbs;
             });
             
+            // If there are new members, render table without them first
+            if (addedMembers.length > 0) {
+                // Temporarily remove new members from crewData for initial render
+                const existingMembers = crewData.filter(member => oldNames.has(member.name));
+                const originalCrewData = [...crewData];
+                
+                crewData = existingMembers;
+                computeSkillOrder(crewData);
+                sortAndRender();
+                
+                // Restore the full data
+                crewData = originalCrewData;
+                computeSkillOrder(crewData);
+            } else {
+                // No new members, render normally
+                computeSkillOrder(crewData);
+                sortAndRender();
+            }
+            
             // Animate deletions first (with red particles) - small delay so they're visible
             setTimeout(() => {
                 for (const member of deletedMembers) {
                     const rowElement = document.querySelector(`tr[data-climber-name="${encodeURIComponent(member.name)}"]`);
                     if (rowElement) {
-                        particleSystem.animateItemChange(rowElement, 'deleted');
-                        particleSystem.createParticles(rowElement, 'red deleted', 12);
+                        const rect = rowElement.getBoundingClientRect();
+                        rowElement.remove();
+                        particleSystem.createLineParticles(rect, 30);
                     }
                 }
             }, 300);
             
             // Then animate additions (with blue particles) and auto-select new crew
             setTimeout(() => {
+                // Re-render the table with new members
+                sortAndRender();
+                
+                // Animate each new member
                 for (const member of addedMembers) {
                     const rowElement = document.querySelector(`tr[data-climber-name="${encodeURIComponent(member.name)}"]`);
                     if (rowElement) {
+                        // Hide the row initially
+                        rowElement.style.opacity = '0';
+                        rowElement.style.transform = 'translateY(-20px)';
+                        
+                        // Animate the row appearing
+                        setTimeout(() => {
+                            rowElement.style.transition = 'all 0.6s ease-out';
+                            rowElement.style.opacity = '1';
+                            rowElement.style.transform = 'translateY(0)';
+                        }, 50);
+                        
                         particleSystem.animateItemChange(rowElement, 'added');
                         
                         // Auto-select the newly added crew member

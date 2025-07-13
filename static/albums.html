@@ -2196,15 +2196,17 @@
 					if (currentEditAlbum) {
 						const albumCard = document.querySelector(`[data-album-url="${currentEditAlbum.url}"]`);
 						if (albumCard && window.albumParticleSystem) {
-							// Animate the card with red particles and fade out
-							window.albumParticleSystem.animateItemChange(albumCard, 'deleted');
-							window.albumParticleSystem.createParticles(albumCard, 'red deleted', 18);
-							
-							// Also add a dramatic fade-out effect to the card
-							albumCard.style.transition = 'all 1.5s ease-out';
-							albumCard.style.opacity = '0.3';
-							albumCard.style.transform = 'scale(0.95)';
-							albumCard.style.backgroundColor = 'rgba(255, 107, 107, 0.1)';
+							const rect = albumCard.getBoundingClientRect();
+							albumCard.remove();
+							window.albumParticleSystem.createLineParticles(rect, 40);
+							// Update data arrays immediately
+							if (window.allAlbums) {
+								window.allAlbums = window.allAlbums.filter(album => album.meta.url !== currentEditAlbum.url);
+							}
+							if (window.previousAlbumData) {
+								window.previousAlbumData = window.previousAlbumData.filter(album => album.url !== currentEditAlbum.url);
+							}
+							currentEditAlbum = null;
 						}
 					}
 					

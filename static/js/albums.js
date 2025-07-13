@@ -747,6 +747,24 @@ function enableMobileCardHighlight() {
 				}, 2500);
 			}
 		}
+
+		// Create a horizontal red line of particles (for deletions)
+		createLineParticles(target, count = 40) {
+			if (!this.container) return;
+			const rect = target instanceof Element ? target.getBoundingClientRect() : target;
+			const centerY = rect.top + rect.height / 2;
+			for (let i = 0; i < count; i++) {
+				const particle = document.createElement('div');
+				particle.className = 'particle red';
+				const x = rect.left + Math.random() * rect.width;
+				const y = centerY + (Math.random() - 0.5) * 6;
+				particle.style.left = `${x}px`;
+				particle.style.top = `${y}px`;
+				particle.style.animationDelay = (Math.random() * 0.2) + 's';
+				this.container.appendChild(particle);
+				setTimeout(() => particle.remove(), 2000);
+			}
+		}
 		
 		animateItemChange(element, changeType) {
 			if (!element) return;
@@ -754,7 +772,7 @@ function enableMobileCardHighlight() {
 			// Add highlight animation to the item itself
 			element.classList.add(`item-being-${changeType}`);
 			
-			// Remove class after animation - updated for faster timing
+			// Remove class after animation
 			setTimeout(() => {
 				element.classList.remove(`item-being-${changeType}`);
 			}, changeType === 'deleted' ? 500 : changeType === 'updated' ? 600 : 1000);
@@ -876,8 +894,9 @@ function enableMobileCardHighlight() {
 			for (const album of deletedAlbums) {
 				const albumCard = document.querySelector(`[data-album-url="${album.url}"]`);
 				if (albumCard) {
-					albumParticleSystem.animateItemChange(albumCard, 'deleted');
-					albumParticleSystem.createParticles(albumCard, 'red deleted', 12);
+					const rect = albumCard.getBoundingClientRect();
+					albumCard.remove();
+					albumParticleSystem.createLineParticles(rect, 40);
 				}
 			}
 		}, 300);

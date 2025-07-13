@@ -11,27 +11,38 @@ logger = logging.getLogger(__name__)
 
 
 class RedisDataStore:
-    def __init__(self, host='localhost', port=6379, db=0):
-        """Initialize Redis connections"""
+    def __init__(self, host='localhost', port=6379, db=0, password=None, ssl=False):
+        """Initialize Redis connections with security configuration"""
         try:
+            # Common connection parameters
+            connection_params = {
+                'host': host,
+                'port': port,
+                'socket_timeout': 5,
+                'health_check_interval': 30,
+                'socket_keepalive': True
+            }
+
+            # Add password if provided
+            if password:
+                connection_params['password'] = password
+
+            # Add SSL if enabled
+            if ssl:
+                connection_params['ssl'] = True
+
             # Text data connection (decode_responses=True for strings)
             self.redis = redis.Redis(
-                host=host,
-                port=port,
                 db=db,
                 decode_responses=True,
-                socket_timeout=5,
-                health_check_interval=30
+                **connection_params
             )
 
             # Binary data connection for images (decode_responses=False for bytes)
             self.binary_redis = redis.Redis(
-                host=host,
-                port=port,
                 db=db + 1,
                 decode_responses=False,
-                socket_timeout=5,
-                health_check_interval=30
+                **connection_params
             )
 
             # Test connections
@@ -98,12 +109,21 @@ class RedisDataStore:
         return album_data
 
     async def get_all_albums(self) -> List[Dict]:
-        """Get all albums with metadata"""
+        """Get all albums with metadata - optimized to reduce Redis calls"""
         album_urls = self.redis.smembers("index:albums:all")
-        albums = []
+        if not album_urls:
+            return []
 
+        # Use pipeline to batch Redis calls
+        pipe = self.redis.pipeline()
         for url in album_urls:
-            album_data = self.redis.hgetall(f"album:{url}")
+            pipe.hgetall(f"album:{url}")
+        
+        # Execute all operations at once
+        results = pipe.execute()
+        
+        albums = []
+        for url, album_data in zip(album_urls, results):
             if album_data:
                 album_data["crew"] = json.loads(album_data.get("crew", "[]"))
                 albums.append(album_data)
@@ -326,16 +346,43 @@ class RedisDataStore:
         return climber_data
 
     async def get_all_climbers(self) -> List[Dict]:
-        """Get all climbers"""
+        """Get all climbers - optimized to reduce Redis calls"""
         climber_names = self.redis.smembers("index:climbers:all")
-        climbers = []
+        if not climber_names:
+            return []
 
+        # Use pipeline to batch Redis calls
+        pipe = self.redis.pipeline()
         for name in climber_names:
-            climber_data = await self.get_climber(name)
-            if climber_data:
-                # Add face image path
-                climber_data["face"] = f"/redis-image/climber/{name}/face"
-                climbers.append(climber_data)
+            pipe.hgetall(f"climber:{name}")
+        
+        # Execute all operations at once
+        results = pipe.execute()
+        
+        climbers = []
+        for i, (name, climber_data) in enumerate(zip(climber_names, results)):
+            if not climber_data:
+                continue
+                
+            # Parse JSON fields
+            climber_data["location"] = json.loads(climber_data.get("location", "[]"))
+            climber_data["skills"] = json.loads(climber_data.get("skills", "[]"))
+            climber_data["tags"] = json.loads(climber_data.get("tags", "[]"))
+            climber_data["achievements"] = json.loads(climber_data.get("achievements", "[]"))
+
+            # Convert numeric fields
+            climber_data["level"] = int(climber_data.get("level", "1"))
+            climber_data["level_from_skills"] = int(climber_data.get("level_from_skills", "0"))
+            climber_data["level_from_climbs"] = int(climber_data.get("level_from_climbs", "0"))
+            climber_data["climbs"] = int(climber_data.get("climbs", "0"))
+            climber_data["is_new"] = climber_data.get("is_new", "false") == "true"
+
+            # Add first_climb_date field
+            climber_data["first_climb_date"] = climber_data.get("first_climb_date", None)
+
+            # Add face image path
+            climber_data["face"] = f"/redis-image/climber/{name}/face"
+            climbers.append(climber_data)
 
         # Sort by level (highest first), then by name
         climbers.sort(key=lambda x: (-x["level"], x["name"]))
@@ -715,7 +762,16 @@ class RedisDataStore:
             }
 
     async def clear_all_data(self) -> None:
-        """Clear all data - USE WITH CAUTION!"""
-        logger.warning("Clearing all Redis data!")
+        """Clear all data """
+        from config import settings
+        
+        # Prevent accidental data loss in production
+        if settings.is_production:
+            raise RuntimeError("clear_all_data() is disabled in production for safety")
+        
+        logger.critical("DANGER: Clearing all Redis data! This will delete EVERYTHING!")
+        
+        # Add confirmation mechanism
+        
         self.redis.flushdb()
         self.binary_redis.flushdb()

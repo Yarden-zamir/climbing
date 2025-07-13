@@ -35,6 +35,14 @@ from redis_store import RedisDataStore
 # Permissions system import
 from permissions import PermissionsManager, ResourceType, UserRole
 
+# Validation utilities
+from validation import (
+    ValidationError, validate_name, validate_google_photos_url,
+    validate_skill_list, validate_location_list, validate_achievements_list,
+    validate_image_file, validate_crew_list, validate_json_input,
+    validate_and_sanitize_metadata
+)
+
 # Configure logging
 
 
@@ -51,7 +59,14 @@ def setup_logging():
     )
 
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
+    
+    # Set logging level based on environment
+    if settings.is_production:
+        log_level = logging.INFO
+    else:
+        log_level = logging.DEBUG
+    
+    root_logger.setLevel(log_level)
     root_logger.handlers.clear()
 
     file_handler = RotatingFileHandler(
@@ -60,17 +75,17 @@ def setup_logging():
         backupCount=5,
         encoding='utf-8'
     )
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(log_level)
     file_handler.setFormatter(detailed_formatter)
     root_logger.addHandler(file_handler)
 
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(log_level)
     console_handler.setFormatter(simple_formatter)
     root_logger.addHandler(console_handler)
 
     app_logger = logging.getLogger("climbing_app")
-    app_logger.setLevel(logging.DEBUG)
+    app_logger.setLevel(log_level)
 
     return app_logger
 
@@ -85,7 +100,12 @@ logger.info("Starting Redis-based Climbing App initialization...")
 
 # Initialize Redis datastore
 try:
-    redis_store = RedisDataStore(host='localhost', port=6379)
+    redis_store = RedisDataStore(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        password=settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
+        ssl=settings.REDIS_SSL
+    )
     logger.info("✅ Redis datastore initialized successfully")
 except Exception as e:
     logger.error(f"❌ Failed to initialize Redis: {e}")
@@ -637,8 +657,8 @@ class AddAchievementsRequest(BaseModel):
     achievements: List[str]
 
 
-def validate_google_photos_url(url: str) -> bool:
-    """Validate that the URL is a Google Photos album link."""
+def validate_google_photos_url_legacy(url: str) -> bool:
+    """Validate that the URL is a Google Photos album link (legacy function)."""
     return bool(re.match(r"https://photos\.app\.goo\.gl/[a-zA-Z0-9]+", url))
 
 # === CRUD Operations (replacing GitHub PR creation) ===
@@ -649,8 +669,10 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
     """Submit a new album directly to Redis (no GitHub)."""
 
     # Validate album URL format
-    if not validate_google_photos_url(submission.url):
-        raise HTTPException(status_code=400, detail="Please provide a valid Google Photos album URL (e.g., https://photos.app.goo.gl/...)")
+    try:
+        validated_url = validate_google_photos_url(submission.url)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     try:
         user_id = user.get("id")
@@ -794,7 +816,7 @@ async def submit_crew_member(
 
         # Handle image if provided
         if image and image.filename:
-            logger.info(f"Processing image: filename={image.filename}, content_type={image.content_type}, size={image.size}")
+            logger.debug(f"Processing image: filename={image.filename}, content_type={image.content_type}, size={image.size}")
             # Validate image
             if not image.content_type or not image.content_type.startswith('image/'):
                 logger.error(f"Invalid content type: {image.content_type}")
@@ -802,17 +824,17 @@ async def submit_crew_member(
             
             # Read image data
             image_data = await image.read()
-            logger.info(f"Read image data: {len(image_data)} bytes")
+            logger.debug(f"Read image data: {len(image_data)} bytes")
             
             # Store image directly as climber image
             try:
                 image_path = await redis_store.store_image("climber", f"{name.strip()}/face", image_data)
-                logger.info(f"Stored image for {name.strip()} at {image_path}")
+                logger.debug(f"Stored image for {name.strip()} at {image_path}")
             except Exception as e:
                 logger.error(f"Failed to store image for {name.strip()}: {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to store image: {str(e)}")
         else:
-            logger.info(f"No image provided: image={image}, filename={getattr(image, 'filename', None) if image else None}")
+            logger.debug(f"No image provided: image={image}, filename={getattr(image, 'filename', None) if image else None}")
 
         # Set resource ownership and increment count if permissions system is available
         if permissions_manager is not None:
@@ -1282,6 +1304,27 @@ async def auth_callback(code: str = None, state: str = None, error: str = None):
 
         # Get user info
         user_info = await oauth_handler.get_user_info(access_token)
+
+        # Cache profile picture if available
+        profile_picture_url = user_info.get("picture")
+        if profile_picture_url:
+            try:
+                # Fetch and cache the profile picture
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(profile_picture_url)
+                    if response.status_code == 200:
+                        # Store in Redis with user ID as identifier
+                        image_path = await redis_store.store_image(
+                            "profile", 
+                            f"{user_info['id']}/picture",
+                            response.content
+                        )
+                        # Update picture URL to use our cached version
+                        user_info["picture"] = image_path
+                    else:
+                        logger.warning(f"Failed to fetch profile picture: {response.status_code}")
+            except Exception as e:
+                logger.warning(f"Failed to cache profile picture: {e}")
 
         # Prepare user session data (basic version for now)
         user_session_data = {
@@ -2000,3 +2043,33 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.add_middleware(CaseInsensitiveMiddleware)
 app.add_middleware(NoCacheMiddleware)
+
+@app.get("/api/profile-picture/{user_id}")
+async def get_profile_picture(user_id: str):
+    """Serve cached profile picture with fallback to Google URL"""
+    try:
+        # Try to get cached image from Redis
+        image_data = await redis_store.get_image("profile", f"{user_id}/picture")
+        
+        if image_data:
+            headers = {
+                "Cache-Control": "public, max-age=604800, immutable"
+            }
+            return Response(
+                content=image_data,
+                media_type="image/jpeg",  # Most Google profile pics are JPEG
+                headers=headers
+            )
+        
+        # If not in cache, get user info and redirect to Google URL
+        if permissions_manager:
+            user = await permissions_manager.get_user(user_id)
+            if user and user.get("picture"):
+                return RedirectResponse(url=user["picture"])
+        
+        # If all else fails, return 404
+        raise HTTPException(status_code=404, detail="Profile picture not found")
+        
+    except Exception as e:
+        logger.error(f"Error serving profile picture for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to serve profile picture")

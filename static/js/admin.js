@@ -215,6 +215,22 @@ class AdminPanel {
         `).join('');
     }
 
+    // Helper method to get profile picture URL
+    getProfilePictureUrl(user) {
+        if (!user || !user.id) return '/static/favicon/favicon-32x32.png';
+        
+        // If picture starts with /redis-image/ or /api/profile-picture/, use it as is
+        if (user.picture && (
+            user.picture.startsWith('/redis-image/') || 
+            user.picture.startsWith('/api/profile-picture/')
+        )) {
+            return user.picture;
+        }
+        
+        // Otherwise use our cached endpoint
+        return `/api/profile-picture/${user.id}`;
+    }
+
     generateUserAvatar(user) {
         const initials = this.getUserInitials(user.name);
         const avatarId = `avatar-${user.id}`;
@@ -222,7 +238,7 @@ class AdminPanel {
         return `
             <div class="user-avatar-container" style="position: relative;">
                 <img id="${avatarId}" 
-                     src="${user.picture}" 
+                     src="${this.getProfilePictureUrl(user)}" 
                      alt="${user.name}"
                      style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255, 255, 255, 0.1);"
                      onload="this.style.display='block'; this.nextElementSibling.style.display='none';"
@@ -322,7 +338,7 @@ class AdminPanel {
             <div class="owner-pill" title="${owner.name} (${owner.email})">
                 <div class="user-avatar-container" style="position: relative;">
                     <img id="${avatarId}" 
-                         src="${owner.picture}" 
+                         src="${this.getProfilePictureUrl(owner)}" 
                          alt="${owner.name}"
                          style="width: 16px; height: 16px; border-radius: 50%; object-fit: cover;"
                          onload="this.style.display='block'; this.nextElementSibling.style.display='none';"
@@ -368,7 +384,7 @@ class AdminPanel {
         return `
             <div class="user-avatar-container" style="position: relative;">
                 <img id="${avatarId}" 
-                     src="${owner.picture}" 
+                     src="${this.getProfilePictureUrl(owner)}" 
                      alt="${owner.name}"
                      style="width: ${size}px; height: ${size}px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255, 255, 255, 0.1);"
                      onload="this.style.display='block'; this.nextElementSibling.style.display='none';"

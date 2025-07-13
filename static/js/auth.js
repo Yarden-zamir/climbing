@@ -9,6 +9,22 @@ class AuthManager {
         this.init();
     }
 
+    // Helper method to get profile picture URL
+    getProfilePictureUrl(user) {
+        if (!user || !user.id) return '/static/favicon/favicon-32x32.png';
+        
+        // If picture starts with /redis-image/ or /api/profile-picture/, use it as is
+        if (user.picture && (
+            user.picture.startsWith('/redis-image/') || 
+            user.picture.startsWith('/api/profile-picture/')
+        )) {
+            return user.picture;
+        }
+        
+        // Otherwise use our cached endpoint
+        return `/api/profile-picture/${user.id}`;
+    }
+
     async init() {
         await this.checkAuthStatus();
         this.setupEventListeners();
@@ -155,7 +171,7 @@ class AuthManager {
         
         userDropdown.innerHTML = `
             <button class="user-profile-btn">
-                <img src="${this.currentUser.picture || '/static/favicon/favicon-32x32.png'}" 
+                <img src="${this.getProfilePictureUrl(this.currentUser)}" 
                      alt="${this.currentUser.name}" 
                      class="user-avatar">
                 <span class="user-name">${firstName}</span>
@@ -207,7 +223,7 @@ class AuthManager {
         });
 
         userAvatarElements.forEach(el => {
-            el.src = this.currentUser.picture || '/static/favicon/favicon-32x32.png';
+            el.src = this.getProfilePictureUrl(this.currentUser);
             el.alt = this.currentUser.name;
         });
     }
