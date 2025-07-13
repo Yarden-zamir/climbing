@@ -357,19 +357,34 @@ nav a.active {
 	padding: 1.5rem;
 	max-width: 1500px;
 	margin: 0 auto;
+	transition: all 0.3s ease-out; /* Smooth grid adaptation for deletions */
 }
 
-/* Album Card Styling */
+/* Album Cards with smooth transitions */
 .album-card {
-	background-color: #1e1e1e;
-	border-radius: 8px;
-	overflow: hidden;
-	text-decoration: none;
-	color: #e0e0e0;
-	box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-	transition: transform 0.3s ease, box-shadow 0.3s ease;
-	opacity: 1;
-	position: relative; /* Needed for the image overlay */
+    animation: card-fade-in 0.6s ease-out forwards;
+    /* Add smooth transitions for layout changes */
+    transition: all 0.3s ease-out, opacity 0.6s ease-out, transform 0.6s ease-out, max-height 0.6s ease-out, margin 0.6s ease-out;
+    background-color: #1e1e1e;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transform: translateY(20px);
+    border: 2px solid transparent;
+    position: relative; /* Needed for the image overlay */
+}
+
+.album-card:hover,
+.album-card:focus {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+    border-color: #bb86fc;
 }
 
 .album-card:hover,
@@ -516,23 +531,7 @@ nav a.active {
 
 /* ... (keep all styles from h1 to .album-card:hover) ... */
 
-/* Album Card Styling */
-.album-card {
-	background-color: #1e1e1e;
-	border-radius: 8px;
-	overflow: hidden;
-	text-decoration: none;
-	color: #e0e0e0;
-	box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-	transition: transform 0.3s ease, box-shadow 0.3s ease;
-	opacity: 1;
-	position: relative; /* Needed for the image overlay */
-}
 
-.album-card:hover {
-	transform: translateY(-5px);
-	box-shadow: 0 8px 25px rgba(187, 134, 252, 0.3);
-}
 
 /* ✨ START: New Image Overlay Animation */
 .album-card .img-container {
@@ -907,6 +906,11 @@ nav a.active {
 
 .crew-table tbody tr {
     transition: all 0.2s ease;
+}
+
+/* Smooth deletion animations */
+.crew-table tbody tr {
+    transition: opacity 0.8s ease-out, transform 0.8s ease-out, max-height 0.4s ease-out, padding 0.4s ease-out, margin 0.4s ease-out;
 }
 
 .crew-table tbody tr:hover:not(.highlighted-crew) {
@@ -1336,6 +1340,213 @@ nav a.active {
     }
 }
 
+/* Auto-refresh loading animations */
+@keyframes refresh-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes refresh-fade-in {
+    0% { opacity: 0; transform: translateY(10px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+.refresh-loading {
+    animation: refresh-fade-in 0.5s ease-out;
+}
+
+.refresh-loading .refresh-spinner {
+    display: inline-block;
+    animation: refresh-spin 1s linear infinite;
+}
+
+.refresh-success {
+    animation: refresh-fade-in 0.5s ease-out;
+}
+
+.refresh-error {
+    animation: refresh-fade-in 0.5s ease-out;
+}
+
+/* Particle Animation System */
+.particle-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 9999;
+    overflow: hidden;
+}
+
+.particle {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.particle.blue {
+    background: radial-gradient(circle, #03dac6, #bb86fc);
+    box-shadow: 0 0 10px #03dac6;
+}
+
+.particle.red {
+    background: radial-gradient(circle, #ff6b6b, #ff3838);
+    box-shadow: 0 0 10px #ff6b6b;
+}
+
+.particle.green {
+    background: radial-gradient(circle, #4ecdc4, #45b7aa);
+    box-shadow: 0 0 10px #4ecdc4;
+}
+
+/* Particle animation keyframes */
+@keyframes particle-created {
+    0% {
+        opacity: 0;
+        transform: scale(0.0) translateY(20px);
+    }
+    10% {
+        opacity: 0.1;
+        transform: scale(0.4) translateY(10px);
+    }
+    30% {
+        opacity: 0.2;
+        transform: scale(0.8) translateY(0px);
+    }
+    50% {
+        opacity: 0.5;
+        transform: scale(1) translateY(-10px);
+    }
+    80% {
+        opacity: 0.8;
+        transform: scale(1) translateY(-30px);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.5) translateY(-80px);
+    }
+}
+
+@keyframes particle-deleted {
+    0% {
+        opacity: 1;
+        transform: scale(1) translateY(0px);
+    }
+    20% {
+        opacity: 1;
+        transform: scale(1.2) translateY(-10px);
+    }
+    80% {
+        opacity: 0.8;
+        transform: scale(0.8) translateY(30px);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0) translateY(100px);
+    }
+}
+
+@keyframes particle-updated {
+    0% {
+        opacity: 0;
+        transform: scale(0.1) rotate(0deg);
+    }
+    15% {
+        opacity: 0.4;
+        transform: scale(0.6) rotate(45deg);
+    }
+    40% {
+        opacity: 0.8;
+        transform: scale(1.2) rotate(135deg);
+    }
+    60% {
+        opacity: 1;
+        transform: scale(1) rotate(220deg);
+    }
+    80% {
+        opacity: 0.9;
+        transform: scale(0.8) rotate(300deg);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.2) rotate(360deg);
+    }
+}
+
+.particle.created {
+    animation: particle-created 0.2s ease-out forwards;
+}
+
+.particle.deleted {
+    animation: particle-deleted 0.8s ease-in forwards;
+}
+
+.particle.updated {
+    animation: particle-updated 0.6s ease-out forwards;
+}
+
+/* Item highlight animations for smooth transitions */
+.item-being-deleted {
+    animation: simple-delete 0.5s ease-out forwards;
+}
+
+@keyframes simple-delete {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+}
+
+.item-being-added {
+    animation: item-add-fade 1s ease-out forwards;
+}
+
+.item-being-updated {
+    animation: item-update-pulse 0.8s ease-out forwards;
+}
+
+
+
+@keyframes item-add-fade {
+    0% {
+        opacity: 0;
+        transform: scale(0.95) translateY(20px);
+        background-color: rgba(3, 218, 198, 0.3);
+    }
+    50% {
+        background-color: rgba(3, 218, 198, 0.2);
+        transform: scale(1.02) translateY(0px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0px);
+        background-color: transparent;
+    }
+}
+
+@keyframes item-update-pulse {
+    0% {
+        background-color: transparent;
+        transform: scale(1);
+    }
+    50% {
+        background-color: rgba(76, 205, 196, 0.2);
+        transform: scale(1.02);
+    }
+    100% {
+        background-color: transparent;
+        transform: scale(1);
+    }
+}
+
 /* Container for the face image that expands when enlarged */
 .crew-face-container {
     display: flex;
@@ -1421,11 +1632,11 @@ nav a.active {
     font-weight: 600;
 }
 
-.achievement-badge:hover {
+/* .achievement-badge:hover {
     background: #ff6b35;
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(255, 174, 82, 0.4);
-}
+} */
 
 .skill-add-badge {
     display: inline-flex;
@@ -2546,5 +2757,25 @@ nav a.active {
     .profile-dropdown-menu {
         min-width: 180px;
         right: -10px;
+    }
+}
+
+/* Smooth deletion for table rows */
+/* Simple deletion animation - works for all items */
+.item-being-deleted,
+.crew-table tbody tr.item-being-deleted,
+.album-card.item-being-deleted {
+    animation: simple-delete 0.5s ease-out forwards;
+    transition: none !important; /* Override any conflicting transitions */
+}
+
+@keyframes simple-delete {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.9);
     }
 }

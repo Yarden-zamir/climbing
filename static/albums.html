@@ -1852,27 +1852,21 @@
 				}
 			});
 			
-			function showSubmissionSuccess(data) {
+			async function showSubmissionSuccess(data) {
 				const status = document.getElementById('submission-status');
 				status.innerHTML = `
-					<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+					<div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
 						✅ ${data.message}
 					</div>
-					<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+					<div style="color: #ccc; font-size: 0.9rem;">
 						Album has been added and is now live!
 					</div>
-					<button onclick="window.location.reload()" style="
-						background: #03dac6;
-						color: #1a1a1a;
-						border: none;
-						padding: 0.5rem 1rem;
-						border-radius: 8px;
-						cursor: pointer;
-						font-weight: 600;
-					">
-						Refresh Page
-					</button>
 				`;
+				
+				// Close modal immediately and refresh in background
+				closeModal();
+				// Start auto-refresh in background after modal closes (particles will be focused on the new album card)
+				autoRefreshAlbumsWithParticles(true, true);
 			}
 			
 			function showSubmissionError(message) {
@@ -2184,51 +2178,92 @@
 				}
 			});
 			
-			function showEditSubmissionSuccess(data) {
+			async function showEditSubmissionSuccess(data) {
 				const status = document.getElementById('edit-submission-status');
 				
 				if (data.isDeleted) {
 					// Special handling for deletion
 				status.innerHTML = `
-					<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+					<div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
 						✅ ${data.message}
 					</div>
-					<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+					<div style="color: #ccc; font-size: 0.9rem;">
 							The album has been permanently removed from the collection.
 					</div>
-						<button onclick="window.location.reload()" style="
-							background: #03dac6;
-							color: #1a1a1a;
-							border: none;
-							padding: 0.5rem 1rem;
-							border-radius: 8px;
-							cursor: pointer;
-						font-weight: 600;
-					">
-							Refresh Page
-						</button>
 					`;
+					
+					// Find and animate the album card immediately before refresh
+					if (currentEditAlbum) {
+						const albumCard = document.querySelector(`[data-album-url="${currentEditAlbum.url}"]`);
+						if (albumCard && window.albumParticleSystem) {
+							// Animate the card with red particles and fade out
+							window.albumParticleSystem.animateItemChange(albumCard, 'deleted');
+							window.albumParticleSystem.createParticles(albumCard, 'red deleted', 18);
+							
+							// Also add a dramatic fade-out effect to the card
+							albumCard.style.transition = 'all 1.5s ease-out';
+							albumCard.style.opacity = '0.3';
+							albumCard.style.transform = 'scale(0.95)';
+							albumCard.style.backgroundColor = 'rgba(255, 107, 107, 0.1)';
+						}
+					}
+					
+					// Create immediate delete particles from the modal
+					const modal = document.getElementById('edit-album-modal');
+					if (modal && window.albumParticleSystem) {
+						window.albumParticleSystem.createParticles(modal, 'red deleted', 18);
+					}
 				} else {
 					// Regular update success
 					status.innerHTML = `
-						<div style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
+						<div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
 							✅ ${data.message}
 						</div>
-						<div style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem;">
+						<div style="color: #ccc; font-size: 0.9rem;">
 							Album crew has been updated and is now live!
 						</div>
-						<button onclick="window.location.reload()" style="
-							background: #03dac6;
-							color: #1a1a1a;
-							border: none;
-							padding: 0.5rem 1rem;
-							border-radius: 8px;
-							cursor: pointer;
-							font-weight: 600;
-						">
-							Refresh Page
-						</button>
 				`;
+				
+					// Create immediate update particles from the modal
+					const modal = document.getElementById('edit-album-modal');
+					if (modal && window.albumParticleSystem) {
+						window.albumParticleSystem.createParticles(modal, 'green updated', 15);
+					}
+				}
+				
+				// Close modal immediately and refresh in background
+				closeEditModal();
+				
+				// For deletions, do smooth removal instead of hard refresh
+				if (data.isDeleted && currentEditAlbum) {
+					// Smooth deletion: find and fade out the album card
+					const albumCard = document.querySelector(`[data-album-url="${currentEditAlbum.url}"]`);
+					
+					if (albumCard) {
+						// Add smooth fade-out animation
+						albumCard.style.transition = 'all 0.8s ease-out';
+						albumCard.style.opacity = '0';
+						albumCard.style.transform = 'scale(0.8) translateY(20px)';
+						
+						// After fade-out, remove and let grid auto-adjust
+						setTimeout(() => {
+							albumCard.remove();
+							
+							// Update data arrays
+							if (window.allAlbums) {
+								window.allAlbums = window.allAlbums.filter(album => album.meta.url !== currentEditAlbum.url);
+							}
+							if (window.previousAlbumData) {
+								window.previousAlbumData = window.previousAlbumData.filter(album => album.url !== currentEditAlbum.url);
+							}
+							
+							// Clear current edit album
+							currentEditAlbum = null;
+						}, 800);
+					}
+				} else {
+					// Start auto-refresh in background after modal closes
+					autoRefreshAlbumsWithParticles(true, true);
 				}
 			}
 			

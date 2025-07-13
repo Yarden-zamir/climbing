@@ -317,6 +317,12 @@ class RedisDataStore:
         climber_data["climbs"] = int(climber_data.get("climbs", "0"))
         climber_data["is_new"] = climber_data.get("is_new", "false") == "true"
 
+        # Add first_climb_date field
+        climber_data["first_climb_date"] = climber_data.get("first_climb_date", None)
+
+        # Add face image path
+        climber_data["face"] = f"/redis-image/climber/{name}/face"
+
         return climber_data
 
     async def get_all_climbers(self) -> List[Dict]:
@@ -559,80 +565,107 @@ class RedisDataStore:
 
     async def calculate_new_climbers(self) -> Set[str]:
         """Calculate which climbers are new (first participation in last 14 days)"""
-        cutoff_date = datetime.now() - timedelta(days=14)
+        try:
+            cutoff_date = datetime.now() - timedelta(days=14)
+            new_climbers = set()
 
-        # Get all albums sorted by date
-        albums = await self.get_all_albums()
-        new_climbers = set()
+            # Get all albums sorted by date
+            albums = await self.get_all_albums()
+            if not albums:
+                logger.info("No albums found, skipping new climbers calculation")
+                return new_climbers
 
-        # Process albums chronologically
-        albums_with_dates = []
-        for album in albums:
-            try:
-                # Parse album date
-                date_str = album.get("date", "")
-                if not date_str:
+            # Process albums chronologically
+            albums_with_dates = []
+            import re
+
+            for album in albums:
+                try:
+                    # Parse album date
+                    date_str = album.get("date", "")
+                    if not date_str:
+                        continue
+
+                    try:
+                        # Remove emoji and extra spaces
+                        clean_date = re.sub(r'📸.*$', '', date_str).strip()
+
+                        # Handle date ranges - use first date
+                        if '–' in clean_date:
+                            clean_date = clean_date.split('–')[0].strip()
+
+                        # Remove day of week
+                        clean_date = re.sub(r'^[A-Za-z]+,\s*', '', clean_date)
+
+                        # Add current year if not present
+                        current_year = datetime.now().year
+                        if str(current_year) not in clean_date:
+                            clean_date = f"{clean_date} {current_year}"
+
+                        # Parse date
+                        parsed_date = datetime.strptime(clean_date, "%b %d %Y")
+                        album_date = parsed_date
+                        albums_with_dates.append((album, album_date))
+
+                    except Exception as e:
+                        logger.debug(f"Failed to parse date '{date_str}' for album {album.get('url', '')}: {e}")
+                        continue  # Skip albums with unparseable dates
+
+                except Exception as e:
+                    logger.warning(f"Error processing album {album.get('url', '')}: {e}")
                     continue
 
-                # Simple date parsing - you can enhance this
-                # Assumes dates like "Jul 15", "Jan 1", etc.
-                import re
-                from datetime import datetime
+            # Sort by date (oldest first)
+            albums_with_dates.sort(key=lambda x: x[1])
+
+            # Track first participation
+            climber_first_participation = {}
+
+            for album, album_date in albums_with_dates:
+                crew = album.get("crew", [])
+                if crew:
+                    for crew_member in crew:
+                        if crew_member and crew_member not in climber_first_participation:
+                            climber_first_participation[crew_member] = album_date
+
+            # Find new climbers and store their first onion climb date
+            for climber, first_date in climber_first_participation.items():
+                if not climber:  # Skip empty names
+                    continue
 
                 try:
-                    # Remove emoji and extra spaces
-                    clean_date = re.sub(r'📸.*$', '', date_str).strip()
+                    # Always store the first onion climb date
+                    first_climb_date_str = first_date.strftime("%b %d, %Y")
+                    self.redis.hset(f"climber:{climber}", "first_climb_date", first_climb_date_str)
 
-                    # Handle date ranges - use first date
-                    if '–' in clean_date:
-                        clean_date = clean_date.split('–')[0].strip()
+                    # Check if they're new (within last 14 days)
+                    if first_date >= cutoff_date:
+                        new_climbers.add(climber)
+                        # Mark as new in Redis
+                        self.redis.hset(f"climber:{climber}", "is_new", "true")
+                    else:
+                        # Mark as not new
+                        self.redis.hset(f"climber:{climber}", "is_new", "false")
+                except Exception as e:
+                    logger.warning(f"Error updating climber {climber}: {e}")
+                    continue
 
-                    # Remove day of week
-                    clean_date = re.sub(r'^[A-Za-z]+,\s*', '', clean_date)
-
-                    # Add current year if not present
-                    current_year = datetime.now().year
-                    if str(current_year) not in clean_date:
-                        clean_date = f"{clean_date} {current_year}"
-
-                    # Parse date
-                    parsed_date = datetime.strptime(clean_date, "%b %d %Y")
-                    return parsed_date.strftime("%Y-%m-%d")
-
-                except Exception:
-                    return "0000-00-00"  # Unparseable dates go to bottom
-
+            # Update new climbers index
+            try:
+                self.redis.delete("index:climbers:new")
+                for climber in new_climbers:
+                    if climber:
+                        self.redis.sadd("index:climbers:new", climber)
             except Exception as e:
-                logger.warning(f"Failed to parse date for album {album.get('url', '')}: {e}")
-                continue
+                logger.warning(f"Error updating new climbers index: {e}")
 
-        # Sort by date (oldest first)
-        albums_with_dates.sort(key=lambda x: x[1])
+            logger.info(f"Calculated {len(new_climbers)} new climbers")
+            return new_climbers
 
-        # Track first participation
-        climber_first_participation = {}
-
-        for album, album_date in albums_with_dates:
-            for crew_member in album.get("crew", []):
-                if crew_member not in climber_first_participation:
-                    climber_first_participation[crew_member] = album_date
-
-        # Find new climbers
-        for climber, first_date in climber_first_participation.items():
-            if first_date >= cutoff_date:
-                new_climbers.add(climber)
-                # Mark as new in Redis
-                self.redis.hset(f"climber:{climber}", "is_new", "true")
-            else:
-                # Mark as not new
-                self.redis.hset(f"climber:{climber}", "is_new", "false")
-
-        # Update new climbers index
-        self.redis.delete("index:climbers:new")
-        if new_climbers:
-            self.redis.sadd("index:climbers:new", *new_climbers)
-
-        return new_climbers
+        except Exception as e:
+            logger.error(f"Error in calculate_new_climbers: {e}")
+            # Return empty set to prevent breaking the API
+            return set()
 
     # === SESSIONS ===
 
