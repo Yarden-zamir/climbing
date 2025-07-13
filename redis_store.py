@@ -485,6 +485,39 @@ class RedisDataStore:
             if album:
                 albums.append(album)
 
+        # Sort by album date (newest climbing dates first)
+        def parse_album_date_for_sort(date_str):
+            """Parse album date for sorting - newest first"""
+            if not date_str:
+                return "0000-00-00"  # Empty dates go to bottom
+
+            import re
+            from datetime import datetime
+
+            try:
+                # Remove emoji and extra spaces
+                clean_date = re.sub(r'📸.*$', '', date_str).strip()
+
+                # Handle date ranges - use first date
+                if '–' in clean_date:
+                    clean_date = clean_date.split('–')[0].strip()
+
+                # Remove day of week
+                clean_date = re.sub(r'^[A-Za-z]+,\s*', '', clean_date)
+
+                # Add current year if not present
+                current_year = datetime.now().year
+                if str(current_year) not in clean_date:
+                    clean_date = f"{clean_date} {current_year}"
+
+                # Parse date
+                parsed_date = datetime.strptime(clean_date, "%b %d %Y")
+                return parsed_date.strftime("%Y-%m-%d")
+
+            except Exception:
+                return "0000-00-00"  # Unparseable dates go to bottom
+
+        albums.sort(key=lambda x: parse_album_date_for_sort(x.get("date", "")), reverse=True)
         return albums
 
     # === IMAGES ===
