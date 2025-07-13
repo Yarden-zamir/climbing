@@ -238,7 +238,8 @@ class RedisDataStore:
     # === CLIMBERS ===
 
     async def add_climber(
-            self, name: str, location: List[str] = None, skills: List[str] = None, tags: List[str] = None) -> None:
+        self, name: str, location: List[str]=None, skills: List[str]=None, tags: List[str]=None,
+        achievements: List[str]=None) ->None:
         """Add a new climber"""
         climber_key = f"climber:{name}"
 
@@ -249,6 +250,7 @@ class RedisDataStore:
         location = location or []
         skills = skills or []
         tags = tags or []
+        achievements = achievements or []
 
         # Calculate initial level
         level_from_skills = len(skills)
@@ -260,6 +262,7 @@ class RedisDataStore:
             "location": json.dumps(location),
             "skills": json.dumps(skills),
             "tags": json.dumps(tags),
+            "achievements": json.dumps(achievements),
             "level": str(total_level),
             "level_from_skills": str(level_from_skills),
             "level_from_climbs": str(level_from_climbs),
@@ -286,6 +289,11 @@ class RedisDataStore:
             self.redis.sadd("index:tags:all", tag)
             self.redis.sadd(f"index:climbers:tag:{tag}", name)
 
+        # Index achievements
+        for achievement in achievements:
+            self.redis.sadd("index:achievements:all", achievement)
+            self.redis.sadd(f"index:climbers:achievement:{achievement}", name)
+
         logger.info(f"Added climber: {name}")
 
     async def get_climber(self, name: str) -> Optional[Dict]:
@@ -300,6 +308,7 @@ class RedisDataStore:
         climber_data["location"] = json.loads(climber_data.get("location", "[]"))
         climber_data["skills"] = json.loads(climber_data.get("skills", "[]"))
         climber_data["tags"] = json.loads(climber_data.get("tags", "[]"))
+        climber_data["achievements"] = json.loads(climber_data.get("achievements", "[]"))
 
         # Convert numeric fields
         climber_data["level"] = int(climber_data.get("level", "1"))
@@ -327,7 +336,7 @@ class RedisDataStore:
         return climbers
 
     async def update_climber(self, original_name: str, name: str = None, location: List[str] = None,
-                             skills: List[str] = None, tags: List[str] = None) -> None:
+                             skills: List[str] = None, tags: List[str] = None, achievements: List[str] = None) -> None:
         """Update climber information"""
         original_key = f"climber:{original_name}"
 
@@ -340,6 +349,7 @@ class RedisDataStore:
         location = location if location is not None else current_climber["location"]
         skills = skills if skills is not None else current_climber["skills"]
         tags = tags if tags is not None else current_climber["tags"]
+        achievements = achievements if achievements is not None else current_climber["achievements"]
 
         # Handle name change
         name_changed = original_name != name
@@ -360,6 +370,7 @@ class RedisDataStore:
             "location": json.dumps(location),
             "skills": json.dumps(skills),
             "tags": json.dumps(tags),
+            "achievements": json.dumps(achievements),
             "level": str(total_level),
             "level_from_skills": str(level_from_skills),
             "level_from_climbs": str(level_from_climbs),
@@ -412,6 +423,26 @@ class RedisDataStore:
             self.redis.sadd("index:skills:all", skill)
             self.redis.sadd(f"index:climbers:skill:{skill}", name)
 
+        # Update tag indexes
+        # Remove from old tag indexes
+        for tag in current_climber["tags"]:
+            self.redis.srem(f"index:climbers:tag:{tag}", original_name)
+
+        # Add to new tag indexes
+        for tag in tags:
+            self.redis.sadd("index:tags:all", tag)
+            self.redis.sadd(f"index:climbers:tag:{tag}", name)
+
+        # Update achievement indexes
+        # Remove from old achievement indexes
+        for achievement in current_climber["achievements"]:
+            self.redis.srem(f"index:climbers:achievement:{achievement}", original_name)
+
+        # Add to new achievement indexes
+        for achievement in achievements:
+            self.redis.sadd("index:achievements:all", achievement)
+            self.redis.sadd(f"index:climbers:achievement:{achievement}", name)
+
         logger.info(f"Updated climber: {original_name} -> {name}")
 
     async def delete_climber(self, name: str) -> bool:
@@ -435,6 +466,14 @@ class RedisDataStore:
         # Remove from skill indexes
         for skill in climber["skills"]:
             self.redis.srem(f"index:climbers:skill:{skill}", name)
+
+        # Remove from tag indexes
+        for tag in climber["tags"]:
+            self.redis.srem(f"index:climbers:tag:{tag}", name)
+
+        # Remove from achievement indexes
+        for achievement in climber["achievements"]:
+            self.redis.srem(f"index:climbers:achievement:{achievement}", name)
 
         # Remove image
         self.binary_redis.delete(f"image:climber:{name}:face")
@@ -486,7 +525,7 @@ class RedisDataStore:
         result = self.binary_redis.delete(image_key)
         return result > 0
 
-    # === SKILLS & TAGS ===
+    # === SKILLS, TAGS & ACHIEVEMENTS ===
 
     async def get_all_skills(self) -> List[str]:
         """Get all unique skills"""
@@ -497,6 +536,11 @@ class RedisDataStore:
         """Get all unique tags"""
         tags = self.redis.smembers("index:tags:all")
         return sorted(list(tags))
+
+    async def get_all_achievements(self) -> List[str]:
+        """Get all unique achievements"""
+        achievements = self.redis.smembers("index:achievements:all")
+        return sorted(list(achievements))
 
     # === CACHING ===
 

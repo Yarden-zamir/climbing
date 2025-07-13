@@ -107,7 +107,7 @@ except Exception as e:
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize Redis health check on startup"""
+    """Initialize Redis health check and run migrations on startup"""
     logger.info("FastAPI startup event triggered")
     try:
         health = await redis_store.health_check()
@@ -118,49 +118,68 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Redis health check failed: {e}")
 
-
-async def refresh_album_metadata():
-    """Background task to refresh album metadata from Google Photos every 2 minutes"""
-    while True:
+    # Run ownership format migration if permissions manager is available
+    if permissions_manager is not None:
         try:
-            # Wait 4 minutes between refreshes
-            await asyncio.sleep(60*4)
+            logger.info("Running ownership format migration...")
+            migrated = await permissions_manager.migrate_ownership_to_sets()
+            logger.info(f"✅ Ownership migration completed: {migrated}")
+        except Exception as e:
+            logger.error(f"❌ Ownership migration failed: {e}")
 
-            logger.info("🔄 Starting album metadata refresh...")
 
-            # Get all albums from Redis
-            albums = await redis_store.get_all_albums()
+async def perform_album_metadata_refresh():
+    """Perform album metadata refresh - can be called manually or automatically"""
+    logger.info("🔄 Starting album metadata refresh...")
 
-            if not albums:
-                logger.info("No albums found to refresh")
+    # Get all albums from Redis
+    albums = await redis_store.get_all_albums()
+
+    if not albums:
+        logger.info("No albums found to refresh")
+        return {"updated": 0, "errors": 0, "message": "No albums found to refresh"}
+
+    updated_count = 0
+    error_count = 0
+
+    # Refresh metadata for each album
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for album in albums:
+            try:
+                url = album["url"]
+
+                # Fetch fresh metadata from Google Photos
+                response = await fetch_url(client, url)
+                fresh_metadata = parse_meta_tags(response.text, url)
+
+                # Update Redis with fresh metadata
+                await redis_store.update_album_metadata(url, fresh_metadata)
+                updated_count += 1
+
+                # Small delay to avoid overwhelming Google Photos
+                await asyncio.sleep(0.5)
+
+            except Exception as e:
+                error_count += 1
+                logger.warning(f"Failed to refresh metadata for {album.get('url', 'unknown')}: {e}")
                 continue
 
-            updated_count = 0
-            error_count = 0
+    logger.info(f"✅ Album metadata refresh completed: {updated_count} updated, {error_count} errors")
+    return {
+        "updated": updated_count,
+        "errors": error_count,
+        "message": f"Refresh completed: {updated_count} updated, {error_count} errors"
+    }
 
-            # Refresh metadata for each album
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                for album in albums:
-                    try:
-                        url = album["url"]
 
-                        # Fetch fresh metadata from Google Photos
-                        response = await fetch_url(client, url)
-                        fresh_metadata = parse_meta_tags(response.text, url)
+async def refresh_album_metadata():
+    """Background task to refresh album metadata from Google Photos once per day"""
+    while True:
+        try:
+            # Wait 24 hours between refreshes (once per day)
+            await asyncio.sleep(60*60*24)
 
-                        # Update Redis with fresh metadata
-                        await redis_store.update_album_metadata(url, fresh_metadata)
-                        updated_count += 1
-
-                        # Small delay to avoid overwhelming Google Photos
-                        await asyncio.sleep(0.5)
-
-                    except Exception as e:
-                        error_count += 1
-                        logger.warning(f"Failed to refresh metadata for {album.get('url', 'unknown')}: {e}")
-                        continue
-
-            logger.info(f"✅ Album metadata refresh completed: {updated_count} updated, {error_count} errors")
+            await perform_album_metadata_refresh()
 
         except Exception as e:
             logger.error(f"❌ Album metadata refresh task failed: {e}")
@@ -463,6 +482,89 @@ async def get_skills():
         raise HTTPException(status_code=500, detail="Failed to get skills")
 
 
+@app.get("/api/achievements")
+async def get_achievements():
+    """Get all unique achievements from Redis"""
+    try:
+        achievements = await redis_store.get_all_achievements()
+        return JSONResponse(achievements)
+    except Exception as e:
+        logger.error(f"Error getting achievements: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get achievements")
+
+
+@app.post("/api/achievements")
+async def add_achievement(request: dict, user: dict = Depends(get_current_user)):
+    """Add a new achievement"""
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Check if user has admin permissions
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_permission(user_id, "admin")
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="Admin permissions required")
+
+        achievement_name = request.get("name", "").strip()
+        if not achievement_name:
+            raise HTTPException(status_code=400, detail="Achievement name is required")
+
+        # Add the achievement to Redis
+        redis_store.redis.sadd("index:achievements:all", achievement_name)
+        
+        logger.info(f"Added achievement: {achievement_name} by user: {user_id}")
+        return JSONResponse({"success": True, "message": f"Achievement '{achievement_name}' added successfully"})
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding achievement: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add achievement")
+
+
+@app.delete("/api/achievements/{achievement_name}")
+async def delete_achievement(achievement_name: str, user: dict = Depends(get_current_user)):
+    """Delete an achievement"""
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Check if user has admin permissions
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_permission(user_id, "admin")
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="Admin permissions required")
+
+        # Remove the achievement from Redis
+        redis_store.redis.srem("index:achievements:all", achievement_name)
+        
+        # Also remove from all climbers who have this achievement
+        all_climbers = await redis_store.get_all_climbers()
+        for climber in all_climbers:
+            if achievement_name in climber.get("achievements", []):
+                updated_achievements = [a for a in climber["achievements"] if a != achievement_name]
+                await redis_store.update_climber(
+                    original_name=climber["name"],
+                    achievements=updated_achievements
+                )
+        
+        logger.info(f"Deleted achievement: {achievement_name} by user: {user_id}")
+        return JSONResponse({"success": True, "message": f"Achievement '{achievement_name}' deleted successfully"})
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting achievement: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete achievement")
+
+
 @app.post("/api/upload-face")
 async def upload_face(file: UploadFile = File(...), person_name: str = Form(...)):
     """Upload a face image for a new person (Redis storage)."""
@@ -493,6 +595,7 @@ class NewPerson(BaseModel):
     name: str
     skills: List[str] = []
     location: List[str] = []
+    achievements: List[str] = []
     temp_image_path: Optional[str] = None
 
 
@@ -506,6 +609,7 @@ class CrewSubmission(BaseModel):
     name: str
     skills: List[str] = []
     location: List[str] = []
+    achievements: List[str] = []
     temp_image_path: Optional[str] = None
 
 
@@ -514,6 +618,7 @@ class CrewEdit(BaseModel):
     name: str
     skills: List[str] = []
     location: List[str] = []
+    achievements: List[str] = []
     temp_image_path: Optional[str] = None
 
 
@@ -526,6 +631,11 @@ class AlbumCrewEdit(BaseModel):
 class AddSkillsRequest(BaseModel):
     crew_name: str
     skills: List[str]
+
+
+class AddAchievementsRequest(BaseModel):
+    crew_name: str
+    achievements: List[str]
 
 
 def validate_google_photos_url(url: str) -> bool:
@@ -578,7 +688,8 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
                     await redis_store.add_climber(
                         name=new_person.name,
                         location=new_person.location,
-                        skills=new_person.skills
+                        skills=new_person.skills,
+                        achievements=new_person.achievements
                     )
 
                     # Handle image if provided
@@ -661,7 +772,8 @@ async def submit_crew_member(submission: CrewSubmission, user: dict = Depends(ge
         await redis_store.add_climber(
             name=submission.name,
             location=submission.location,
-            skills=submission.skills
+            skills=submission.skills,
+            achievements=submission.achievements
         )
 
         # Handle image if provided
@@ -733,7 +845,8 @@ async def edit_crew_member(edit_data: CrewEdit, user: dict = Depends(get_current
             original_name=edit_data.original_name,
             name=edit_data.name,
             location=edit_data.location,
-            skills=edit_data.skills
+            skills=edit_data.skills,
+            achievements=edit_data.achievements
         )
 
         # Update ownership if name changed and permissions system is available
@@ -883,6 +996,64 @@ async def add_skills_to_crew_member(request: AddSkillsRequest, user: dict = Depe
         raise
     except Exception as e:
         logger.error(f"Error adding skills to crew member: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post("/api/crew/add-achievements")
+async def add_achievements_to_crew_member(request: AddAchievementsRequest, user: dict = Depends(get_current_user)):
+    """Add achievements to an existing crew member in Redis (no GitHub)."""
+
+    # Validate input
+    if not request.crew_name or not request.crew_name.strip():
+        raise HTTPException(status_code=400, detail="Crew name is required")
+    if not request.achievements:
+        raise HTTPException(status_code=400, detail="At least one achievement is required")
+
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Get current climber data
+        existing_member = await redis_store.get_climber(request.crew_name)
+        if not existing_member:
+            raise HTTPException(status_code=404, detail="Crew member not found")
+
+        # Check resource access permissions if permissions system is available
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_resource_access(
+                    user_id, ResourceType.CREW_MEMBER, request.crew_name, "edit"
+                )
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail=f"You don't have permission to modify crew member '{request.crew_name}'. You can only edit crew members you created.")
+
+        # Get current achievements and add new ones
+        current_achievements = existing_member.get("achievements", [])
+        updated_achievements = current_achievements + [achievement for achievement in request.achievements if achievement not in current_achievements]
+
+        # Update climber with new achievements
+        await redis_store.update_climber(
+            original_name=request.crew_name,
+            name=request.crew_name,
+            location=existing_member.get("location", []),
+            skills=existing_member.get("skills", []),
+            tags=existing_member.get("tags", []),
+            achievements=updated_achievements
+        )
+
+        return JSONResponse({
+            "success": True,
+            "message": f"Achievements added to {request.crew_name} successfully!",
+            "crew_name": request.crew_name,
+            "added_achievements": [achievement for achievement in request.achievements if achievement not in current_achievements]
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding achievements to crew member: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1274,9 +1445,9 @@ async def update_user_role_admin(target_user_id: str, new_role: str, user: dict 
 
 @app.post("/api/admin/resources/assign")
 async def assign_resource_to_user(
-    resource_type: str,
-    resource_id: str,
-    target_user_id: str,
+    resource_type: str = Form(...),
+    resource_id: str = Form(...),
+    target_user_id: str = Form(...),
     user: dict = Depends(get_current_user)
 ):
     """Assign a resource to a user (admin only)"""
@@ -1314,19 +1485,20 @@ async def assign_resource_to_user(
         if not target_user:
             raise HTTPException(status_code=404, detail="Target user not found")
 
-        # Get current owner
-        current_owner = await permissions_manager.get_resource_owner(resource_type_enum, resource_id)
+        # Check if user is already an owner
+        is_already_owner = await permissions_manager.is_resource_owner(resource_type_enum, resource_id, target_user_id)
 
-        if current_owner:
-            # Transfer ownership
-            await permissions_manager.transfer_resource_ownership(
-                resource_type_enum, resource_id, current_owner, target_user_id
-            )
-            message = f"Resource ownership transferred to {target_user['name']}"
+        if is_already_owner:
+            message = f"{target_user['name']} is already an owner of this resource"
         else:
-            # Set new ownership
-            await permissions_manager.set_resource_owner(resource_type_enum, resource_id, target_user_id)
-            message = f"Resource assigned to {target_user['name']}"
+            # Add new owner (supports multiple owners)
+            await permissions_manager.add_resource_owner(resource_type_enum, resource_id, target_user_id)
+            current_owners = await permissions_manager.get_resource_owners(resource_type_enum, resource_id)
+            owner_count = len(current_owners)
+            if owner_count == 1:
+                message = f"Added {target_user['name']} as the owner of this resource"
+            else:
+                message = f"Added {target_user['name']} as an owner of this resource (now {owner_count} owners total)"
 
         return JSONResponse({
             "success": True,
@@ -1339,8 +1511,91 @@ async def assign_resource_to_user(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid resource type")
     except Exception as e:
-        logger.error(f"Error assigning resource: {e}")
-        raise HTTPException(status_code=500, detail="Failed to assign resource")
+        logger.error(f"Error adding owner: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add owner")
+
+
+@app.post("/api/admin/resources/remove-owner")
+async def remove_resource_owner(
+    resource_type: str = Form(...),
+    resource_id: str = Form(...),
+    owner_id: str = Form(...),
+    user: dict = Depends(get_current_user)
+):
+    """Remove an owner from a resource (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        # Validate resource type
+        resource_type_enum = ResourceType(resource_type)
+
+        # Check if resource exists
+        if resource_type_enum == ResourceType.ALBUM:
+            resource = await redis_store.get_album(resource_id)
+        elif resource_type_enum == ResourceType.CREW_MEMBER:
+            resource = await redis_store.get_climber(resource_id)
+
+        if not resource:
+            raise HTTPException(status_code=404, detail="Resource not found")
+
+        # Check if owner user exists
+        owner_user = await permissions_manager.get_user(owner_id)
+        if not owner_user:
+            raise HTTPException(status_code=404, detail="Owner user not found")
+
+        # Check if user is actually an owner
+        is_owner = await permissions_manager.is_resource_owner(resource_type_enum, resource_id, owner_id)
+        if not is_owner:
+            raise HTTPException(status_code=400, detail=f"{owner_user['name']} is not an owner of this resource")
+
+        # Get current owners count before removal
+        current_owners = await permissions_manager.get_resource_owners(resource_type_enum, resource_id)
+
+        # Prevent removing the last owner
+        if len(current_owners) <= 1:
+            raise HTTPException(
+                status_code=400, detail="Cannot remove the last owner. Resource must have at least one owner.")
+
+        # Remove the owner
+        await permissions_manager.remove_resource_owner(resource_type_enum, resource_id, owner_id)
+
+        # Get updated count
+        remaining_owners = await permissions_manager.get_resource_owners(resource_type_enum, resource_id)
+        remaining_count = len(remaining_owners)
+
+        if remaining_count == 1:
+            message = f"Removed {owner_user['name']} as owner. Resource now has 1 owner remaining."
+        else:
+            message = f"Removed {owner_user['name']} as owner. Resource now has {remaining_count} owners remaining."
+
+        return JSONResponse({
+            "success": True,
+            "message": message,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "removed_owner": owner_id,
+            "remaining_owners": remaining_count
+        })
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid resource type")
+    except Exception as e:
+        logger.error(f"Error removing owner: {e}")
+        raise HTTPException(status_code=500, detail="Failed to remove owner")
 
 
 @app.get("/api/admin/resources/unowned")
@@ -1402,6 +1657,102 @@ async def get_unowned_resources(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Failed to get unowned resources")
 
 
+@app.get("/api/admin/resources/all")
+async def get_all_resources_with_owners(user: dict = Depends(get_current_user)):
+    """Get all resources with their owner information (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        # Get all albums
+        all_albums = redis_store.redis.smembers("index:albums:all")
+        album_details = []
+
+        for album_url in all_albums:
+            album_data = await redis_store.get_album(album_url)
+            if album_data:
+                # Get owner information (multiple owners)
+                owner_ids = await permissions_manager.get_resource_owners(ResourceType.ALBUM, album_url)
+                owners_info = []
+
+                for owner_id in owner_ids:
+                    owner_user = await permissions_manager.get_user(owner_id)
+                    if owner_user:
+                        owners_info.append({
+                            "id": owner_id,
+                            "name": owner_user.get("name", "Unknown"),
+                            "email": owner_user.get("email", ""),
+                            "picture": owner_user.get("picture", "")
+                        })
+
+                album_details.append({
+                    "type": "album",
+                    "id": album_url,
+                    "title": album_data.get("title", "Unknown Album"),
+                    "url": album_url,
+                    "created_at": album_data.get("created_at", ""),
+                    "owners": owners_info
+                })
+
+        # Get all crew members
+        all_crew = redis_store.redis.smembers("index:climbers:all")
+        crew_details = []
+
+        for crew_name in all_crew:
+            crew_data = await redis_store.get_climber(crew_name)
+            if crew_data:
+                # Get owner information (multiple owners)
+                owner_ids = await permissions_manager.get_resource_owners(ResourceType.CREW_MEMBER, crew_name)
+                owners_info = []
+
+                for owner_id in owner_ids:
+                    owner_user = await permissions_manager.get_user(owner_id)
+                    if owner_user:
+                        owners_info.append({
+                            "id": owner_id,
+                            "name": owner_user.get("name", "Unknown"),
+                            "email": owner_user.get("email", ""),
+                            "picture": owner_user.get("picture", "")
+                        })
+
+                crew_details.append({
+                    "type": "crew_member",
+                    "id": crew_name,
+                    "name": crew_name,
+                    "level": crew_data.get("level", 1),
+                    "created_at": crew_data.get("created_at", ""),
+                    "owners": owners_info
+                })
+
+        # Sort by creation date (newest first)
+        all_resources = album_details + crew_details
+        all_resources.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+        return JSONResponse({
+            "resources": all_resources,
+            "total": len(all_resources),
+            "albums": len(album_details),
+            "crew_members": len(crew_details)
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting all resources: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get all resources")
+
+
 @app.post("/api/admin/migrate-resources")
 async def migrate_existing_resources(user: dict = Depends(get_current_user)):
     """Migrate existing resources to system ownership (admin only)"""
@@ -1433,6 +1784,74 @@ async def migrate_existing_resources(user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Error migrating resources: {e}")
         raise HTTPException(status_code=500, detail="Failed to migrate resources")
+
+
+@app.post("/api/admin/migrate-ownership")
+async def migrate_ownership_format(user: dict = Depends(get_current_user)):
+    """Migrate ownership format from strings to sets (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        migrated = await permissions_manager.migrate_ownership_to_sets()
+
+        return JSONResponse({
+            "success": True,
+            "message": "Ownership format migrated successfully",
+            "migrated": migrated
+        })
+
+    except Exception as e:
+        logger.error(f"Error migrating ownership format: {e}")
+        raise HTTPException(status_code=500, detail="Failed to migrate ownership format")
+
+
+@app.post("/api/admin/refresh-metadata")
+async def manual_refresh_metadata(user: dict = Depends(get_current_user)):
+    """Manually trigger album metadata refresh (admin only)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        logger.info(f"Manual metadata refresh triggered by admin user {user.get('email')}")
+        result = await perform_album_metadata_refresh()
+
+        return JSONResponse({
+            "success": True,
+            "message": result["message"],
+            "updated": result["updated"],
+            "errors": result["errors"]
+        })
+
+    except Exception as e:
+        logger.error(f"Error during manual metadata refresh: {e}")
+        raise HTTPException(status_code=500, detail="Failed to refresh metadata")
 
 
 @app.get("/api/admin/stats")

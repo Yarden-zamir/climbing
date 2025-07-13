@@ -158,7 +158,7 @@
                     </div>
                     
                     <div style="display: flex; gap: 1rem;">
-                        <button type="submit" class="submit-btn" id="edit-submit-crew-btn" disabled style="flex: 1;">
+                        <button type="submit" class="submit-btn" id="edit-submit-crew-btn" disabled">
                             Update Crew Member
                         </button>
                         <button type="button" class="submit-btn" id="delete-crew-btn" style="
@@ -197,23 +197,30 @@
             </div>
         </div>
 
-        <!-- Add Skill Modal -->
-        <div class="add-crew-modal-overlay" id="add-skill-modal-overlay">
-            <div class="add-crew-modal" id="add-skill-modal">
+        <!-- Add Items Modal (Skills, Tags, Achievements) -->
+        <div class="add-crew-modal-overlay" id="add-items-modal-overlay">
+            <div class="add-crew-modal" id="add-items-modal">
                 <div class="add-crew-modal-header">
-                    <h3 class="add-crew-modal-title" id="add-skill-modal-title">Add Skill</h3>
-                    <button class="add-crew-modal-close" id="add-skill-modal-close">&times;</button>
+                    <h3 class="add-crew-modal-title" id="add-items-modal-title">Add Items</h3>
+                    <button class="add-crew-modal-close" id="add-items-modal-close">&times;</button>
                 </div>
                 <div class="add-crew-form">
                     <div class="form-group">
-                        <label class="form-label">Available Skills</label>
-                        <div class="skills-badges-container" id="add-skill-badges-container">
-                            <!-- Available skills badges will appear here -->
+                        <label class="form-label">Item Type</label>
+                        <select id="item-type-select" class="form-input" style="margin-bottom: 1rem;">
+                            <option value="skills">Skills</option>
+                            <option value="achievements">Achievements</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" id="available-items-label">Available Items</label>
+                        <div class="skills-badges-container" id="add-items-badges-container">
+                            <!-- Available items badges will appear here -->
                         </div>
                     </div>
                     <div style="display: flex; gap: 1rem; justify-content: flex-end;">
-                        <button type="button" class="submit-btn" id="add-skill-cancel-btn" style="background: #666;">Cancel</button>
-                        <button type="button" class="submit-btn" id="add-skill-submit-btn">Add Skills</button>
+                        <button type="button" class="submit-btn" id="add-items-cancel-btn" style="background: #666;">Cancel</button>
+                        <button type="button" class="submit-btn" id="add-items-submit-btn">Add Items</button>
                     </div>
                 </div>
             </div>
@@ -226,6 +233,7 @@
         let crewData = [];
         let skillOrder = [];
         let tagOrder = [];
+        let achievementOrder = [];
         let sortKey = "level";
         let sortDir = -1;
         
@@ -362,14 +370,19 @@
         function computeSkillOrder(data) {
             const allSkills = new Set();
             const allTags = new Set();
+            const allAchievements = new Set();
             data.forEach(c => {
                 (c.skills || []).forEach(s => allSkills.add(s));
                 (c.tags || []).forEach(t => allTags.add(t));
+                (c.achievements || []).forEach(a => allAchievements.add(a));
             });
             skillOrder = Array.from(allSkills).sort((a, b) =>
                 a.toLowerCase().localeCompare(b.toLowerCase())
             );
             tagOrder = Array.from(allTags).sort((a, b) =>
+                a.toLowerCase().localeCompare(b.toLowerCase())
+            );
+            achievementOrder = Array.from(allAchievements).sort((a, b) =>
                 a.toLowerCase().localeCompare(b.toLowerCase())
             );
         }
@@ -477,6 +490,11 @@
                 ${tagOrder.map(tag =>
                     c.tags && c.tags.includes(tag)
                         ? `<span class="tag-badge">${tag}</span>`
+                        : ""
+                ).join("")}
+                ${achievementOrder.map(achievement =>
+                    c.achievements && c.achievements.includes(achievement)
+                        ? `<span class="achievement-badge">${achievement}</span>`
                         : ""
                 ).join("")}
                 <span class="skill-add-badge" data-crew-name="${encodeURIComponent(c.name)}" title="Add skill" style="display: none;">+</span>
@@ -820,7 +838,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 document.addEventListener('click', (e) => {
                     if (e.target.classList.contains('skill-add-badge')) {
                         const crewName = decodeURIComponent(e.target.dataset.crewName);
-                        openAddSkillModal(crewName);
+                        openAddItemsModal(crewName);
                     }
                 });
             });
@@ -828,8 +846,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         // Initialize add crew functionality
         initAddCrewModal();
         
-        // Initialize add skill functionality
-        initAddSkillModal();
+        // Initialize add items functionality
+        initAddItemsModal();
 
         // Add Crew Modal Functionality
         function initAddCrewModal() {
@@ -1189,6 +1207,10 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                             <div class="skill-badge-toggleable" data-skill="${skill}">${skill}</div>
                         `).join('');
                     }
+                    // If modal is open and skills were manually rendered, re-render with full skills
+                    if (editModalOverlay.classList.contains('active') && window.renderEditSkillsBadges) {
+                        window.renderEditSkillsBadges();
+                    }
                 })
                 .catch(e => console.warn('Could not load skills:', e));
             
@@ -1263,6 +1285,19 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 
                 // Set skills
                 editSelectedSkills = [...(member.skills || [])];
+                
+                // Update skills badges UI to show selected skills
+                if (editAllSkills && editAllSkills.length > 0 && window.renderEditSkillsBadges) {
+                    window.renderEditSkillsBadges();
+                } else {
+                    // If skills aren't loaded yet, render them manually
+                    const editSkillsBadgesContainer = document.getElementById('edit-skills-badges-container');
+                    if (editSkillsBadgesContainer) {
+                        editSkillsBadgesContainer.innerHTML = (member.skills || []).map(skill => `
+                            <div class="skill-badge-toggleable selected" data-skill="${skill}">${skill}</div>
+                        `).join('');
+                    }
+                }
                 
                 // Set current image (show existing image)
                 const editUploadContent = document.getElementById('edit-upload-content');
@@ -1599,60 +1634,109 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             });
         });
 
-        // Add Skill Modal Functionality
-        function initAddSkillModal() {
-            const modalOverlay = document.getElementById('add-skill-modal-overlay');
-            const modal = document.getElementById('add-skill-modal');
-            const closeBtn = document.getElementById('add-skill-modal-close');
-            const cancelBtn = document.getElementById('add-skill-cancel-btn');
-            const submitBtn = document.getElementById('add-skill-submit-btn');
-            const badgesContainer = document.getElementById('add-skill-badges-container');
-            const modalTitle = document.getElementById('add-skill-modal-title');
+        // Add Items Modal Functionality (Skills, Tags, Achievements)
+        function initAddItemsModal() {
+            const modalOverlay = document.getElementById('add-items-modal-overlay');
+            const modal = document.getElementById('add-items-modal');
+            const closeBtn = document.getElementById('add-items-modal-close');
+            const cancelBtn = document.getElementById('add-items-cancel-btn');
+            const submitBtn = document.getElementById('add-items-submit-btn');
+            const badgesContainer = document.getElementById('add-items-badges-container');
+            const modalTitle = document.getElementById('add-items-modal-title');
+            const itemTypeSelect = document.getElementById('item-type-select');
+            const availableItemsLabel = document.getElementById('available-items-label');
             
             let currentCrewMember = null;
-            let selectedSkillsToAdd = [];
-            let availableSkillsForMember = [];
+            let selectedItemsToAdd = [];
+            let availableItemsForMember = [];
+            let currentItemType = 'skills';
+            let allSkillsData = [];
+            let allAchievementsData = [];
+            
+            // Fetch all available data
+            Promise.all([
+                fetch('/api/skills').then(r => r.json()),
+                fetch('/api/achievements').then(r => r.json())
+            ]).then(([skills, achievements]) => {
+                allSkillsData = skills;
+                allAchievementsData = achievements;
+            }).catch(e => console.warn('Could not load data:', e));
             
             // Close modal function
             const closeModal = () => {
                 modal.classList.remove('active');
                 setTimeout(() => {
                     modalOverlay.classList.remove('active');
-                    resetSkillModal();
+                    resetItemsModal();
                 }, 300);
             };
             
             // Reset modal state
-            function resetSkillModal() {
+            function resetItemsModal() {
                 currentCrewMember = null;
-                selectedSkillsToAdd = [];
-                availableSkillsForMember = [];
+                selectedItemsToAdd = [];
+                availableItemsForMember = [];
+                currentItemType = 'skills';
+                itemTypeSelect.value = 'skills';
                 badgesContainer.innerHTML = '';
             }
             
-            // Render available skills badges
-            function renderAvailableSkills() {
-                badgesContainer.innerHTML = availableSkillsForMember.map(skill => `
-                    <div class="skill-badge-toggleable ${selectedSkillsToAdd.includes(skill) ? 'selected' : ''}" 
-                         data-skill="${skill}">${skill}</div>
+            // Render available items badges
+            function renderAvailableItems() {
+                const badgeClass = currentItemType === 'achievements' ? 'achievement-badge-toggleable' : 'skill-badge-toggleable';
+                badgesContainer.innerHTML = availableItemsForMember.map(item => `
+                    <div class="${badgeClass} ${selectedItemsToAdd.includes(item) ? 'selected' : ''}" 
+                         data-item="${item}">${currentItemType === 'achievements' ? '🏆 ' : ''}${item}</div>
                 `).join('');
+            }
+            
+            // Handle item type change
+            itemTypeSelect.addEventListener('change', (e) => {
+                currentItemType = e.target.value;
+                updateAvailableItems();
+            });
+            
+            // Update available items based on crew member and item type
+            function updateAvailableItems() {
+                if (!currentCrewMember) return;
+                
+                const member = crewData.find(c => c.name === currentCrewMember);
+                if (!member) return;
+                
+                let allItems = [];
+                let currentItems = [];
+                
+                if (currentItemType === 'skills') {
+                    allItems = allSkillsData;
+                    currentItems = member.skills || [];
+                    availableItemsLabel.textContent = 'Available Skills';
+                } else if (currentItemType === 'achievements') {
+                    allItems = allAchievementsData;
+                    currentItems = member.achievements || [];
+                    availableItemsLabel.textContent = 'Available Achievements';
+                }
+                
+                // Filter out items the member already has
+                availableItemsForMember = allItems.filter(item => !currentItems.includes(item));
+                selectedItemsToAdd = [];
+                renderAvailableItems();
             }
             
             // Handle badge clicks
             badgesContainer.addEventListener('click', (e) => {
-                if (e.target.classList.contains('skill-badge-toggleable')) {
-                    const skill = e.target.dataset.skill;
+                if (e.target.classList.contains('skill-badge-toggleable') || e.target.classList.contains('achievement-badge-toggleable')) {
+                    const item = e.target.dataset.item;
                     
-                    if (selectedSkillsToAdd.includes(skill)) {
-                        // Remove skill from selection
-                        const index = selectedSkillsToAdd.indexOf(skill);
-                        selectedSkillsToAdd.splice(index, 1);
+                    if (selectedItemsToAdd.includes(item)) {
+                        // Remove item from selection
+                        const index = selectedItemsToAdd.indexOf(item);
+                        selectedItemsToAdd.splice(index, 1);
                     } else {
-                        // Add skill to selection
-                        selectedSkillsToAdd.push(skill);
+                        // Add item to selection
+                        selectedItemsToAdd.push(item);
                     }
                     
-                    renderAvailableSkills();
+                    renderAvailableItems();
                 }
             });
             
@@ -1663,48 +1747,60 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 if (e.target === modalOverlay) closeModal();
             });
             
-            // Submit skills
+            // Submit items
             submitBtn.addEventListener('click', async () => {
-                if (!currentCrewMember || selectedSkillsToAdd.length === 0) return;
+                if (!currentCrewMember || selectedItemsToAdd.length === 0) return;
                 
                 try {
-                    const response = await fetch('/api/crew/add-skills', {
+                    let endpoint, data;
+                    
+                    if (currentItemType === 'skills') {
+                        endpoint = '/api/crew/add-skills';
+                        data = {
+                            crew_name: currentCrewMember,
+                            skills: selectedItemsToAdd
+                        };
+                    } else if (currentItemType === 'achievements') {
+                        endpoint = '/api/crew/add-achievements';
+                        data = {
+                            crew_name: currentCrewMember,
+                            achievements: selectedItemsToAdd
+                        };
+                    }
+                    
+                    const response = await fetch(endpoint, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({
-                            crew_name: currentCrewMember,
-                            skills: selectedSkillsToAdd
-                        })
+                        body: JSON.stringify(data)
                     });
                     
                     if (response.ok) {
-                        // Refresh the page to show updated skills
+                        // Refresh the page to show updated items
                         window.location.reload();
                     } else {
                         const errorData = await response.json();
-                        alert('Failed to add skills: ' + (errorData.detail || 'Unknown error'));
+                        alert(`Failed to add ${currentItemType}: ` + (errorData.detail || 'Unknown error'));
                     }
                 } catch (error) {
                     alert('Network error occurred');
                 }
             });
             
-            // Expose openAddSkillModal function globally
-            window.openAddSkillModal = function(crewName) {
+            // Expose openAddItemsModal function globally
+            window.openAddItemsModal = function(crewName) {
                 const member = crewData.find(c => c.name === crewName);
                 if (!member) return;
                 
                 currentCrewMember = crewName;
-                modalTitle.textContent = `Add Skills to ${crewName}`;
+                modalTitle.textContent = `Add Items to ${crewName}`;
                 
-                // Get skills that the member doesn't already have
-                const currentSkills = member.skills || [];
-                availableSkillsForMember = skillOrder.filter(skill => !currentSkills.includes(skill));
+                // Set initial item type to skills
+                currentItemType = 'skills';
+                itemTypeSelect.value = 'skills';
                 
-                selectedSkillsToAdd = [];
-                renderAvailableSkills();
+                updateAvailableItems();
                 
                 modalOverlay.classList.add('active');
                 setTimeout(() => modal.classList.add('active'), 50);

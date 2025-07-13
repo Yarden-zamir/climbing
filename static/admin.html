@@ -71,6 +71,59 @@
             margin-bottom: 2rem;
         }
 
+        .admin-actions {
+            margin-top: 2rem;
+        }
+
+        .action-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+        }
+
+        .action-card h3 {
+            margin: 0 0 1rem 0;
+            color: #2c3e50;
+            font-size: 1.2rem;
+        }
+
+        .action-card p {
+            margin: 0 0 1.5rem 0;
+            color: #7f8c8d;
+            line-height: 1.5;
+        }
+
+        .action-result {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .action-result.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .action-result.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        .action-result.loading {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+
         .stat-card {
             background: white;
             padding: 1.5rem;
@@ -304,6 +357,34 @@
             margin-bottom: 1rem;
         }
 
+        .owner-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 12px;
+            padding: 0.125rem 0.375rem;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+            cursor: default;
+        }
+
+        .owner-pill:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .owners-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            max-width: 200px;
+        }
+
         @media (max-width: 768px) {
             .admin-container {
                 padding: 1rem;
@@ -329,13 +410,16 @@
             th, td {
                 padding: 0.5rem;
             }
+
+            .owners-container {
+                max-width: 150px;
+            }
         }
     </style>
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-container">
-            <a href="/" class="nav-title">🧗‍♀️ Climbing App</a>
             <div class="nav-links">
                 <a href="/">Home</a>
                 <a href="/albums">Albums</a>
@@ -356,6 +440,7 @@
             <button class="admin-nav-btn active" data-section="dashboard">Dashboard</button>
             <button class="admin-nav-btn" data-section="users">Users</button>
             <button class="admin-nav-btn" data-section="resources">Resources</button>
+            <button class="admin-nav-btn" data-section="achievements">Achievements</button>
             <button class="admin-nav-btn" data-section="migration">Migration</button>
         </div>
 
@@ -383,6 +468,18 @@
                     <div class="stat-label">Unowned Resources</div>
                 </div>
             </div>
+            
+            <!-- Admin Actions Section -->
+            <div class="admin-actions">
+                <div class="action-card">
+                    <h3>📸 Album Metadata</h3>
+                    <p>Refresh album metadata from Google Photos. Normally runs once daily.</p>
+                    <button id="refresh-metadata-btn" class="action-btn btn-primary">
+                        🔄 Refresh Album Metadata
+                    </button>
+                    <div id="refresh-metadata-result" class="action-result"></div>
+                </div>
+            </div>
         </div>
 
         <!-- Users Section -->
@@ -395,8 +492,8 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Email</th>
+                                <th>User</th>
+                                <th style="display: none;">Email</th>
                                 <th>Role</th>
                                 <th>Albums</th>
                                 <th>Crew</th>
@@ -420,7 +517,7 @@
         <div id="resources" class="admin-section">
             <div class="resources-table">
                 <div class="table-header">
-                    <h3>Unowned Resources</h3>
+                    <h3>All Resources</h3>
                 </div>
                 <div class="table-content">
                     <table>
@@ -429,18 +526,46 @@
                                 <th>Type</th>
                                 <th>Name/Title</th>
                                 <th>ID</th>
+                                <th>Owners</th>
                                 <th>Created</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="resources-tbody">
                             <tr>
-                                <td colspan="5" class="empty-state">
+                                <td colspan="6" class="empty-state">
                                     <div class="loading"></div>
                                 </td>
                             </tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Achievements Section -->
+        <div id="achievements" class="admin-section">
+            <div class="action-card">
+                <h3>🏆 Achievements Management</h3>
+                <p>Manage available achievements that can be assigned to crew members.</p>
+                
+                <div style="margin-bottom: 2rem;">
+                    <h4>Add New Achievement</h4>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <input type="text" id="new-achievement-input" placeholder="Enter achievement name..." style="flex: 1; padding: 0.5rem; border: 1px solid #ddd; border-radius: 6px;">
+                        <button id="add-achievement-btn" class="action-btn btn-success">Add Achievement</button>
+                    </div>
+                    <div id="add-achievement-result" class="action-result"></div>
+                </div>
+
+                <div>
+                    <h4>Current Achievements</h4>
+                    <div id="achievements-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                        <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
+                            <div class="loading"></div>
+                            <p>Loading achievements...</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -486,23 +611,23 @@
         </div>
     </div>
 
-    <!-- Assign Resource Modal -->
-    <div id="assignModal" class="modal">
+    <!-- Add Owner Modal -->
+    <div id="addOwnerModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>Assign Resource</h3>
+                <h3>Add Owner to Resource</h3>
                 <span class="close">&times;</span>
             </div>
-            <form id="assignForm">
+            <form id="addOwnerForm">
                 <div class="form-group">
-                    <label for="targetUser">Assign to User:</label>
+                    <label for="targetUser">Add Owner:</label>
                     <select id="targetUser" name="targetUser">
                         <!-- Users will be populated dynamically -->
                     </select>
                 </div>
                 <div class="form-actions">
-                    <button type="button" class="action-btn" onclick="closeModal('assignModal')">Cancel</button>
-                    <button type="submit" class="action-btn btn-success">Assign Resource</button>
+                    <button type="button" class="action-btn" onclick="closeModal('addOwnerModal')">Cancel</button>
+                    <button type="submit" class="action-btn btn-success">Add Owner</button>
                 </div>
             </form>
         </div>

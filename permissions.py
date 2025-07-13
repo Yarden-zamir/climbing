@@ -186,19 +186,44 @@ class PermissionsManager:
     # === RESOURCE OWNERSHIP ===
 
     async def set_resource_owner(self, resource_type: ResourceType, resource_id: str, user_id: str) -> None:
-        """Set the owner of a resource"""
+        """Set the owner of a resource (deprecated - use add_resource_owner for multiple owners)"""
+        await self.add_resource_owner(resource_type, resource_id, user_id)
+
+    async def add_resource_owner(self, resource_type: ResourceType, resource_id: str, user_id: str) -> None:
+        """Add an owner to a resource (supports multiple owners)"""
         ownership_key = f"ownership:{resource_type.value}:{resource_id}"
-        self.redis_store.redis.set(ownership_key, user_id)
+        self.redis_store.redis.sadd(ownership_key, user_id)
 
         # Add to user's owned resources index
         self.redis_store.redis.sadd(f"index:user_resources:{user_id}:{resource_type.value}", resource_id)
 
-        logger.info(f"Set {resource_type.value} {resource_id} owner to user {user_id}")
+        logger.info(f"Added {resource_type.value} {resource_id} owner: user {user_id}")
+
+    async def remove_resource_owner(self, resource_type: ResourceType, resource_id: str, user_id: str) -> None:
+        """Remove an owner from a resource"""
+        ownership_key = f"ownership:{resource_type.value}:{resource_id}"
+        self.redis_store.redis.srem(ownership_key, user_id)
+
+        # Remove from user's owned resources index
+        self.redis_store.redis.srem(f"index:user_resources:{user_id}:{resource_type.value}", resource_id)
+
+        logger.info(f"Removed {resource_type.value} {resource_id} owner: user {user_id}")
 
     async def get_resource_owner(self, resource_type: ResourceType, resource_id: str) -> Optional[str]:
-        """Get the owner of a resource"""
+        """Get the first owner of a resource (for backward compatibility)"""
+        owners = await self.get_resource_owners(resource_type, resource_id)
+        return owners[0] if owners else None
+
+    async def get_resource_owners(self, resource_type: ResourceType, resource_id: str) -> List[str]:
+        """Get all owners of a resource"""
         ownership_key = f"ownership:{resource_type.value}:{resource_id}"
-        return self.redis_store.redis.get(ownership_key)
+        owner_ids = self.redis_store.redis.smembers(ownership_key)
+        return list(owner_ids)
+
+    async def is_resource_owner(self, resource_type: ResourceType, resource_id: str, user_id: str) -> bool:
+        """Check if a user is an owner of a resource"""
+        ownership_key = f"ownership:{resource_type.value}:{resource_id}"
+        return self.redis_store.redis.sismember(ownership_key, user_id)
 
     async def get_user_resources(self, user_id: str, resource_type: ResourceType) -> Set[str]:
         """Get all resources owned by a user"""
@@ -206,16 +231,16 @@ class PermissionsManager:
 
     async def transfer_resource_ownership(self, resource_type: ResourceType, resource_id: str,
                                           from_user_id: str, to_user_id: str) -> bool:
-        """Transfer resource ownership between users"""
-        current_owner = await self.get_resource_owner(resource_type, resource_id)
-        if current_owner != from_user_id:
+        """Transfer resource ownership between users (replaces single owner)"""
+        current_owners = await self.get_resource_owners(resource_type, resource_id)
+        if from_user_id not in current_owners:
             return False
 
         # Remove from old owner's index
-        self.redis_store.redis.srem(f"index:user_resources:{from_user_id}:{resource_type.value}", resource_id)
+        await self.remove_resource_owner(resource_type, resource_id, from_user_id)
 
-        # Set new owner
-        await self.set_resource_owner(resource_type, resource_id, to_user_id)
+        # Add new owner
+        await self.add_resource_owner(resource_type, resource_id, to_user_id)
 
         logger.info(f"Transferred {resource_type.value} {resource_id} from user {from_user_id} to {to_user_id}")
         return True
@@ -248,15 +273,13 @@ class PermissionsManager:
             if permissions.can_edit_all_resources:
                 return True
             if permissions.can_edit_own_resources and resource_type is not None and resource_id is not None:
-                owner = await self.get_resource_owner(resource_type, resource_id)
-                return owner == user_id
+                return await self.is_resource_owner(resource_type, resource_id, user_id)
             return False
         elif action == "delete_resource":
             if permissions.can_delete_all_resources:
                 return True
             if permissions.can_delete_own_resources and resource_type is not None and resource_id is not None:
-                owner = await self.get_resource_owner(resource_type, resource_id)
-                return owner == user_id
+                return await self.is_resource_owner(resource_type, resource_id, user_id)
             return False
         elif action == "manage_users":
             return permissions.can_manage_users
@@ -337,8 +360,7 @@ class PermissionsManager:
             return
 
         # Check ownership
-        owner = await self.get_resource_owner(resource_type, resource_id)
-        if owner != user_id:
+        if not await self.is_resource_owner(resource_type, resource_id, user_id):
             resource_name = resource_type.value.replace('_', ' ')
             if action == "edit":
                 detail = f"You don't have permission to edit this {resource_name}. You can only edit {resource_name}s you created."
@@ -367,21 +389,21 @@ class PermissionsManager:
         return users
 
     async def get_unowned_resources(self, resource_type: ResourceType) -> List[str]:
-        """Get resources that don't have an owner (for migration purposes)"""
+        """Get resources that don't have any owners (for migration purposes)"""
         if resource_type == ResourceType.ALBUM:
             all_albums = self.redis_store.redis.smembers("index:albums:all")
             unowned = []
             for album_url in all_albums:
-                owner = await self.get_resource_owner(resource_type, album_url)
-                if not owner:
+                owners = await self.get_resource_owners(resource_type, album_url)
+                if not owners:
                     unowned.append(album_url)
             return unowned
         elif resource_type == ResourceType.CREW_MEMBER:
             all_crew = self.redis_store.redis.smembers("index:climbers:all")
             unowned = []
             for crew_name in all_crew:
-                owner = await self.get_resource_owner(resource_type, crew_name)
-                if not owner:
+                owners = await self.get_resource_owners(resource_type, crew_name)
+                if not owners:
                     unowned.append(crew_name)
             return unowned
 
@@ -397,8 +419,58 @@ class PermissionsManager:
 
     # === MIGRATION HELPERS ===
 
+    async def migrate_ownership_to_sets(self) -> Dict[str, int]:
+        """Migrate existing string-based ownership to set-based ownership"""
+        migrated = {"albums": 0, "crew_members": 0}
+        
+        try:
+            # Get all ownership keys
+            ownership_keys = []
+            for key_pattern in ["ownership:album:*", "ownership:crew_member:*"]:
+                keys = self.redis_store.redis.keys(key_pattern)
+                ownership_keys.extend(keys)
+            
+            logger.info(f"Found {len(ownership_keys)} ownership keys to migrate")
+            
+            for key in ownership_keys:
+                try:
+                    # Check if it's already a set
+                    key_type = self.redis_store.redis.type(key)
+                    
+                    if key_type == "string":
+                        # Get the old string value (single owner)
+                        old_owner = self.redis_store.redis.get(key)
+                        
+                        if old_owner:
+                            # Delete the old string key
+                            self.redis_store.redis.delete(key)
+                            
+                            # Create new set with the single owner
+                            self.redis_store.redis.sadd(key, old_owner)
+                            
+                            # Count the migration
+                            if "album" in key:
+                                migrated["albums"] += 1
+                            elif "crew_member" in key:
+                                migrated["crew_members"] += 1
+                                
+                            logger.info(f"Migrated ownership key {key}: {old_owner}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to migrate ownership key {key}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Error during ownership migration: {e}")
+            
+        logger.info(f"Ownership migration completed: {migrated}")
+        return migrated
+
     async def migrate_existing_resources_to_system_ownership(self) -> Dict[str, int]:
         """Migrate existing resources to be owned by system/admin"""
+        # First migrate ownership format
+        await self.migrate_ownership_to_sets()
+        
         # Find first admin user or create system user
         admin_users = await self.get_users_by_role(UserRole.ADMIN)
         if admin_users:
@@ -428,13 +500,13 @@ class PermissionsManager:
         # Migrate albums
         unowned_albums = await self.get_unowned_resources(ResourceType.ALBUM)
         for album_url in unowned_albums:
-            await self.set_resource_owner(ResourceType.ALBUM, album_url, system_user_id)
+            await self.add_resource_owner(ResourceType.ALBUM, album_url, system_user_id)
             migrated["albums"] += 1
 
         # Migrate crew members
         unowned_crew = await self.get_unowned_resources(ResourceType.CREW_MEMBER)
         for crew_name in unowned_crew:
-            await self.set_resource_owner(ResourceType.CREW_MEMBER, crew_name, system_user_id)
+            await self.add_resource_owner(ResourceType.CREW_MEMBER, crew_name, system_user_id)
             migrated["crew_members"] += 1
 
         logger.info(
