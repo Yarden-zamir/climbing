@@ -441,6 +441,7 @@
             <button class="admin-nav-btn" data-section="users">Users</button>
             <button class="admin-nav-btn" data-section="resources">Resources</button>
             <button class="admin-nav-btn" data-section="achievements">Achievements</button>
+            <button class="admin-nav-btn" data-section="skills">Skills</button>
             <button class="admin-nav-btn" data-section="migration">Migration</button>
         </div>
 
@@ -564,6 +565,33 @@
                         <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
                             <div class="loading"></div>
                             <p>Loading achievements...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Skills Section -->
+        <div id="skills" class="admin-section">
+            <div class="action-card">
+                <h3>🛠️ Skills Management</h3>
+                <p>Manage available skills that can be assigned to crew members.</p>
+                
+                <div style="margin-bottom: 2rem;">
+                    <h4>Add New Skill</h4>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <input type="text" id="new-skill-input" placeholder="Enter skill name..." style="flex: 1; padding: 0.5rem; border: 1px solid #ddd; border-radius: 6px;">
+                        <button id="add-skill-btn" class="action-btn btn-success">Add Skill</button>
+                    </div>
+                    <div id="add-skill-result" class="action-result"></div>
+                </div>
+
+                <div>
+                    <h4>Current Skills</h4>
+                    <div id="skills-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                        <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
+                            <div class="loading"></div>
+                            <p>Loading skills...</p>
                         </div>
                     </div>
                 </div>

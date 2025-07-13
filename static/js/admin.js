@@ -111,6 +111,11 @@ class AdminPanel {
         document.getElementById('add-achievement-btn').addEventListener('click', () => {
             this.addAchievement();
         });
+
+        // Skills management
+        document.getElementById('add-skill-btn').addEventListener('click', () => {
+            this.addSkill();
+        });
     }
 
     switchSection(section) {
@@ -135,6 +140,8 @@ class AdminPanel {
             this.loadAllResources();
         } else if (section === 'achievements') {
             this.loadAchievements();
+        } else if (section === 'skills') {
+            this.loadSkills();
         }
     }
 
@@ -721,6 +728,115 @@ class AdminPanel {
         } catch (error) {
             console.error('Error deleting achievement:', error);
             this.showError('Failed to delete achievement.');
+        }
+    }
+
+    async loadSkills() {
+        try {
+            const response = await fetch('/api/skills');
+            if (!response.ok) throw new Error('Failed to load skills');
+            
+            const skills = await response.json();
+            this.renderSkills(skills);
+        } catch (error) {
+            console.error('Error loading skills:', error);
+            this.showError('Failed to load skills.');
+        }
+    }
+
+    renderSkills(skills) {
+        const container = document.getElementById('skills-list');
+        
+        if (skills.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
+                    <div class="icon">🛠️</div>
+                    <p>No skills found</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = skills.map(skill => `
+            <div class="skill-item" style="
+                background: white;
+                padding: 1rem;
+                border-radius: 8px;
+                border: 1px solid #ddd;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            ">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1.2rem;">🛠️</span>
+                    <span style="font-weight: 500;">${skill}</span>
+                </div>
+                <button class="action-btn btn-danger" onclick="adminPanel.deleteSkill('${skill}')">
+                    Delete
+                </button>
+            </div>
+        `).join('');
+    }
+
+    async addSkill() {
+        const input = document.getElementById('new-skill-input');
+        const resultDiv = document.getElementById('add-skill-result');
+        const skillName = input.value.trim();
+
+        if (!skillName) {
+            this.showError('Please enter a skill name.');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/skills', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: skillName })
+            });
+
+            if (!response.ok) throw new Error('Failed to add skill');
+
+            resultDiv.innerHTML = `
+                <div class="alert alert-success">
+                    <strong>Success!</strong> Skill "${skillName}" has been added.
+                </div>
+            `;
+
+            input.value = '';
+            this.loadSkills(); // Reload the skills list
+            
+        } catch (error) {
+            console.error('Error adding skill:', error);
+            resultDiv.innerHTML = `
+                <div class="alert alert-error">
+                    <strong>Error!</strong> Failed to add skill.
+                </div>
+            `;
+        }
+    }
+
+    async deleteSkill(skillName) {
+        if (!confirm(`Are you sure you want to delete the skill "${skillName}"?\n\nThis will remove the skill from all crew members who have it.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/skills/${encodeURIComponent(skillName)}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) throw new Error('Failed to delete skill');
+
+            this.showSuccess(`Skill "${skillName}" has been deleted.`);
+            this.loadSkills(); // Reload the skills list
+            
+        } catch (error) {
+            console.error('Error deleting skill:', error);
+            this.showError('Failed to delete skill.');
         }
     }
 

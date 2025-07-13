@@ -1801,7 +1801,8 @@
 						let processedPerson = {
 							name: person.name,
 							skills: person.skills || [],
-							location: []
+							location: [],
+							achievements: []
 						};
 						
 						// Upload image if provided
@@ -2056,10 +2057,14 @@
 					<div class="album-info-url">${currentEditAlbum.url}</div>
 				`;
 				
-				// Get current crew for this album
-				const currentCrew = albumMeta.crew || [];
-				selectedCrew.clear();
-				currentCrew.forEach(member => selectedCrew.add(member));
+							// Get current crew for this album
+			const currentCrew = albumMeta.crew || [];
+			selectedCrew.clear();
+			currentCrew.forEach(member => {
+				// Ensure we only add the name string, not the full object
+				const memberName = typeof member === 'string' ? member : member.name;
+				selectedCrew.add(memberName);
+			});
 				
 				// Populate crew selector
 				populateEditCrewSelector();
@@ -2084,10 +2089,14 @@
 						checkbox.checked = !checkbox.checked;
 						
 						if (checkbox.checked) {
-							selectedCrew.add(person.name);
+							// Ensure we only add the name string, never the full object
+							const memberName = typeof person === 'string' ? person : person.name;
+							selectedCrew.add(memberName);
 							option.classList.add('selected');
 						} else {
-							selectedCrew.delete(person.name);
+							// Ensure we delete the name string, never the full object
+							const memberName = typeof person === 'string' ? person : person.name;
+							selectedCrew.delete(memberName);
 							option.classList.remove('selected');
 						}
 					});
@@ -2116,12 +2125,26 @@
 				
 				const newCrew = Array.from(selectedCrew);
 				
+				// Validate crew selection
+				if (newCrew.length === 0) {
+					showEditSubmissionError('Please select at least one crew member');
+					return;
+				}
+				
+				// Validate crew limit
+				if (newCrew.length > 10) {
+					showEditSubmissionError('Maximum 10 crew members allowed');
+					return;
+				}
+				
 				editSubmitBtn.disabled = true;
 				editSubmitBtn.textContent = 'Updating...';
 				
 				try {
 					// Upload images for new people first
 					const processedNewPeople = [];
+					let imageUploadErrors = [];
+					
 					for (const person of editNewPeople) {
 						let tempImagePath = null;
 						
@@ -2140,9 +2163,13 @@
 								if (uploadResponse.ok) {
 									const uploadData = await uploadResponse.json();
 									tempImagePath = uploadData.temp_path;
+								} else {
+									const errorData = await uploadResponse.json().catch(() => ({ detail: 'Unknown error' }));
+									imageUploadErrors.push(`Failed to upload image for ${person.name}: ${errorData.detail}`);
 								}
 							} catch (uploadError) {
-								console.warn('Failed to upload image for', person.name, ':', uploadError);
+								console.error('Image upload error:', uploadError);
+								imageUploadErrors.push(`Failed to upload image for ${person.name}: Network error`);
 							}
 						}
 						
@@ -2150,31 +2177,100 @@
 							name: person.name,
 							skills: person.skills || [],
 							location: person.location || [],
+							achievements: person.achievements || [],
 							temp_image_path: tempImagePath
 						});
 					}
+					
+					// Show warnings for image upload failures but continue
+					if (imageUploadErrors.length > 0) {
+						console.warn('Image upload errors:', imageUploadErrors);
+					}
+					
+														// Ensure crew is always an array of strings
+					const cleanCrew = newCrew.map(member => {
+						if (typeof member === 'string') {
+							return member;
+						} else if (member && typeof member === 'object' && member.name) {
+							return member.name;
+						} else {
+							console.warn('Invalid crew member:', member);
+							return String(member);
+						}
+					});
+					
+					const requestPayload = {
+						album_url: currentEditAlbum.url,
+						crew: cleanCrew,
+						new_people: processedNewPeople
+					};
+				
+				console.log('Selected crew before processing:', Array.from(selectedCrew));
+				console.log('New crew after Array.from:', newCrew);
+				console.log('Clean crew after processing:', cleanCrew);
+				console.log('Submitting edit request:', requestPayload);
 					
 					const response = await fetch('/api/albums/edit-crew', {
 						method: 'POST',
 						headers: {
 							'Content-Type': 'application/json',
 						},
-						body: JSON.stringify({
-							album_url: currentEditAlbum.url,
-							crew: newCrew,
-							new_people: processedNewPeople
-						})
+						body: JSON.stringify(requestPayload)
 					});
 					
 					const data = await response.json();
 					
 					if (response.ok) {
-						showEditSubmissionSuccess(data);
+						let successMessage = data.message;
+						
+						// Add info about created climbers
+						if (data.created_climbers && data.created_climbers.length > 0) {
+							successMessage += `\n\nNew climbers created: ${data.created_climbers.join(', ')}`;
+						}
+						
+						// Add warnings about image uploads if any failed
+						if (imageUploadErrors.length > 0) {
+							successMessage += `\n\nNote: Some images failed to upload:\n${imageUploadErrors.join('\n')}`;
+						}
+						
+						showEditSubmissionSuccess({ ...data, message: successMessage });
 					} else {
-						showEditSubmissionError(data.detail || 'Update failed');
+						// Handle different error types
+						let errorMessage = data.detail || 'Update failed';
+						
+						// If it's a validation error (422), pass the whole response for better error display
+						if (response.status === 422) {
+							try {
+								errorMessage = JSON.stringify(data);
+							} catch (e) {
+								errorMessage = `Invalid data: ${errorMessage}`;
+							}
+						} else if (response.status === 400) {
+							errorMessage = `Validation error: ${errorMessage}`;
+						} else if (response.status === 403) {
+							errorMessage = `Permission denied: ${errorMessage}`;
+						} else if (response.status === 404) {
+							errorMessage = `Album not found: ${errorMessage}`;
+						} else if (response.status >= 500) {
+							errorMessage = `Server error: ${errorMessage}`;
+						}
+						
+						showEditSubmissionError(errorMessage);
 					}
 				} catch (error) {
-					showEditSubmissionError('Network error occurred');
+					console.error('Edit submission error:', error);
+					
+					let errorMessage = 'Network error occurred';
+					if (error.name === 'TypeError' && error.message.includes('fetch')) {
+						errorMessage = 'Unable to connect to server. Please check your internet connection.';
+					} else if (error.name === 'AbortError') {
+						errorMessage = 'Request timed out. Please try again.';
+					}
+					
+					showEditSubmissionError(errorMessage);
+				} finally {
+					editSubmitBtn.disabled = false;
+					editSubmitBtn.textContent = 'Update Crew';
 				}
 			});
 			
@@ -2271,11 +2367,43 @@
 			
 			function showEditSubmissionError(message) {
 				const status = document.getElementById('edit-submission-status');
-				status.innerHTML = `
-					<div style="color: #cf6679; font-weight: 600;">
-						❌ ${message}
-					</div>
-				`;
+				
+				// Handle validation errors from server
+				let errorHtml = `<div style="color: #cf6679; font-weight: 600;">❌ ${message}</div>`;
+				
+				// Parse validation errors if it's JSON
+				try {
+					const parsedError = JSON.parse(message);
+					if (parsedError.detail && Array.isArray(parsedError.detail)) {
+						errorHtml = `<div style="color: #cf6679; font-weight: 600;">❌ Validation Errors:</div>`;
+						parsedError.detail.forEach(error => {
+							const field = error.loc ? error.loc.join('.') : 'unknown';
+							errorHtml += `<div style="color: #cf6679; font-size: 0.9rem; margin-top: 0.5rem; padding-left: 1rem;">• ${field}: ${error.msg}</div>`;
+						});
+					}
+				} catch (e) {
+					// If it's not JSON, check if it contains validation error structure
+					if (message.includes('"detail":[') && message.includes('"type"')) {
+						try {
+							const match = message.match(/\{\"detail\":\[(.*?)\]\}/);
+							if (match) {
+								const fullJson = `{"detail":[${match[1]}]}`;
+								const parsedError = JSON.parse(fullJson);
+								if (parsedError.detail && Array.isArray(parsedError.detail)) {
+									errorHtml = `<div style="color: #cf6679; font-weight: 600;">❌ Validation Errors:</div>`;
+									parsedError.detail.forEach(error => {
+										const field = error.loc ? error.loc.join('.') : 'unknown';
+										errorHtml += `<div style="color: #cf6679; font-size: 0.9rem; margin-top: 0.5rem; padding-left: 1rem;">• ${field}: ${error.msg}</div>`;
+									});
+								}
+							}
+						} catch (e2) {
+							// Fall back to original message
+						}
+					}
+				}
+				
+				status.innerHTML = errorHtml;
 				editSubmitBtn.disabled = false;
 				editSubmitBtn.textContent = 'Update Crew';
 			}
@@ -2332,20 +2460,35 @@
 						return;
 					}
 					
+					// Validate name length
+					if (name.length < 2) {
+						alert('Name must be at least 2 characters long');
+						return;
+					}
+					
+					if (name.length > 50) {
+						alert('Name must be less than 50 characters');
+						return;
+					}
+					
 					// Check if person already exists
 					if (crewData.some(p => p.name.toLowerCase() === name.toLowerCase()) || 
-						editNewPeople.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+						editNewPeople.some(p => p.name.toLowerCase() === name.toLowerCase()) ||
+						selectedCrew.has(name)) {
 						alert('This person already exists');
 						return;
 					}
 					
 					const newPerson = {
 						name: name,
-						skills: [],  // Skills functionality would need to be implemented
-						image: editAlbumCurrentPersonImage  // Include the cropped image file
+						skills: editSelectedSkills || [],
+						location: [], // TODO: Add location input fields to the form
+						achievements: [], // TODO: Add achievements input fields to the form
+						image: editAlbumCurrentPersonImage
 					};
 					
 					editNewPeople.push(newPerson);
+					// Ensure we only add the name string to selectedCrew
 					selectedCrew.add(name);
 					updateEditNewPeopleList();
 					

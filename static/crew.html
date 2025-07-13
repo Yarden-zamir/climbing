@@ -794,16 +794,23 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             const params = new URLSearchParams(window.location.search);
             const highlight = params.get("highlight");
             if (!highlight) return;
-            const norm = s => s.toLowerCase().replace(/[\s\-_]+/g, "");
-            const rows = document.querySelectorAll(".crew-table tbody tr");
-            for (const row of rows) {
-                const nameCell = row.querySelector('td[data-label="Name"]');
-                if (nameCell && norm(nameCell.textContent) === norm(highlight)) {
-                    selectCrewRow(row);
-                    row.scrollIntoView({ behavior: "smooth", block: "center" });
-                    break;
+            
+            // Add a small delay to ensure DOM is fully rendered and stable
+            setTimeout(() => {
+                const norm = s => s.toLowerCase().replace(/[\s\-_]+/g, "");
+                const rows = document.querySelectorAll(".crew-table tbody tr");
+                for (const row of rows) {
+                    const nameCell = row.querySelector('td[data-label="Name"]');
+                    if (nameCell && norm(nameCell.textContent) === norm(highlight)) {
+                        selectCrewRow(row);
+                        // Use requestAnimationFrame to ensure the DOM is painted before scrolling
+                        requestAnimationFrame(() => {
+                            row.scrollIntoView({ behavior: "smooth", block: "center" });
+                        });
+                        break;
+                    }
                 }
-            }
+            }, 100);
         }
 
         function selectCrewRow(row) {

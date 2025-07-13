@@ -304,7 +304,7 @@ async def calculate_new_climbers_endpoint(user: dict = Depends(get_current_user)
         # Only allow admins to trigger this
         if permissions_manager is not None:
             try:
-                await permissions_manager.require_permission(user_id, "admin")
+                await permissions_manager.require_permission(user_id, "manage_users")
             except Exception:
                 raise HTTPException(status_code=403, detail="Admin access required")
         
@@ -671,7 +671,7 @@ async def add_achievement(request: dict, user: dict = Depends(get_current_user))
         # Check if user has admin permissions
         if permissions_manager is not None:
             try:
-                await permissions_manager.require_permission(user_id, "admin")
+                await permissions_manager.require_permission(user_id, "manage_users")
             except Exception as e:
                 logger.error(f"Permission check failed: {e}")
                 raise HTTPException(status_code=403, detail="Admin permissions required")
@@ -704,7 +704,7 @@ async def delete_achievement(achievement_name: str, user: dict = Depends(get_cur
         # Check if user has admin permissions
         if permissions_manager is not None:
             try:
-                await permissions_manager.require_permission(user_id, "admin")
+                await permissions_manager.require_permission(user_id, "manage_users")
             except Exception as e:
                 logger.error(f"Permission check failed: {e}")
                 raise HTTPException(status_code=403, detail="Admin permissions required")
@@ -730,6 +730,78 @@ async def delete_achievement(achievement_name: str, user: dict = Depends(get_cur
     except Exception as e:
         logger.error(f"Error deleting achievement: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete achievement")
+
+
+@app.post("/api/skills")
+async def add_skill(request: dict, user: dict = Depends(get_current_user)):
+    """Add a new skill"""
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Check if user has admin permissions
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_permission(user_id, "manage_users")
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="Admin permissions required")
+
+        skill_name = request.get("name", "").strip()
+        if not skill_name:
+            raise HTTPException(status_code=400, detail="Skill name is required")
+
+        # Add the skill to Redis
+        redis_store.redis.sadd("index:skills:all", skill_name)
+
+        logger.info(f"Added skill: {skill_name} by user: {user_id}")
+        return JSONResponse({"success": True, "message": f"Skill '{skill_name}' added successfully"})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding skill: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add skill")
+
+
+@app.delete("/api/skills/{skill_name}")
+async def delete_skill(skill_name: str, user: dict = Depends(get_current_user)):
+    """Delete a skill"""
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Check if user has admin permissions
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_permission(user_id, "manage_users")
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="Admin permissions required")
+
+        # Remove the skill from Redis
+        redis_store.redis.srem("index:skills:all", skill_name)
+
+        # Also remove from all climbers who have this skill
+        all_climbers = await redis_store.get_all_climbers()
+        for climber in all_climbers:
+            if skill_name in climber.get("skills", []):
+                updated_skills = [s for s in climber["skills"] if s != skill_name]
+                await redis_store.update_climber(
+                    original_name=climber["name"],
+                    skills=updated_skills
+                )
+
+        logger.info(f"Deleted skill: {skill_name} by user: {user_id}")
+        return JSONResponse({"success": True, "message": f"Skill '{skill_name}' deleted successfully"})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting skill: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete skill")
 
 
 
@@ -1060,12 +1132,24 @@ async def edit_crew_member(
 
 
 @app.post("/api/albums/edit-crew")
-async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(get_current_user)):
+async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(require_auth)):
     """Edit crew members for an existing album in Redis (no GitHub)."""
 
     # Validate album URL format
-    if not validate_google_photos_url(edit_data.album_url):
-        raise HTTPException(status_code=400, detail="Invalid Google Photos URL format")
+    try:
+        validated_url = validate_google_photos_url(edit_data.album_url)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Validate crew data
+    if not edit_data.crew:
+        raise HTTPException(status_code=400, detail="At least one crew member is required")
+    
+    # Remove duplicates and validate crew names
+    try:
+        validated_crew = validate_crew_list(edit_data.crew)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     try:
         user_id = user.get("id")
@@ -1073,7 +1157,7 @@ async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(get_cur
             raise HTTPException(status_code=401, detail="Authentication required")
 
         # Check if album exists
-        existing_album = await redis_store.get_album(edit_data.album_url)
+        existing_album = await redis_store.get_album(validated_url)
         if not existing_album:
             raise HTTPException(status_code=404, detail="Album not found")
 
@@ -1081,48 +1165,129 @@ async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(get_cur
         if permissions_manager is not None:
             try:
                 await permissions_manager.require_resource_access(
-                    user_id, ResourceType.ALBUM, edit_data.album_url, "edit"
+                    user_id, ResourceType.ALBUM, validated_url, "edit"
                 )
             except Exception as e:
                 logger.error(f"Permission check failed: {e}")
                 raise HTTPException(status_code=403, detail="You don't have permission to edit this album. You can only edit albums you created.")
 
-        # Handle new people if any
-        if edit_data.new_people:
-            for person in edit_data.new_people:
+        # Track created resources for cleanup on failure
+        created_climbers = []
+        uploaded_images = []
+        
+        try:
+            # Handle new people if any
+            if edit_data.new_people:
+                for person in edit_data.new_people:
+                    # Validate person data
+                    if not person.name or not person.name.strip():
+                        raise HTTPException(status_code=400, detail="Person name is required")
+                    
+                    validated_name = validate_name(person.name.strip())
+                    
+                    # Check if person already exists
+                    existing_climber = await redis_store.get_climber(validated_name)
+                    if existing_climber:
+                        continue  # Person already exists, skip creation
+                    
+                    try:
+                        # Validate lists
+                        validated_skills = validate_skill_list(person.skills or [])
+                        validated_location = validate_location_list(person.location or [])
+                        validated_achievements = validate_achievements_list(person.achievements or [])
+                        
+                        # Create climber
+                        await redis_store.add_climber(
+                            name=validated_name,
+                            location=validated_location,
+                            skills=validated_skills,
+                            achievements=validated_achievements
+                        )
+                        created_climbers.append(validated_name)
+
+                        # Handle image if provided
+                        if person.temp_image_path:
+                            temp_image = await redis_store.get_image("temp", validated_name)
+                            if temp_image:
+                                # Store as climber image
+                                image_path = await redis_store.store_image("climber", f"{validated_name}/face", temp_image)
+                                uploaded_images.append(("climber", f"{validated_name}/face"))
+                                
+                                # Clean up temp image
+                                await redis_store.delete_image("temp", validated_name)
+                            else:
+                                logger.warning(f"Temporary image not found for {validated_name}")
+
+                    except ValidationError as e:
+                        raise HTTPException(status_code=400, detail=f"Invalid data for {validated_name}: {str(e)}")
+                    except Exception as e:
+                        logger.error(f"Error creating climber {validated_name}: {e}")
+                        raise HTTPException(status_code=500, detail=f"Failed to create climber {validated_name}")
+
+            # Validate that all crew members exist
+            for crew_member in validated_crew:
+                existing_climber = await redis_store.get_climber(crew_member)
+                if not existing_climber:
+                    raise HTTPException(status_code=400, detail=f"Crew member '{crew_member}' does not exist")
+
+            # Update album crew (atomic operation)
+            await redis_store.update_album_crew(validated_url, validated_crew)
+
+            # Set resource ownership for new climbers if permissions system is available
+            if permissions_manager is not None:
+                for climber_name in created_climbers:
+                    try:
+                        await permissions_manager.set_resource_owner(ResourceType.CREW_MEMBER, climber_name, user_id)
+                    except Exception as e:
+                        logger.warning(f"Failed to set ownership for {climber_name}: {e}")
+
+            return JSONResponse({
+                "success": True,
+                "message": "Album crew updated successfully!",
+                "album_title": existing_album.get("title", "Unknown Album"),
+                "created_climbers": created_climbers
+            })
+
+        except HTTPException:
+            # Clean up created resources on failure
+            for climber_name in created_climbers:
                 try:
-                    await redis_store.add_climber(
-                        name=person.name,
-                        location=person.location,
-                        skills=person.skills
-                    )
-
-                    # Handle image if provided
-                    if person.temp_image_path:
-                        temp_image = await redis_store.get_image("temp", person.name)
-                        if temp_image:
-                            await redis_store.store_image("climber", f"{person.name}/face", temp_image)
-                            await redis_store.delete_image("temp", person.name)
-
-                except ValueError as e:
-                    if "already exists" in str(e):
-                        pass  # Climber already exists, continue
-                    else:
-                        raise
-
-        # Update album crew
-        await redis_store.update_album_crew(edit_data.album_url, edit_data.crew)
-
-        return JSONResponse({
-            "success": True,
-            "message": "Album crew updated successfully!",
-            "album_title": existing_album.get("title", "Unknown Album")
-        })
+                    await redis_store.delete_climber(climber_name)
+                    logger.info(f"Cleaned up created climber: {climber_name}")
+                except Exception as e:
+                    logger.error(f"Failed to clean up climber {climber_name}: {e}")
+            
+            for image_type, identifier in uploaded_images:
+                try:
+                    await redis_store.delete_image(image_type, identifier)
+                    logger.info(f"Cleaned up uploaded image: {image_type}:{identifier}")
+                except Exception as e:
+                    logger.error(f"Failed to clean up image {image_type}:{identifier}: {e}")
+            
+            raise
+        except Exception as e:
+            # Clean up created resources on failure
+            for climber_name in created_climbers:
+                try:
+                    await redis_store.delete_climber(climber_name)
+                    logger.info(f"Cleaned up created climber: {climber_name}")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to clean up climber {climber_name}: {cleanup_error}")
+            
+            for image_type, identifier in uploaded_images:
+                try:
+                    await redis_store.delete_image(image_type, identifier)
+                    logger.info(f"Cleaned up uploaded image: {image_type}:{identifier}")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to clean up image {image_type}:{identifier}: {cleanup_error}")
+            
+            logger.error(f"Error editing album crew: {e}")
+            raise HTTPException(status_code=500, detail="Failed to edit album crew")
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error editing album crew: {e}")
+        logger.error(f"Unexpected error editing album crew: {e}")
         raise HTTPException(status_code=500, detail="Failed to edit album crew")
 
 
@@ -2187,3 +2352,53 @@ async def get_profile_picture(user_id: str):
     except Exception as e:
         logger.error(f"Error serving profile picture for {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to serve profile picture")
+
+@app.post("/api/upload-face")
+async def upload_face_image(
+    file: UploadFile = File(...),
+    person_name: str = Form(...),
+    user: dict = Depends(get_current_user)
+):
+    """Upload a temporary face image for a person."""
+    
+    # Validate user authentication
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Validate person name
+    if not person_name or not person_name.strip():
+        raise HTTPException(status_code=400, detail="Person name is required")
+    
+    try:
+        validated_name = validate_name(person_name.strip())
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Validate file
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    
+    if not file.content_type or not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="Please upload a valid image file")
+    
+    try:
+        # Validate image file type and size
+        image_data = await file.read()
+        validate_image_file(file.content_type, len(image_data))
+        
+        # Store as temporary image in Redis (expires after 1 hour)
+        temp_path = await redis_store.store_image("temp", validated_name, image_data)
+        
+        return JSONResponse({
+            "success": True,
+            "message": "Image uploaded successfully",
+            "temp_path": temp_path,
+            "person_name": validated_name
+        })
+        
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error uploading face image for {validated_name}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload image")
