@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
 Script to list all users with their roles.
-Usage: uv run python list_users.py
+Usage: uv run python scripts/list_users.py
 """
 
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+# Add parent directory to path so we can import from the main project
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from redis_store import RedisDataStore
 from permissions import PermissionsManager
 
@@ -59,4 +65,4 @@ async def main():
         print(f"❌ Error: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

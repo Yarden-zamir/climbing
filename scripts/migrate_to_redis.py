@@ -2,6 +2,7 @@
 """
 Migration script to transfer all existing file-based data to Redis.
 Run this once to migrate from files to Redis datastore.
+Usage: uv run python scripts/migrate_to_redis.py
 """
 
 import json
@@ -11,6 +12,9 @@ from pathlib import Path
 from typing import Dict, List
 import sys
 import os
+
+# Add parent directory to path so we can import from the main project
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from redis_store import RedisDataStore
 

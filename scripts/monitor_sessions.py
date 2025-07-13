@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 """
-Script to monitor user sessions and show active users.
-Usage: uv run python monitor_sessions.py
+Script to monitor and display active user sessions.
+Usage: uv run python scripts/monitor_sessions.py
 """
 
+from permissions import PermissionsManager
+from redis_store import RedisDataStore
 import asyncio
 import json
 import logging
-import time
-from redis_store import RedisDataStore
-from permissions import PermissionsManager
+import sys
+from pathlib import Path
+from datetime import datetime
+
+# Add parent directory to path so we can import from the main project
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 
 # Setup logging
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -81,28 +87,44 @@ async def monitor_sessions():
                     # Show permissions system users
                     try:
                         users_in_permissions = await permissions_manager.get_all_users()
-                        print(f"📋 Users in permissions system: {len(users_in_permissions)}")
-
                         if users_in_permissions:
+                            print(f"📋 Users in permissions system: {len(users_in_permissions)}")
+
+                            # Show role distribution
+                            role_counts = {}
                             for user in users_in_permissions:
-                                print(
-                                    f"   • {user.get('name', 'Unknown')} ({user.get('email', 'Unknown')}) - {user.get('role', 'user').upper()}")
+                                role = user.get("role", "user")
+                                role_counts[role] = role_counts.get(role, 0) + 1
+
+                            role_summary = ", ".join(
+                                [f"{role}: {count} "for role, count in sorted(role_counts.items())])
+                            print(f"📊 Role distribution: {role_summary}")
+                        else:
+                            print("📋 No users found in permissions system")
+
                     except Exception as e:
-                        print(f"📋 Error getting permissions users: {e}")
+                        print(f"⚠️  Could not get permissions data: {e}")
 
                     last_session_count = current_count
-                    print(f"\n⏰ Last updated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"\n⏰ Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
             except Exception as e:
-                print(f"Error in monitoring loop: {e}")
+                logger.error(f"Error in monitoring loop: {e}")
+                print(f"⚠️  Monitoring error: {e}")
 
             # Wait before next check
             await asyncio.sleep(5)
 
     except KeyboardInterrupt:
-        print("\n\n👋 Session monitoring stopped.")
+        print("\n\n👋 Session monitoring stopped by user")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        logger.error(f"Fatal error in session monitor: {e}")
+        print(f"❌ Fatal error: {e}")
+
+
+async def main():
+    await monitor_sessions()
+
 
 if __name__ == "__main__":
-    asyncio.run(monitor_sessions())
+    asyncio.run(main())

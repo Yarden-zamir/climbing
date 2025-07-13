@@ -4,9 +4,10 @@ Input validation and sanitization utilities for the climbing app.
 
 import re
 import html
+import json
 from typing import List, Optional, Dict, Any
 from urllib.parse import urlparse
-from fastapi import HTTPException
+from fastapi import HTTPException, Form, UploadFile
 
 
 class ValidationError(Exception):
@@ -80,28 +81,28 @@ def validate_skill_list(skills: List[str]) -> List[str]:
     return validated_skills
 
 
-def validate_location_list(location: List[str]) -> List[str]:
-    """Validate location list (city, country)"""
-    if not location:
+def validate_location_list(locations: List[str]) -> List[str]:
+    """Validate list of locations"""
+    if not locations:
         return []
     
-    validated_location = []
-    for loc in location:
-        if not loc or not loc.strip():
+    validated_locations = []
+    for location in locations:
+        if not location or not location.strip():
             continue
         
-        sanitized = sanitize_string(loc, max_length=100)
-        if sanitized:
-            validated_location.append(sanitized)
+        sanitized = sanitize_string(location, max_length=100)
+        if sanitized not in validated_locations:
+            validated_locations.append(sanitized)
     
-    if len(validated_location) > 5:
-        raise ValidationError("Too many location entries (maximum 5)")
+    if len(validated_locations) > 10:
+        raise ValidationError("Too many locations (maximum 10)")
     
-    return validated_location
+    return validated_locations
 
 
 def validate_achievements_list(achievements: List[str]) -> List[str]:
-    """Validate achievements list"""
+    """Validate list of achievements"""
     if not achievements:
         return []
     
@@ -110,12 +111,12 @@ def validate_achievements_list(achievements: List[str]) -> List[str]:
         if not achievement or not achievement.strip():
             continue
         
-        sanitized = sanitize_string(achievement, max_length=200)
+        sanitized = sanitize_string(achievement, max_length=100)
         if sanitized not in validated_achievements:
             validated_achievements.append(sanitized)
     
-    if len(validated_achievements) > 10:
-        raise ValidationError("Too many achievements (maximum 10)")
+    if len(validated_achievements) > 20:
+        raise ValidationError("Too many achievements (maximum 20)")
     
     return validated_achievements
 
@@ -173,8 +174,6 @@ def validate_redis_key(key: str) -> str:
 
 def validate_json_input(data: str, max_items: int = 100) -> List[str]:
     """Validate JSON input for lists"""
-    import json
-    
     if not data:
         return []
     
@@ -239,4 +238,123 @@ def validate_and_sanitize_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
                 if parsed.scheme in ['http', 'https']:
                     sanitized[key] = value
     
-    return sanitized 
+    return sanitized
+
+
+def validate_form_json_field(field_data: str, field_name: str, validator_func=None) -> List[str]:
+    """Validate JSON field from form data and apply optional validator"""
+    if not field_data:
+        return []
+    
+    try:
+        parsed = json.loads(field_data)
+        if not isinstance(parsed, list):
+            raise ValidationError(f"{field_name} must be a JSON array")
+        
+        # Apply validator function if provided
+        if validator_func:
+            return validator_func(parsed)
+        
+        return [str(item) for item in parsed if item]
+    
+    except json.JSONDecodeError:
+        raise ValidationError(f"Invalid JSON format in {field_name}")
+
+
+def validate_required_string(value: str, field_name: str) -> str:
+    """Validate that a string field is required and not empty"""
+    if not value or not value.strip():
+        raise ValidationError(f"{field_name} is required")
+    return value.strip()
+
+
+def validate_optional_image_upload(image: UploadFile) -> bool:
+    """Validate optional image upload, return True if valid image provided"""
+    if not image or not image.filename:
+        return False
+    
+    if not image.content_type or not image.content_type.startswith('image/'):
+        raise ValidationError("Please upload a valid image file")
+    
+    return True
+
+
+def validate_user_role(role: str) -> str:
+    """Validate user role"""
+    valid_roles = ['admin', 'user', 'pending']
+    if role not in valid_roles:
+        raise ValidationError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+    return role
+
+
+def validate_resource_type(resource_type: str) -> str:
+    """Validate resource type"""
+    valid_types = ['album', 'crew_member', 'meme']
+    if resource_type not in valid_types:
+        raise ValidationError(f"Invalid resource type. Must be one of: {', '.join(valid_types)}")
+    return resource_type
+
+
+def validate_skill_name(skill_name: str) -> str:
+    """Validate skill name"""
+    if not skill_name or not skill_name.strip():
+        raise ValidationError("Skill name is required")
+    
+    sanitized = sanitize_string(skill_name, max_length=50)
+    
+    # Check for valid characters (letters, spaces, hyphens)
+    if not re.match(r"^[a-zA-Z\s\-]+$", sanitized):
+        raise ValidationError("Skill name contains invalid characters")
+    
+    return sanitized
+
+
+def validate_achievement_name(achievement_name: str) -> str:
+    """Validate achievement name"""
+    if not achievement_name or not achievement_name.strip():
+        raise ValidationError("Achievement name is required")
+    
+    sanitized = sanitize_string(achievement_name, max_length=100)
+    
+    # Check for valid characters (letters, spaces, hyphens, numbers)
+    if not re.match(r"^[a-zA-Z0-9\s\-]+$", sanitized):
+        raise ValidationError("Achievement name contains invalid characters")
+    
+    return sanitized
+
+
+def validate_and_raise_http_exception(validation_func, *args, **kwargs):
+    """Helper to convert ValidationError to HTTPException"""
+    try:
+        return validation_func(*args, **kwargs)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def validate_crew_form_data(name: str, skills: str, location: str, achievements: str):
+    """Validate crew member form data and return parsed values"""
+    # Validate name
+    validated_name = validate_name(name)
+    
+    # Parse and validate JSON fields
+    validated_skills = validate_form_json_field(skills, "skills", validate_skill_list)
+    validated_location = validate_form_json_field(location, "location", validate_location_list)
+    validated_achievements = validate_form_json_field(achievements, "achievements", validate_achievements_list)
+    
+    return validated_name, validated_skills, validated_location, validated_achievements
+
+
+def validate_crew_edit_form_data(original_name: str, name: str, skills: str, location: str, achievements: str):
+    """Validate crew member edit form data and return parsed values"""
+    # Validate original name
+    validated_original_name = validate_required_string(original_name, "Original name")
+    
+    # Validate new name
+    validated_name = validate_name(name)
+    
+    # Parse and validate JSON fields
+    validated_skills = validate_form_json_field(skills, "skills", validate_skill_list)
+    validated_location = validate_form_json_field(location, "location", validate_location_list)
+    validated_achievements = validate_form_json_field(achievements, "achievements", validate_achievements_list)
+    
+    return validated_original_name, validated_name, validated_skills, validated_location, validated_achievements 
