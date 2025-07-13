@@ -1,0 +1,362 @@
+# Redis Schema Definition - Production Version
+version: '2.0'
+status: 'production'
+last_updated: '2024-01-14'
+
+# Configuration
+config:
+  session_ttl: 604800 # 7 days in seconds
+  cache_ttl: 300 # 5 minutes for metadata cache
+  temp_image_ttl: 3600 # 1 hour for temp images
+
+# Data Types and Validation Rules
+validation:
+  name:
+    type: string
+    min_length: 1
+    max_length: 100
+    pattern: "^[a-zA-Z0-9\\s\\-_'.()]+$"
+
+  email:
+    type: string
+    pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+
+  url:
+    type: string
+    pattern: "^https://photos\\.app\\.goo\\.gl/[a-zA-Z0-9]+$"
+
+  skill:
+    type: string
+    min_length: 1
+    max_length: 50
+    allowed_values: [ "climber", "belayer", "lead climber", "lead belayer", "anchor closer", "self belayer", "rope coiler", "diversity pick" ]
+
+  achievement:
+    type: string
+    min_length: 1
+    max_length: 100
+
+  image_data:
+    type: bytes
+    max_size: 10485760 # 10MB
+    allowed_types: [ "image/jpeg", "image/png", "image/webp" ]
+
+# Main Data Models
+models:
+  user:
+    type: hash
+    prefix: "user:"
+    key_field: "id" # Google OAuth ID
+    description: "User profiles and authentication"
+    fields:
+      id:
+        type: string
+        validation: required
+        immutable: true
+      email:
+        type: string
+        validation: [ required, email ]
+      name:
+        type: string
+        validation: [ required, name ]
+      picture:
+        type: string
+        validation: optional
+      role:
+        type: string
+        validation: required
+        allowed_values: [ "admin", "user" ]
+        default: "user"
+      is_approved:
+        type: boolean
+        default: true
+      created_at:
+        type: iso_datetime
+        validation: required
+        auto_generate: true
+      last_login:
+        type: iso_datetime
+        validation: required
+        auto_update: true
+      albums_created:
+        type: integer
+        default: 0
+      crew_members_created:
+        type: integer
+        default: 0
+      memes_created:
+        type: integer
+        default: 0
+    indexes:
+    - "index:users:all"
+    - "index:users:role:{role}"
+    # REDUNDANT: email index not needed since we have users:all and can search
+
+  session:
+    type: string
+    prefix: "session:"
+    key_field: "session_id"
+    description: "User session data (JSON serialized)"
+    ttl: 604800 # 7 days
+    fields:
+      id: string # user_id
+      email: string
+      name: string
+      picture: string
+      verified_email: boolean
+      is_admin: boolean
+      authenticated: boolean
+      login_time: iso_datetime
+    validation:
+      required: [ "id", "email", "authenticated" ]
+
+  climber:
+    type: hash
+    prefix: "climber:"
+    key_field: "name"
+    description: "Climber profiles with skills and achievements"
+    fields:
+      name:
+        type: string
+        validation: [ required, name ]
+        immutable: true
+      location:
+        type: json_array
+        validation: optional
+        element_type: string
+      skills:
+        type: json_array
+        validation: optional
+        element_type: skill
+      tags:
+        type: json_array
+        validation: optional
+        element_type: string
+      achievements:
+        type: json_array
+        validation: optional
+        element_type: achievement
+      level:
+        type: integer
+        validation: required
+        computed: true
+      level_from_skills:
+        type: integer
+        validation: required
+        computed: true
+      level_from_climbs:
+        type: integer
+        validation: required
+        computed: true
+      climbs:
+        type: integer
+        default: 0
+      is_new:
+        type: boolean
+        default: true
+      first_climb:
+        type: iso_datetime
+        validation: optional
+      first_climb_date:
+        type: string
+        validation: optional
+        computed: true
+      created_at:
+        type: iso_datetime
+        validation: required
+        auto_generate: true
+      updated_at:
+        type: iso_datetime
+        validation: required
+        auto_update: true
+    indexes:
+    - "index:climbers:all"
+    - "index:climbers:new"
+    - "index:climbers:skill:{skill}" # for each skill
+    - "index:climbers:achievement:{achievement}" # for each achievement
+    - "index:climbers:tag:{tag}" # for each tag
+    # SHOULD BE SETS: skills, tags, achievements should be Redis sets for better performance
+    # REVERSE LOOKUP NEEDED: skill -> climbers, achievement -> climbers, tag -> climbers
+
+  album:
+    type: hash
+    prefix: "album:"
+    key_field: "url" # Keep URLs as requested
+    description: "Photo albums with crew and metadata"
+    fields:
+      url:
+        type: string
+        validation: [ required, url ]
+        immutable: true
+      crew:
+        type: json_array
+        validation: required
+        element_type: name
+      title:
+        type: string
+        validation: optional
+      description:
+        type: string
+        validation: optional
+      date:
+        type: string
+        validation: optional
+      image_url:
+        type: string
+        validation: optional
+      cover_image:
+        type: string
+        validation: optional
+      created_at:
+        type: iso_datetime
+        validation: required
+        auto_generate: true
+      updated_at:
+        type: iso_datetime
+        validation: required
+        auto_update: true
+    indexes:
+    - "index:albums:all"
+    - "index:albums:crew:{crew_member}" # for each crew member
+    # SHOULD BE SET: crew should be a Redis set for better performance
+    # REVERSE LOOKUP: crew_member -> albums (already exists)
+
+  meme:
+    type: hash
+    prefix: "meme:"
+    key_field: "id" # UUID
+    description: "Memes with image and metadata"
+    fields:
+      id:
+        type: uuid
+        validation: required
+        immutable: true
+      image_path:
+        type: string
+        validation: required
+        format: "/redis-image/meme/{id}"
+      creator_id:
+        type: string
+        validation: required
+        reference: "user.id"
+      created_at:
+        type: iso_datetime
+        validation: required
+        auto_generate: true
+      updated_at:
+        type: iso_datetime
+        validation: required
+        auto_update: true
+    indexes:
+    - "index:memes:all"
+    - "index:memes:creator:{creator_id}"
+    # MISSING FIELDS: The schema shows persons and album_url but actual data doesn't have them
+    # REVERSE LOOKUP: creator -> memes (already exists)
+
+    # Ownership and Access Control
+ownership:
+  type: set
+  prefix: "ownership:"
+  description: "Resource ownership tracking"
+  patterns:
+  - "ownership:crew_member:{member_name}" # -> set of user_ids
+  - "ownership:album:{album_url}" # -> set of user_ids  
+  - "ownership:meme:{meme_id}" # -> set of user_ids
+
+# Resource Tracking (Per-User)
+user_resources:
+  type: set
+  prefix: "index:user_resources:"
+  description: "Track resources owned by each user"
+  patterns:
+  - "index:user_resources:{user_id}:crew_member" # -> set of member_names
+  - "index:user_resources:{user_id}:album" # -> set of album_urls
+  - "index:user_resources:{user_id}:meme" # -> set of meme_ids
+
+# Global Collections
+collections:
+  skills:
+    type: set
+    key: "index:skills:all"
+    description: "All unique skills across all climbers"
+    element_type: skill
+
+  achievements:
+    type: set
+    key: "index:achievements:all"
+    description: "All unique achievements across all climbers"
+    element_type: achievement
+
+  tags:
+    type: set
+    key: "index:tags:all"
+    description: "All unique tags across all climbers"
+    element_type: string
+
+# Image Storage
+images:
+  type: binary
+  prefix: "image:"
+  description: "Binary image data storage"
+  patterns:
+  - "image:climber:{name}:face" # -> bytes
+  - "image:profile:{user_id}:picture" # -> bytes
+  - "image:meme:{meme_id}" # -> bytes
+  - "image:temp:{temp_id}" # -> bytes (with TTL)
+
+# Caching
+cache:
+  metadata:
+    type: string
+    prefix: "cache:album_meta:"
+    key_format: "cache:album_meta:{url_hash}"
+    ttl: 300 # 5 minutes
+    description: "Cached album metadata from Google Photos"
+
+# Performance Improvements Needed
+performance_issues:
+  json_arrays:
+    problem: "Arrays stored as JSON strings require parsing on every access"
+    solution: "Convert to Redis sets for skills, tags, achievements, crew"
+    affected_models: [ "climber", "album" ]
+
+  batch_operations:
+    problem: "Single operations in loops cause N+1 queries"
+    solution: "Use Redis pipelines for batch operations"
+    affected_functions: [ "get_all_climbers", "get_all_albums", "get_all_memes" ]
+
+# Data Inconsistencies Found
+inconsistencies:
+  meme_persons:
+    problem: "Schema shows 'persons' field but actual data doesn't have it"
+    solution: "Remove from schema or add to implementation"
+
+  meme_album_url:
+    problem: "Schema shows 'album_url' field but actual data doesn't have it"
+    solution: "Remove from schema or add to implementation"
+
+  computed_fields:
+    problem: "Level calculations are stored but should be computed"
+    solution: "Make level calculations dynamic or cache properly"
+
+# Migration Tasks
+migration_tasks:
+- name: "Convert JSON arrays to Redis sets"
+  priority: high
+  models: [ "climber.skills", "climber.tags", "climber.achievements", "album.crew" ]
+
+- name: "Add field validation"
+  priority: high
+  scope: "all models"
+
+- name: "Add missing reverse lookups"
+  priority: medium
+  indexes: [ "skill->climbers", "achievement->climbers", "tag->climbers" ]
+
+- name: "Remove redundant indexes"
+  priority: low
+  candidates: [ "user email index" ]
+
+- name: "Add proper TTL for sessions"
+  priority: high
+  scope: "session model"
