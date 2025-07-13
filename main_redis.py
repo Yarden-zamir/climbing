@@ -244,7 +244,7 @@ async def get_crew():
         return JSONResponse(crew)
     except Exception as e:
         logger.error(f"Error getting crew: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get crew data")
+        raise HTTPException(status_code=500, detail="Unable to retrieve crew member data. Please try again later.")
 
 
 @app.get("/get-meta")
@@ -312,7 +312,7 @@ async def get_enriched_albums():
 
     except Exception as e:
         logger.error(f"Error getting enriched albums: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get albums")
+        raise HTTPException(status_code=500, detail="Unable to retrieve album data. Please try again later.")
 
 
 @app.get("/get-image")
@@ -467,7 +467,7 @@ async def get_skills():
 async def upload_face(file: UploadFile = File(...), person_name: str = Form(...)):
     """Upload a face image for a new person (Redis storage)."""
     if not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
+        raise HTTPException(status_code=400, detail="Please upload a valid image file (JPG, PNG, GIF, or WebP).")
 
     try:
         # Read image data
@@ -541,15 +541,27 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
 
     # Validate album URL format
     if not validate_google_photos_url(submission.url):
-        raise HTTPException(status_code=400, detail="Invalid Google Photos URL format")
+        raise HTTPException(status_code=400, detail="Please provide a valid Google Photos album URL (e.g., https://photos.app.goo.gl/...)")
 
     try:
         user_id = user.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Authentication required")
 
-            # Skip permissions checking for now to test basic functionality
-        logger.info(f"User {user_id} creating album (permissions temporarily disabled)")
+        # Check permissions and submission limits if permissions system is available
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_permission(user_id, "create_album")
+
+                can_create = await permissions_manager.check_submission_limits(user_id, ResourceType.ALBUM)
+                if not can_create:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="You have reached your album creation limit. Contact an admin for approval."
+                    )
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="You don't have permission to create albums. Please contact an administrator.")
 
         # Check if album already exists
         existing_album = await redis_store.get_album(submission.url)
@@ -643,7 +655,7 @@ async def submit_crew_member(submission: CrewSubmission, user: dict = Depends(ge
                     )
             except Exception as e:
                 logger.error(f"Permission check failed: {e}")
-                raise HTTPException(status_code=403, detail="Permission check failed")
+                raise HTTPException(status_code=403, detail="You don't have permission to create crew members. Please contact an administrator.")
 
         # Add climber to Redis
         await redis_store.add_climber(
@@ -707,7 +719,7 @@ async def edit_crew_member(edit_data: CrewEdit, user: dict = Depends(get_current
                 )
             except Exception as e:
                 logger.error(f"Permission check failed: {e}")
-                raise HTTPException(status_code=403, detail="Permission check failed")
+                raise HTTPException(status_code=403, detail=f"You don't have permission to edit crew member '{edit_data.original_name}'. You can only edit crew members you created.")
         # Handle image if provided
         if edit_data.temp_image_path:
             # Extract temp image from Redis and store as climber image
@@ -777,7 +789,7 @@ async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(get_cur
                 )
             except Exception as e:
                 logger.error(f"Permission check failed: {e}")
-                raise HTTPException(status_code=403, detail="Permission check failed")
+                raise HTTPException(status_code=403, detail="You don't have permission to edit this album. You can only edit albums you created.")
 
         # Handle new people if any
         if edit_data.new_people:
@@ -819,7 +831,7 @@ async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(get_cur
 
 
 @app.post("/api/crew/add-skills")
-async def add_skills_to_crew_member(request: AddSkillsRequest):
+async def add_skills_to_crew_member(request: AddSkillsRequest, user: dict = Depends(get_current_user)):
     """Add skills to an existing crew member in Redis (no GitHub)."""
 
     # Validate input
@@ -829,10 +841,24 @@ async def add_skills_to_crew_member(request: AddSkillsRequest):
         raise HTTPException(status_code=400, detail="At least one skill is required")
 
     try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
         # Get current climber data
         existing_member = await redis_store.get_climber(request.crew_name)
         if not existing_member:
             raise HTTPException(status_code=404, detail="Crew member not found")
+
+        # Check resource access permissions if permissions system is available
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_resource_access(
+                    user_id, ResourceType.CREW_MEMBER, request.crew_name, "edit"
+                )
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail=f"You don't have permission to modify crew member '{request.crew_name}'. You can only edit crew members you created.")
 
         # Get current skills and add new ones
         current_skills = existing_member.get("skills", [])
@@ -1049,10 +1075,35 @@ async def auth_callback(code: str = None, state: str = None, error: str = None):
             "login_time": datetime.datetime.now().isoformat()
         }
 
-        # Skip permissions integration temporarily to test basic auth
-        user_session_data["role"] = "user"
-        user_session_data["permissions"] = {}
-        logger.info("Permissions integration temporarily disabled for testing")
+        # Enable permissions integration
+        if permissions_manager is not None:
+            try:
+                # Create or update user in permissions system
+                user_record = await permissions_manager.create_or_update_user(user_info)
+                user_session_data["role"] = user_record.get("role", "user")
+                
+                # Get permissions for session
+                permissions = permissions_manager.get_user_permissions(user_record.get("role", "user"))
+                user_session_data["permissions"] = {
+                    "can_create_albums": permissions.can_create_albums,
+                    "can_create_crew": permissions.can_create_crew,
+                    "can_edit_own_resources": permissions.can_edit_own_resources,
+                    "can_delete_own_resources": permissions.can_delete_own_resources,
+                    "can_edit_all_resources": permissions.can_edit_all_resources,
+                    "can_delete_all_resources": permissions.can_delete_all_resources,
+                    "can_manage_users": permissions.can_manage_users
+                }
+                
+                logger.info(f"User {user_info.get('email')} logged in with role: {user_record.get('role', 'user')}")
+            except Exception as e:
+                logger.error(f"Error integrating with permissions system: {e}")
+                # Fall back to basic session data
+                user_session_data["role"] = "user"
+                user_session_data["permissions"] = {}
+        else:
+            logger.warning("Permissions system not available, using basic session data")
+            user_session_data["role"] = "user"
+            user_session_data["permissions"] = {}
 
         # Create session and redirect (SessionManager handles both token creation and cookie setting)
         response = RedirectResponse(url="/")
@@ -1085,7 +1136,9 @@ async def get_auth_user(user: dict = Depends(get_current_user)):
                 "email": user.get("email"),
                 "name": user.get("name"),
                 "picture": user.get("picture"),
-                "verified_email": user.get("verified_email", False)
+                "verified_email": user.get("verified_email", False),
+                "role": user.get("role", "user"),
+                "permissions": user.get("permissions", {})
             }
         }
     else:
@@ -1139,7 +1192,23 @@ async def get_all_users_admin(user: dict = Depends(get_current_user)):
                 user_id = user_record["id"]
                 user_albums = await permissions_manager.get_user_resources(user_id, ResourceType.ALBUM)
                 user_crew = await permissions_manager.get_user_resources(user_id, ResourceType.CREW_MEMBER)
-                permissions_dict = permissions_manager.get_user_permissions(user_record.get("role", "user")).__dict__
+
+                # Convert permissions to JSON-serializable format
+                permissions = permissions_manager.get_user_permissions(user_record.get("role", "user"))
+                permissions_dict = {
+                    "can_create_albums": permissions.can_create_albums,
+                    "can_create_crew": permissions.can_create_crew,
+                    "can_edit_own_resources": permissions.can_edit_own_resources,
+                    "can_delete_own_resources": permissions.can_delete_own_resources,
+                    "can_edit_all_resources": permissions.can_edit_all_resources,
+                    "can_delete_all_resources": permissions.can_delete_all_resources,
+                    "can_manage_users": permissions.can_manage_users,
+                    "submission_limits": {
+                        "max_albums": permissions.submission_limits.max_albums if permissions.submission_limits else None,
+                        "max_crew_members": permissions.submission_limits.max_crew_members if permissions.submission_limits else None,
+                        "requires_approval": permissions.submission_limits.requires_approval if permissions.submission_limits else None
+                    } if permissions.submission_limits else None
+                }
             except Exception as e:
                 logger.warning(f"Failed to get resource counts for user {user_record.get('id', 'unknown')}: {e}")
                 user_albums, user_crew = [], []

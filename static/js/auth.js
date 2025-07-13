@@ -141,6 +141,18 @@ class AuthManager {
         // Extract first name for cleaner display
         const firstName = this.currentUser.name.split(' ')[0];
         
+        // Check if user is admin
+        const isAdmin = this.currentUser.role === 'admin' || 
+                       (this.currentUser.permissions && this.currentUser.permissions.can_manage_users);
+        
+        // Generate admin panel link if user is admin
+        const adminPanelLink = isAdmin ? `
+            <a href="/admin" class="dropdown-item">
+                <span>🛠️</span> Admin Panel
+            </a>
+            <hr class="dropdown-divider">
+        ` : '';
+        
         userDropdown.innerHTML = `
             <button class="user-profile-btn">
                 <img src="${this.currentUser.picture || '/static/favicon/favicon-32x32.png'}" 
@@ -155,6 +167,7 @@ class AuthManager {
                     <div class="profile-email">${this.currentUser.email}</div>
                 </div>
                 <hr class="dropdown-divider">
+                ${adminPanelLink}
                 <a href="/auth/logout" class="logout-btn dropdown-item">
                     <span>🚪</span> Logout
                 </a>

@@ -299,9 +299,23 @@ class PermissionsManager:
                                  resource_id: Optional[str] = None) -> None:
         """Require permission for an action, raise HTTPException if denied"""
         if not await self.can_user_perform_action(user_id, action, resource_type, resource_id):
+            # Create more specific error messages based on the action
+            if action == "create_album":
+                detail = "You don't have permission to create albums. Please contact an administrator."
+            elif action == "create_crew":
+                detail = "You don't have permission to create crew members. Please contact an administrator."
+            elif action == "edit_resource":
+                detail = "You don't have permission to edit this resource. You can only edit resources you created."
+            elif action == "delete_resource":
+                detail = "You don't have permission to delete this resource. You can only delete resources you created."
+            elif action == "manage_users":
+                detail = "You don't have administrative privileges required for this action."
+            else:
+                detail = f"You don't have permission to perform this action: {action}"
+
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Insufficient permissions for action: {action}"
+                detail=detail
             )
 
     async def require_resource_access(self, user_id: str, resource_type: ResourceType,
@@ -325,9 +339,17 @@ class PermissionsManager:
         # Check ownership
         owner = await self.get_resource_owner(resource_type, resource_id)
         if owner != user_id:
+            resource_name = resource_type.value.replace('_', ' ')
+            if action == "edit":
+                detail = f"You don't have permission to edit this {resource_name}. You can only edit {resource_name}s you created."
+            elif action == "delete":
+                detail = f"You don't have permission to delete this {resource_name}. You can only delete {resource_name}s you created."
+            else:
+                detail = f"You don't have permission to access this {resource_name}. You can only access {resource_name}s you created."
+            
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only access resources you own"
+                detail=detail
             )
 
     # === ADMIN FUNCTIONS ===
