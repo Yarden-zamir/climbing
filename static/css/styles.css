@@ -9,6 +9,16 @@ body {
 	background-color: #121212;
 	color: #e0e0e0;
 	padding-top: 70px;
+	overflow-x: hidden;
+	box-sizing: border-box;
+}
+
+*, *::before, *::after {
+	box-sizing: border-box;
+}
+
+html {
+	overflow-x: hidden;
 }
 
 /* Privacy Link Styling */
@@ -531,8 +541,9 @@ nav a.active {
 }
 
 .album-card:hover {
-	transform: translateY(-5px);
-	box-shadow: 0 8px 25px rgba(187, 134, 252, 0.3);
+	transform: translateY(-5px) scale(1.03);
+	box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+	border-color: rgba(187, 134, 252, 0.3);
 }
 
 /* ✨ START: New Image Overlay Animation */
@@ -3095,7 +3106,10 @@ nav a.active {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 	gap: 20px;
-	padding: 0 1rem;
+	padding: 0;
+	margin: 0 1rem;
+	max-width: calc(100vw - 2rem);
+	box-sizing: border-box;
 }
 
 .meme-card {
@@ -3104,32 +3118,38 @@ nav a.active {
 	overflow: hidden;
 	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 	border: 1px solid rgba(255, 255, 255, 0.1);
-	transition: all 0.3s ease;
+	transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 	cursor: pointer;
 	break-inside: avoid;
 	margin-bottom: 20px;
+	box-sizing: border-box;
+	max-width: 100%;
+	will-change: transform;
 }
 
 .meme-card:hover {
-	transform: translateY(-4px);
-	box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+	transform: translateY(-4px) scale(1.01);
+	box-shadow: 0 8px 32px rgba(187, 134, 252, 0.18);
 	border-color: rgba(187, 134, 252, 0.3);
 }
 
 .meme-image-container {
 	position: relative;
 	overflow: hidden;
+	box-sizing: border-box;
 }
 
 .meme-image-container img {
 	width: 100%;
 	height: auto;
 	display: block;
-	transition: transform 0.3s ease;
+	box-sizing: border-box;
+	max-width: 100%;
+	overflow: hidden;
 }
 
 .meme-card:hover .meme-image-container img {
-	transform: scale(1.05);
+	transform: none;
 }
 
 .meme-overlay {
@@ -3414,7 +3434,14 @@ nav a.active {
 	.memes-grid {
 		grid-template-columns: 1fr;
 		gap: 1rem;
-		padding: 0 0.5rem;
+		margin: 0 1rem;
+		max-width: calc(100vw - 2rem);
+	}
+
+	.memes-grid.masonry-ready {
+		display: block;
+		margin: 0 1rem;
+		max-width: calc(100vw - 2rem);
 	}
 
 	.modal-content {
@@ -3467,11 +3494,16 @@ nav a.active {
 /* Masonry Layout Support */
 .memes-grid.masonry-ready {
 	display: block;
+	box-sizing: border-box;
+	padding: 0;
+	margin: 0 1rem;
+	max-width: calc(100vw - 2rem);
 }
 
 .memes-grid.masonry-ready .meme-card {
 	width: calc(33.333% - 14px);
 	margin-bottom: 20px;
+	box-sizing: border-box;
 }
 
 @media (max-width: 900px) {
@@ -3481,8 +3513,20 @@ nav a.active {
 }
 
 @media (max-width: 600px) {
+	.memes-grid {
+		margin: 0 1rem;
+		max-width: calc(100vw - 2rem);
+	}
+	
+	.memes-grid.masonry-ready {
+		margin: 0 1rem;
+		max-width: calc(100vw - 2rem);
+	}
+	
 	.memes-grid.masonry-ready .meme-card {
-		width: 100%;
+		width: calc(100% - 20px);
+		margin-left: 10px;
+		margin-right: 10px;
 	}
 }
 
@@ -3490,4 +3534,137 @@ nav a.active {
 .role-badge.role-pending {
 	background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
 	color: white;
+}
+
+/* Custom Confirmation Dialog */
+.custom-dialog-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background-color: rgba(0, 0, 0, 0.7);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 10000;
+	animation: dialog-overlay-fade-in 0.2s ease-out;
+}
+
+.custom-dialog {
+	background: #1e1e1e;
+	border-radius: 12px;
+	padding: 0;
+	max-width: 400px;
+	width: 90%;
+	max-height: 80vh;
+	overflow: hidden;
+	box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+	animation: dialog-slide-in 0.3s ease-out;
+	border: 1px solid #333;
+}
+
+.dialog-title {
+	color: #e0e0e0;
+	font-size: 1.2rem;
+	font-weight: 600;
+	margin: 0;
+	padding: 20px 20px 0 20px;
+	text-align: center;
+}
+
+.dialog-message {
+	color: #b0b0b0;
+	font-size: 0.95rem;
+	line-height: 1.4;
+	margin: 0;
+	padding: 15px 20px 20px 20px;
+	text-align: center;
+}
+
+.dialog-actions {
+	display: flex;
+	gap: 10px;
+	padding: 0 20px 20px 20px;
+	justify-content: center;
+}
+
+.dialog-btn {
+	flex: 1;
+	padding: 12px 20px;
+	border: none;
+	border-radius: 8px;
+	font-size: 0.9rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	font-family: inherit;
+}
+
+.dialog-btn-cancel {
+	background: #333;
+	color: #e0e0e0;
+	border: 1px solid #555;
+}
+
+.dialog-btn-cancel:hover {
+	background: #404040;
+	transform: translateY(-1px);
+}
+
+.dialog-btn-confirm {
+	background: #dc3545;
+	color: white;
+	border: 1px solid #dc3545;
+}
+
+.dialog-btn-confirm:hover {
+	background: #c82333;
+	transform: translateY(-1px);
+	box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+}
+
+.dialog-btn:active {
+	transform: translateY(0);
+}
+
+.dialog-btn:focus {
+	outline: none;
+	box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+}
+
+@keyframes dialog-overlay-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes dialog-slide-in {
+	from {
+		opacity: 0;
+		transform: translateY(-20px) scale(0.95);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+	.custom-dialog {
+		width: 95%;
+		margin: 20px;
+	}
+	
+	.dialog-actions {
+		flex-direction: column;
+	}
+	
+	.dialog-btn {
+		flex: none;
+	}
 }

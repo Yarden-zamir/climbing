@@ -45,20 +45,7 @@ class MemesManager {
 			});
 		}
 
-		// View modal close
-		const viewModal = document.getElementById('meme-view-modal');
-		if (viewModal) {
-			const closeBtn = viewModal.querySelector('.close');
-			if (closeBtn) {
-				closeBtn.addEventListener('click', () => this.hideViewModal());
-			}
-			
-			viewModal.addEventListener('click', (e) => {
-				if (e.target === viewModal) {
-					this.hideViewModal();
-				}
-			});
-		}
+
 
 		// Window resize handler for Masonry
 		window.addEventListener('resize', this.debounce(() => {
@@ -89,7 +76,6 @@ class MemesManager {
 			const response = await fetch('/api/memes');
 			const data = await response.json();
 			
-			console.log('Loaded memes:', data); // Debug log
 			this.memes = data || [];
 			this.renderMemes();
 		} catch (error) {
@@ -120,8 +106,147 @@ class MemesManager {
 
 		container.innerHTML = this.memes.map(meme => this.createMemeCard(meme)).join('');
 		
+		// Add context menu and long-press listeners
+		this.setupMemeInteractions();
+		
 		// Initialize masonry after images load
 		this.initializeMasonry();
+	}
+
+	setupMemeInteractions() {
+		const memeCards = document.querySelectorAll('.meme-card');
+		
+		memeCards.forEach(card => {
+			const memeId = card.dataset.memeId;
+			const meme = this.memes.find(m => m.id === memeId);
+			const img = card.querySelector('img');
+			
+			// Add context menu prevention to ALL memes, but only show delete for authorized users
+			const handleContextMenu = (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				e.stopImmediatePropagation();
+				
+				if (meme && this.canDeleteMeme(meme)) {
+					this.showDeleteConfirmation(memeId);
+				}
+				return false;
+			};
+			
+			if (img) {
+				card.addEventListener('contextmenu', handleContextMenu, true);
+				img.addEventListener('contextmenu', handleContextMenu, true);
+				
+				// Long-press for mobile (only for deletable memes)
+				if (meme && this.canDeleteMeme(meme)) {
+					let longPressTimer;
+					let isLongPress = false;
+					
+					const handleTouchStart = (e) => {
+						isLongPress = false;
+						longPressTimer = setTimeout(() => {
+							isLongPress = true;
+							this.showDeleteConfirmation(memeId);
+						}, 500); // 500ms for long press
+					};
+					
+					const handleTouchEnd = (e) => {
+						clearTimeout(longPressTimer);
+						if (isLongPress) {
+							e.preventDefault();
+							e.stopPropagation();
+						}
+					};
+					
+					const handleTouchMove = (e) => {
+						clearTimeout(longPressTimer);
+					};
+					
+					card.addEventListener('touchstart', handleTouchStart);
+					img.addEventListener('touchstart', handleTouchStart);
+					
+					card.addEventListener('touchend', handleTouchEnd);
+					img.addEventListener('touchend', handleTouchEnd);
+					
+					card.addEventListener('touchmove', handleTouchMove);
+					img.addEventListener('touchmove', handleTouchMove);
+				}
+			}
+		});
+	}
+
+	showDeleteConfirmation(memeId) {
+		this.showCustomConfirmDialog(
+			'Delete Meme',
+			'Are you sure you want to delete this meme? This action cannot be undone.',
+			() => this.deleteMeme(memeId)
+		);
+	}
+
+	showCustomConfirmDialog(title, message, onConfirm) {
+		// Remove any existing dialog
+		const existingDialog = document.getElementById('custom-confirm-dialog');
+		if (existingDialog) {
+			existingDialog.remove();
+		}
+
+		// Create dialog HTML
+		const dialogHtml = `
+			<div id="custom-confirm-dialog" class="custom-dialog-overlay">
+				<div class="custom-dialog">
+					<h3 class="dialog-title">${title}</h3>
+					<p class="dialog-message">${message}</p>
+					<div class="dialog-actions">
+						<button class="dialog-btn dialog-btn-cancel" id="dialog-cancel">Cancel</button>
+						<button class="dialog-btn dialog-btn-confirm" id="dialog-confirm">Delete</button>
+					</div>
+				</div>
+			</div>
+		`;
+
+		// Add dialog to body
+		document.body.insertAdjacentHTML('beforeend', dialogHtml);
+
+		// Add event listeners
+		const dialog = document.getElementById('custom-confirm-dialog');
+		const confirmBtn = document.getElementById('dialog-confirm');
+		const cancelBtn = document.getElementById('dialog-cancel');
+
+		const closeDialog = () => {
+			dialog.remove();
+		};
+
+		const handleConfirm = () => {
+			closeDialog();
+			onConfirm();
+		};
+
+		const handleCancel = () => {
+			closeDialog();
+		};
+
+		// Button event listeners
+		confirmBtn.addEventListener('click', handleConfirm);
+		cancelBtn.addEventListener('click', handleCancel);
+
+		// Close on overlay click
+		dialog.addEventListener('click', (e) => {
+			if (e.target === dialog) {
+				handleCancel();
+			}
+		});
+
+		// Close on Escape key
+		const handleKeydown = (e) => {
+			if (e.key === 'Escape') {
+				handleCancel();
+				document.removeEventListener('keydown', handleKeydown);
+			}
+		};
+		document.addEventListener('keydown', handleKeydown);
+
+		// Focus the cancel button by default
+		setTimeout(() => cancelBtn.focus(), 100);
 	}
 
 	createMemeCard(meme) {
@@ -131,17 +256,7 @@ class MemesManager {
 		return `
 			<div class="meme-card" data-meme-id="${meme.id}">
 				<div class="meme-image-container">
-					<img src="${imageUrl}" alt="Meme" loading="lazy" onclick="memesManager.viewMeme('${meme.id}')">
-				</div>
-				<div class="meme-overlay">
-					<div class="meme-action-btn" onclick="memesManager.viewMeme('${meme.id}')">
-						<span>👁️</span>
-					</div>
-					${this.canDeleteMeme(meme) ? `
-						<div class="meme-action-btn" onclick="memesManager.deleteMeme('${meme.id}')">
-							<span>🗑️</span>
-						</div>
-					` : ''}
+					<img src="${imageUrl}" alt="Meme" loading="lazy">
 				</div>
 				<div class="meme-meta">
 					<span class="meme-date">${createdDate}</span>
@@ -177,11 +292,10 @@ class MemesManager {
 				container.classList.add('masonry-ready');
 				this.masonry = new Masonry(container, {
 					itemSelector: '.meme-card',
-					// columnWidth: '.meme-card',
+					columnWidth: '.meme-card',
 					gutter: 20,
-					fitWidth: true,
-					columnWidth: 2,
-					gridSizer: "10%"
+					fitWidth: false,
+					horizontalOrder: true
 				});
 			}
 		};
@@ -307,56 +421,7 @@ class MemesManager {
 		}
 	}
 
-	async viewMeme(memeId) {
-		const meme = this.memes.find(m => m.id === memeId);
-		if (!meme) return;
-
-		const modal = document.getElementById('meme-view-modal');
-		const modalImage = document.getElementById('modal-image');
-		const modalCreator = document.getElementById('modal-creator');
-		const modalDate = document.getElementById('modal-date');
-		const modalActions = document.getElementById('modal-actions');
-
-		if (!modal || !modalImage) return;
-
-		modalImage.src = `/redis-image/meme/${meme.id}`;
-		modalImage.alt = 'Meme';
-		
-		if (modalCreator) {
-			modalCreator.textContent = `Uploaded by: ${meme.creator_id}`;
-		}
-		
-		if (modalDate) {
-			modalDate.textContent = this.formatDate(meme.created_at);
-		}
-
-		// Add delete button if user can delete
-		if (modalActions) {
-			modalActions.innerHTML = '';
-			if (this.canDeleteMeme(meme)) {
-				modalActions.innerHTML = `
-					<button class="btn btn-danger" onclick="memesManager.deleteMeme('${meme.id}')">
-						Delete Meme
-					</button>
-				`;
-			}
-		}
-
-		modal.style.display = 'block';
-	}
-
-	hideViewModal() {
-		const modal = document.getElementById('meme-view-modal');
-		if (modal) {
-			modal.style.display = 'none';
-		}
-	}
-
 	async deleteMeme(memeId) {
-		if (!confirm('Are you sure you want to delete this meme?')) {
-			return;
-		}
-
 		try {
 			const response = await fetch(`/api/memes/${memeId}`, {
 				method: 'DELETE'
@@ -364,7 +429,6 @@ class MemesManager {
 
 			if (response.ok) {
 				this.showSuccess('Meme deleted successfully!');
-				this.hideViewModal();
 				this.loadMemes(); // Reload memes
 			} else {
 				const result = await response.json();
