@@ -659,6 +659,7 @@ nav a.active {
 #memes-container {
 	display: block; /* Override the default grid display */
 	position: relative;
+    margin-top: 2rem;
 }
 
 /* ✅ Define the width of each grid item */
