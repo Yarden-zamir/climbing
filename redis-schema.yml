@@ -65,11 +65,11 @@ models:
       role:
         type: string
         validation: required
-        allowed_values: [ "admin", "user" ]
-        default: "user"
+        allowed_values: [ "admin", "user", "pending" ]
+        default: "pending"
       is_approved:
         type: boolean
-        default: true
+        default: false
       created_at:
         type: iso_datetime
         validation: required

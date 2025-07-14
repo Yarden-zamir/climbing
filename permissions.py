@@ -108,26 +108,26 @@ class PermissionsManager:
             })
             return existing_user
         else:
-            # Create new user
+            # Create new user - start as PENDING to require manual approval
             new_user = {
                 "id": user_id,
                 "email": user_data.get("email"),
                 "name": user_data.get("name"),
                 "picture": user_data.get("picture"),
-                "role": UserRole.USER.value,  # Default role
+                "role": UserRole.PENDING.value,  # New users start as pending
                 "created_at": datetime.now().isoformat(),
                 "last_login": datetime.now().isoformat(),
                 "albums_created": "0",
                 "crew_members_created": "0",
                 "memes_created": "0",
-                "is_approved": "true"  # Auto-approve for now, can be changed later
+                "is_approved": "false"  # Require manual approval
             }
 
             self.redis_store.redis.hset(user_key, mapping=new_user)
             self.redis_store.redis.sadd("index:users:all", user_id)
-            self.redis_store.redis.sadd(f"index:users:role:{UserRole.USER.value}", user_id)
+            self.redis_store.redis.sadd(f"index:users:role:{UserRole.PENDING.value}", user_id)
 
-            logger.info(f"Created new user: {user_data.get('email')}")
+            logger.info(f"Created new PENDING user: {user_data.get('email')} - requires admin approval")
             return new_user
 
     async def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
