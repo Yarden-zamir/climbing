@@ -889,6 +889,9 @@ nav a.active {
     .crew-table td[data-label="Location"] {
         display: none !important;
     }
+    .crew-table td[data-label="New"] {
+        display: none !important;
+    }
     /* Optional: ensure order for name and face */
     .crew-table td[data-label="Face"] { order: 0; }
     .crew-table td[data-label="Name"] { order: 1; }
@@ -1265,6 +1268,12 @@ nav a.active {
     background: #181818;
     border-radius: 12px;
     overflow: hidden;
+}
+
+/* Hide the "New" column */
+.crew-table th[data-key="new"],
+.crew-table td[data-label="New"] {
+    display: none !important;
 }
 
 .crew-table th, .crew-table td {
@@ -2473,6 +2482,9 @@ nav a.active {
         order: 3;
     }
     .crew-table td[data-label="Location"] {
+        display: none !important;
+    }
+    .crew-table td[data-label="New"] {
         display: none !important;
     }
     
