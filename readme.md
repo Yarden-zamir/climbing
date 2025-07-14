@@ -38,15 +38,21 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
     uv sync
     ```
 
-3. **Run the server**
+3. **Set the SECRET_KEY environment variable**
+
+   > The backend requires a secret key for session management and security. Generate and set it with:
+
+   ```bash
+   echo "SECRET_KEY=$(openssl rand -hex 32)" > .env
+   ```
+
+4. **Run the server**
     ```bash
     uv run uvicorn main:app --host 0.0.0.0 --port 8001 --reload
     ```
 
-4. **Browse**
+5. **Browse**
     - Open [http://localhost:8001](http://localhost:8001)
-    - The main page displays the Excalidraw climbing flowchart
-    - The Albums page shows animated Google Photos album previews
 
 ---
 
