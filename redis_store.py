@@ -406,6 +406,271 @@ class RedisDataStore:
 
         return album_data
 
+    async def update_album_crew(self, url: str, new_crew: List[str]) -> None:
+        """Update album crew members using proper Redis data types"""
+        
+        # Validate inputs
+        url = self._validate_url(url)
+        new_crew = [self._validate_name(member) for member in new_crew]
+        
+        album_key = f"album:{url}"
+        
+        # Get current album and crew
+        current_album = await self.get_album(url)
+        if not current_album:
+            raise ValidationError(f"Album not found: {url}")
+        
+        old_crew = current_album["crew"]
+        
+        # Use pipeline for atomic operations
+        pipe = self.redis.pipeline()
+        
+        # Update album timestamp
+        pipe.hset(album_key, "updated_at", datetime.now().isoformat())
+        
+        # Clear and update crew set
+        pipe.delete(f"album:{url}:crew")
+        if new_crew:
+            pipe.sadd(f"album:{url}:crew", *new_crew)
+        
+        # Remove from old crew member indexes and decrease climb counts
+        for crew_member in old_crew:
+            pipe.srem(f"index:albums:crew:{crew_member}", url)
+            # Get current climbs and decrease if > 0
+            current_climbs = self.redis.hget(f"climber:{crew_member}", "climbs")
+            if current_climbs and int(current_climbs) > 0:
+                pipe.hincrby(f"climber:{crew_member}", "climbs", -1)
+        
+        # Add to new crew member indexes and increase climb counts
+        for crew_member in new_crew:
+            pipe.sadd(f"index:albums:crew:{crew_member}", url)
+            pipe.hincrby(f"climber:{crew_member}", "climbs", 1)
+        
+        # Execute all operations
+        pipe.execute()
+        
+        # Recalculate levels for all affected climbers
+        affected_climbers = set(old_crew + new_crew)
+        for crew_member in affected_climbers:
+            await self._recalculate_climber_level(crew_member)
+        
+        logger.info(f"Updated album crew: {url} from {old_crew} to {new_crew}")
+
+    async def update_album_metadata(self, url: str, metadata: Dict) -> None:
+        """Update album metadata without changing crew data"""
+        
+        # Validate inputs
+        url = self._validate_url(url)
+        album_key = f"album:{url}"
+        
+        # Check if album exists
+        if not self.redis.exists(album_key):
+            raise ValidationError(f"Album not found: {url}")
+        
+        # Update only metadata fields
+        metadata_update = {
+            "title": metadata.get("title", ""),
+            "description": metadata.get("description", ""),
+            "date": metadata.get("date", ""),
+            "image_url": metadata.get("imageUrl", ""),
+            "cover_image": metadata.get("cover_image", ""),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        # Update album with new metadata
+        self.redis.hset(album_key, mapping=metadata_update)
+        logger.info(f"Updated metadata for album: {url}")
+
+    async def delete_album(self, url: str) -> bool:
+        """Delete an album using proper Redis data types"""
+        
+        # Validate input
+        url = self._validate_url(url)
+        
+        # Get current album
+        album = await self.get_album(url)
+        if not album:
+            return False
+        
+        crew = album["crew"]
+        
+        # Use pipeline for atomic operations
+        pipe = self.redis.pipeline()
+        
+        # Remove from crew indexes and decrease climb counts
+        for crew_member in crew:
+            pipe.srem(f"index:albums:crew:{crew_member}", url)
+            # Get current climbs and decrease if > 0
+            current_climbs = self.redis.hget(f"climber:{crew_member}", "climbs")
+            if current_climbs and int(current_climbs) > 0:
+                pipe.hincrby(f"climber:{crew_member}", "climbs", -1)
+        
+        # Remove from main index
+        pipe.srem("index:albums:all", url)
+        
+        # Delete album data and crew set
+        pipe.delete(f"album:{url}")
+        pipe.delete(f"album:{url}:crew")
+        
+        # Execute all operations
+        pipe.execute()
+        
+        # Recalculate levels for affected climbers
+        for crew_member in crew:
+            await self._recalculate_climber_level(crew_member)
+        
+        logger.info(f"Deleted album: {url}")
+        return True
+
+    async def delete_climber(self, name: str) -> bool:
+        """Delete a climber using proper Redis data types"""
+        
+        # Validate input
+        name = self._validate_name(name)
+        
+        # Get current climber
+        climber = await self.get_climber(name)
+        if not climber:
+            return False
+        
+        skills = climber["skills"]
+        tags = climber["tags"]
+        achievements = climber["achievements"]
+        
+        # Remove from all albums first
+        album_urls = list(self.redis.smembers(f"index:albums:crew:{name}"))
+        for url in album_urls:
+            album = await self.get_album(url)
+            if album:
+                new_crew = [member for member in album["crew"] if member != name]
+                await self.update_album_crew(url, new_crew)
+        
+        # Use pipeline for atomic operations
+        pipe = self.redis.pipeline()
+        
+        # Remove from indexes
+        pipe.srem("index:climbers:all", name)
+        pipe.srem("index:climbers:new", name)
+        
+        # Remove from skill indexes
+        for skill in skills:
+            pipe.srem(f"index:climbers:skill:{skill}", name)
+        
+        # Remove from tag indexes  
+        for tag in tags:
+            pipe.srem(f"index:climbers:tag:{tag}", name)
+        
+        # Remove from achievement indexes
+        for achievement in achievements:
+            pipe.srem(f"index:climbers:achievement:{achievement}", name)
+        
+        # Delete climber data and sets
+        pipe.delete(f"climber:{name}")
+        pipe.delete(f"climber:{name}:skills")
+        pipe.delete(f"climber:{name}:tags")
+        pipe.delete(f"climber:{name}:achievements")
+        
+        # Execute all operations
+        pipe.execute()
+        
+        # Remove image
+        await self.delete_image("climber", f"{name}/face")
+        
+        logger.info(f"Deleted climber: {name}")
+        return True
+
+    async def calculate_new_climbers(self) -> Set[str]:
+        """Calculate which climbers are new (first participation in last 14 days)"""
+        try:
+            cutoff_date = datetime.now() - timedelta(days=14)
+            new_climbers = set()
+            
+            # Get all albums sorted by date
+            albums = await self.get_all_albums()
+            if not albums:
+                logger.info("No albums found, skipping new climbers calculation")
+                return new_climbers
+            
+            # Process albums chronologically
+            albums_with_dates = []
+            import re
+            
+            for album in albums:
+                try:
+                    # Parse album date
+                    date_str = album.get("date", "")
+                    if not date_str:
+                        continue
+                    
+                    try:
+                        # Remove emoji and extra spaces
+                        clean_date = re.sub(r'📸.*$', '', date_str).strip()
+                        
+                        # Handle date ranges - use first date
+                        if '–' in clean_date:
+                            clean_date = clean_date.split('–')[0].strip()
+                        
+                        # Remove day of week
+                        clean_date = re.sub(r'^[A-Za-z]+,\s*', '', clean_date)
+                        
+                        # Add current year if not present
+                        if not re.search(r'\b20\d{2}\b', clean_date):
+                            clean_date = f"{clean_date}, {datetime.now().year}"
+                        
+                        # Parse date
+                        try:
+                            # Try different date formats
+                            for fmt in ["%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d %b %Y"]:
+                                try:
+                                    album_date = datetime.strptime(clean_date, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                            else:
+                                continue
+                        except ValueError:
+                            continue
+                        
+                        albums_with_dates.append((album_date, album))
+                        
+                    except Exception as e:
+                        logger.warning(f"Could not parse date '{date_str}' for album {album.get('url', 'unknown')}: {e}")
+                        continue
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing album {album.get('url', 'unknown')}: {e}")
+                    continue
+            
+            # Sort albums by date
+            albums_with_dates.sort(key=lambda x: x[0])
+            
+            # Track first appearances
+            first_appearance = {}
+            
+            for album_date, album in albums_with_dates:
+                for crew_member in album.get("crew", []):
+                    if crew_member not in first_appearance:
+                        first_appearance[crew_member] = album_date
+            
+            # Find climbers who first appeared in the last 14 days
+            for climber, first_date in first_appearance.items():
+                if first_date >= cutoff_date:
+                    new_climbers.add(climber)
+            
+            # Update the new climbers index
+            pipe = self.redis.pipeline()
+            pipe.delete("index:climbers:new")
+            if new_climbers:
+                pipe.sadd("index:climbers:new", *new_climbers)
+            pipe.execute()
+            
+            logger.info(f"Found {len(new_climbers)} new climbers: {new_climbers}")
+            return new_climbers
+            
+        except Exception as e:
+            logger.error(f"Error calculating new climbers: {e}")
+            return set()
+
     # === UTILITY METHODS ===
 
     async def _recalculate_climber_level(self, name: str) -> None:
