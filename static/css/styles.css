@@ -1035,10 +1035,11 @@ nav a.active {
     background: linear-gradient(90deg, #bb86fc, #bb86fc);
 }
 .progress-bar-inner.climbs {
-    background: linear-gradient(90deg, #ffb300, #ff5252);
+    background: linear-gradient(90deg, #ff8052
+    , #ff5252);
 }
 .progress-bar-inner.achievements {
-    background: linear-gradient(90deg, #f3646e, #ff9800);
+    background: linear-gradient(90deg, #f3646e, #531c1f);
 }
 .progress-bar-inner {
     height: 100%;
@@ -1083,7 +1084,7 @@ nav a.active {
 }
 .progress-next-bar {
     width: 100%;
-    height: 14px;
+    height: 18px;
     background: #181818;
     border-radius: 8px;
     overflow: hidden;
@@ -1874,7 +1875,7 @@ nav a.active {
     background: white;
     border-radius: 12px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-    max-width: 500px;
+    max-width: 800px;
     width: 90%;
     max-height: 80vh;
     overflow-y: auto;
@@ -2116,8 +2117,8 @@ nav a.active {
 }
 
 .image-preview {
-    max-width: 200px;
-    max-height: 200px;
+    /* max-width: 200px; */
+    /* max-height: 200px; */
     border-radius: 12px;
     object-fit: cover;
     margin-top: 1rem;
@@ -3124,9 +3125,16 @@ nav a.active {
 	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 	gap: 20px;
 	padding: 0;
-	margin: 0 1rem;
-	max-width: calc(100vw - 2rem);
+	margin: 0 auto;
+	max-width: 1200px;
 	box-sizing: border-box;
+}
+
+@media (max-width: 1232px) {
+	.memes-grid {
+		margin: 0 1rem;
+		max-width: calc(100vw - 2rem);
+	}
 }
 
 .meme-card {
@@ -3513,8 +3521,15 @@ nav a.active {
 	display: block;
 	box-sizing: border-box;
 	padding: 0;
-	margin: 0 1rem;
-	max-width: calc(100vw - 2rem);
+	margin: 0 auto;
+	max-width: 1050px;
+}
+
+@media (max-width: 1232px) {
+	.memes-grid.masonry-ready {
+		margin: 0 1rem;
+		max-width: calc(100vw - 2rem);
+	}
 }
 
 .memes-grid.masonry-ready .meme-card {

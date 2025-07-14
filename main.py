@@ -395,7 +395,7 @@ async def get_enriched_albums():
             })
 
         headers = {
-            "Cache-Control": "public, max-age=300, stale-while-revalidate=86400"
+            "Cache-Control": "public, max-age=30, stale-while-revalidate=300"
         }
         return Response(content=json.dumps(enriched_albums), media_type="application/json", headers=headers)
 

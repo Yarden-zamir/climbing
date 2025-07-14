@@ -1964,14 +1964,19 @@
 					</div>
 				`;
 				
-				// Store URL before closing modal
-				const albumUrlToRefresh = currentEditAlbum.url;
-				// Close modal immediately and refresh just this album
+				// Close modal immediately and trigger full refresh with animations
 				closeModal();
-				// Smoothly update just the edited album's crew display
+				
+				// Trigger full refresh with particle detection for new albums
 				setTimeout(() => {
-					refreshSingleAlbumCrew(albumUrlToRefresh);
-				}, 1500);
+					// Use the particle-enabled refresh function to show new album animations
+					if (window.autoRefreshAlbums) {
+						window.autoRefreshAlbums(false, true); // showLoadingState=false, detectChanges=true
+					} else {
+						// Fallback if particle system not available
+						window.location.reload();
+					}
+				}, 500);
 			}
 			
 			function showSubmissionError(message) {
