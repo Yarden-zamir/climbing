@@ -2,3 +2,5 @@
 *.pyc
 /logs
 *.rdb
+.env
+climbing.egg-info/

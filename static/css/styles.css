@@ -3888,3 +3888,7 @@ body:has(.pending-approval-notification) {
         padding-top: 140px;
     }
 }
+
+#crew-table-container {
+  padding-bottom: 6rem;
+}
