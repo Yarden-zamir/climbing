@@ -278,10 +278,13 @@ class RedisDataStore:
             # Create new record
             pipe.hset(new_key, mapping=updated_data)
 
-            # Move sets
-            pipe.rename(f"climber:{original_name}:skills", f"climber:{name}:skills")
-            pipe.rename(f"climber:{original_name}:tags", f"climber:{name}:tags")
-            pipe.rename(f"climber:{original_name}:achievements", f"climber:{name}:achievements")
+            # Move sets only if they exist
+            if self.redis.exists(f"climber:{original_name}:skills"):
+                pipe.rename(f"climber:{original_name}:skills", f"climber:{name}:skills")
+            if self.redis.exists(f"climber:{original_name}:tags"):
+                pipe.rename(f"climber:{original_name}:tags", f"climber:{name}:tags")
+            if self.redis.exists(f"climber:{original_name}:achievements"):
+                pipe.rename(f"climber:{original_name}:achievements", f"climber:{name}:achievements")
 
             # Update indexes
             pipe.srem("index:climbers:all", original_name)
@@ -324,6 +327,25 @@ class RedisDataStore:
 
         # Execute all operations
         pipe.execute()
+
+        # Handle image renaming in binary database (after pipeline execution)
+        if name_changed:
+            original_image_key = f"image:climber:{original_name}/face"
+            new_image_key = f"image:climber:{name}/face"
+            
+            try:
+                # Check if original image exists and get its data
+                image_data = self.binary_redis.get(original_image_key)
+                if image_data:
+                    # Store with new key
+                    self.binary_redis.set(new_image_key, image_data)
+                    # Delete old key
+                    self.binary_redis.delete(original_image_key)
+                    logger.info(f"Moved image from {original_image_key} to {new_image_key}")
+                else:
+                    logger.debug(f"No image found at {original_image_key} to move")
+            except Exception as e:
+                logger.error(f"Failed to move image from {original_image_key} to {new_image_key}: {e}")
 
         logger.info(f"Updated climber: {original_name} -> {name}")
 

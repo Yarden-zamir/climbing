@@ -264,19 +264,27 @@ def parse_meta_tags(html: str, url: str):
 
     def get_meta_tag(prop):
         tag = soup.find("meta", property=prop)
-        return tag["content"] if tag else None
+        if tag and hasattr(tag, 'attrs') and 'content' in tag.attrs:
+            return tag.attrs['content']
+        return None
 
     title = (
         get_meta_tag("og:title")
         or (soup.title.string if soup.title else "Untitled")
     )
-    title, date = title.split(" · ")
+
+    # Handle title parsing more safely
+    if title and " · " in title:
+        title, date = title.split(" · ", 1)
+    else:
+        date = ""
+
     description = (
         get_meta_tag("og:description") or "No description available."
     )
     image_url = get_meta_tag("og:image") or ""
 
-    if image_url:
+    if image_url and isinstance(image_url, str):
         image_url = re.sub(r"=w\d+.*$", "=s0", image_url)
 
     return {
