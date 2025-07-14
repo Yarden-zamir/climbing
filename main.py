@@ -150,6 +150,17 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Ownership migration failed: {e}")
 
+    # Clean up stored level values (run once after switching to dynamic calculation)
+    try:
+        logger.info("Running level values cleanup...")
+        cleanup_result = await redis_store.cleanup_stored_level_values()
+        if cleanup_result["total_fields_removed"] > 0:
+            logger.info(f"✅ Level cleanup completed: {cleanup_result}")
+        else:
+            logger.info("✅ Level cleanup completed: No stored level values found to clean")
+    except Exception as e:
+        logger.error(f"❌ Level cleanup failed: {e}")
+
 
 async def perform_album_metadata_refresh():
     """Perform album metadata refresh - can be called manually or automatically"""
@@ -661,6 +672,16 @@ async def get_achievements():
     except Exception as e:
         logger.error(f"Error getting achievements: {e}")
         raise HTTPException(status_code=500, detail="Failed to get achievements")
+
+
+@app.get("/api/level-calculator")
+async def level_calculator_utils():
+    """Get level calculation utilities for frontend"""
+    return JSONResponse(content={
+        "climbsPerLevel": 5,
+        "baseLevel": 1,
+        "description": "1 base level + 1 level per skill + 1 level per 5 climbs"
+    })
 
 
 @app.post("/api/achievements")

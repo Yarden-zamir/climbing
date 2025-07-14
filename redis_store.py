@@ -145,18 +145,11 @@ class RedisDataStore:
         if self.redis.exists(climber_key):
             raise ValidationError(f"Climber already exists: {name}")
 
-        # Calculate initial level
-        level_from_skills = len(skills)
-        level_from_climbs = 0
-        total_level = 1 + level_from_skills + level_from_climbs
-
         # Store climber data (keep location as JSON for now)
+        # Note: level values are calculated dynamically, not stored
         climber_data = {
             "name": name,
             "location": json.dumps(location),
-            "level": str(total_level),
-            "level_from_skills": str(level_from_skills),
-            "level_from_climbs": str(level_from_climbs),
             "climbs": "0",
             "is_new": "true",
             "created_at": datetime.now().isoformat(),
@@ -225,11 +218,15 @@ class RedisDataStore:
         climber_data["achievements"] = achievements
 
         # Convert numeric fields
-        climber_data["level"] = int(climber_data.get("level", "1"))
-        climber_data["level_from_skills"] = int(climber_data.get("level_from_skills", "0"))
-        climber_data["level_from_climbs"] = int(climber_data.get("level_from_climbs", "0"))
-        climber_data["climbs"] = int(climber_data.get("climbs", "0"))
+        climbs = int(climber_data.get("climbs", "0"))
+        climber_data["climbs"] = climbs
         climber_data["is_new"] = climber_data.get("is_new", "false") == "true"
+
+        # Calculate levels dynamically using current logic (ignore stored values)
+        total_level, level_from_skills, level_from_climbs = self.calculate_climber_level(len(skills), climbs)
+        climber_data["level"] = total_level
+        climber_data["level_from_skills"] = level_from_skills
+        climber_data["level_from_climbs"] = level_from_climbs
 
         # Add computed fields
         climber_data["first_climb_date"] = climber_data.get("first_climb_date", None)
@@ -259,22 +256,16 @@ class RedisDataStore:
         original_key = f"climber:{original_name}"
         new_key = f"climber:{name}"
 
-        # Calculate level
-        level_from_skills = len(skills)
+        # Get current climbs
         current_climbs = current_climber["climbs"]
-        level_from_climbs = current_climbs // 10
-        total_level = 1 + level_from_skills + level_from_climbs
 
         # Use pipeline for atomic operations
         pipe = self.redis.pipeline()
 
-        # Update climber data
+        # Update climber data (levels calculated dynamically, not stored)
         updated_data = {
             "name": name,
             "location": json.dumps(location),
-            "level": str(total_level),
-            "level_from_skills": str(level_from_skills),
-            "level_from_climbs": str(level_from_climbs),
             "climbs": str(current_climbs),
             "is_new": "true" if current_climber.get("is_new", False) else "false",
             "created_at": current_climber.get("created_at", datetime.now().isoformat()),
@@ -673,26 +664,105 @@ class RedisDataStore:
 
     # === UTILITY METHODS ===
 
+    @staticmethod
+    def calculate_climber_level(skills_count: int, climbs: int) -> tuple[int, int, int]:
+        """
+        Central level calculation for climbers.
+        Returns: (total_level, level_from_skills, level_from_climbs)
+        """
+        level_from_skills = skills_count
+        level_from_climbs = climbs // 5  # 1 level per 5 climbs
+        total_level = 1 + level_from_skills + level_from_climbs
+        return total_level, level_from_skills, level_from_climbs
+
+    @staticmethod
+    def calculate_climbs_to_next_level(climbs: int) -> int:
+        """Calculate how many climbs needed to reach the next level"""
+        climbs_in_current_level = climbs % 5
+        return 5 - climbs_in_current_level if climbs_in_current_level > 0 else 0
+
     async def _recalculate_climber_level(self, name: str) -> None:
-        """Recalculate and update climber level"""
+        """Update climber timestamp (levels are calculated dynamically)"""
         climber_key = f"climber:{name}"
 
-        # Get current data
-        skills_count = len(self.redis.smembers(f"climber:{name}:skills"))
-        climbs = int(self.redis.hget(climber_key, "climbs") or 0)
+        # Just update timestamp since levels are calculated dynamically
+        self.redis.hset(climber_key, "updated_at", datetime.now().isoformat())
 
-        # Calculate levels
-        level_from_skills = skills_count
-        level_from_climbs = climbs // 10
-        total_level = 1 + level_from_skills + level_from_climbs
+    async def cleanup_stored_level_values(self) -> dict:
+        """
+        Remove stored level values from all climber records since levels are now calculated dynamically.
+        This should be run once after switching to dynamic level calculation.
+        """
+        logger.info("Starting cleanup of stored level values...")
+        
+        # Fields to remove
+        level_fields = ["level", "level_from_skills", "level_from_climbs"]
+        
+        # Get all climber keys
+        climber_keys = self.redis.keys("climber:*")
+        # Ensure keys are strings and filter out skill/achievement sets
+        string_keys = []
+        for key in climber_keys:
+            key_str = key.decode() if isinstance(key, bytes) else key
+            if not key_str.endswith(":skills") and not key_str.endswith(":achievements"):
+                string_keys.append(key_str)
+        climber_keys = string_keys
 
-        # Update
-        self.redis.hset(climber_key, mapping={
-            "level": str(total_level),
-            "level_from_skills": str(level_from_skills),
-            "level_from_climbs": str(level_from_climbs),
-            "updated_at": datetime.now().isoformat()
-        })
+        cleaned_count = 0
+        total_fields_removed = 0
+        debug_info = []
+
+        for climber_key in climber_keys:
+            try:
+                # First check if this key is actually a hash
+                key_type = self.redis.type(climber_key)
+                key_type_str = key_type.decode() if isinstance(key_type, bytes) else key_type
+                
+                if key_type_str != 'hash':
+                    debug_info.append(f"Skipped {climber_key}: type={key_type_str}")
+                    continue
+                
+                # Get all fields in this hash for debugging
+                all_fields = self.redis.hkeys(climber_key)
+                all_fields_str = [f.decode() if isinstance(f, bytes) else f for f in all_fields]
+                
+                # Check if any level fields exist
+                existing_fields = []
+                for field in level_fields:
+                    if self.redis.hexists(climber_key, field):
+                        existing_fields.append(field)
+                
+                # Log what we found for the first few keys
+                if len(debug_info) < 5:
+                    debug_info.append(f"Key {climber_key}: fields={all_fields_str}, level_fields_found={existing_fields}")
+                
+                # Remove the fields if they exist
+                if existing_fields:
+                    self.redis.hdel(climber_key, *existing_fields)
+                    cleaned_count += 1
+                    total_fields_removed += len(existing_fields)
+                    logger.info(f"Cleaned {climber_key}: removed {existing_fields}")
+                    
+                    # Update timestamp to indicate cleanup
+                    self.redis.hset(climber_key, "updated_at", datetime.now().isoformat())
+                    
+            except Exception as e:
+                # Log individual key errors but continue with cleanup
+                logger.warning(f"Failed to clean key {climber_key}: {e}")
+                continue
+        
+        # Log debug info
+        for info in debug_info:
+            logger.info(f"DEBUG: {info}")
+        
+        result = {
+            "cleaned_climbers": cleaned_count,
+            "total_fields_removed": total_fields_removed,
+            "total_climbers": len(climber_keys)
+        }
+        
+        logger.info(f"Cleanup completed: {result}")
+        return result
 
     # === QUERY METHODS ===
 

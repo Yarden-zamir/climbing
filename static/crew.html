@@ -230,11 +230,29 @@
     <!-- Cropper.js JavaScript -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
     <script>
+        // Level calculation utilities (matches backend logic)
+        const LevelCalculator = {
+            CLIMBS_PER_LEVEL: 5,
+            BASE_LEVEL: 1,
+            
+            calculateLevel(skillsCount, climbs) {
+                const levelFromSkills = skillsCount;
+                const levelFromClimbs = Math.floor(climbs / this.CLIMBS_PER_LEVEL);
+                const totalLevel = this.BASE_LEVEL + levelFromSkills + levelFromClimbs;
+                return { totalLevel, levelFromSkills, levelFromClimbs };
+            },
+            
+            calculateClimbsToNextLevel(climbs) {
+                const climbsInCurrentLevel = climbs % this.CLIMBS_PER_LEVEL;
+                return climbsInCurrentLevel === 0 ? 0 : this.CLIMBS_PER_LEVEL - climbsInCurrentLevel;
+            }
+        };
+        
         let crewData = [];
         let skillOrder = [];
         let tagOrder = [];
         let achievementOrder = [];
-        let sortKey = "level";
+        let sortKey = "new"; // Default to 'new' sort
         let sortDir = -1;
         
         // Function to format first onion climb tooltip with days ago and date
@@ -488,8 +506,9 @@
                             <th class="sortable" data-key="name">Name</th>
                             <th class="sortable" data-key="location">Location</th>
                             <th class="sortable" data-key="skills">Skills</th>
+                            <th class="sortable" data-key="new">New</th>
                             <th class="sortable" data-key="level">Level</th>
-                                    <th class="sortable" data-key="climbs">Climbs</th>
+                            <th class="sortable" data-key="climbs">Climbs</th>
                         </tr>
                     </thead>
 <tbody>
@@ -525,6 +544,7 @@
                 ).join("")}
                 <span class="skill-add-badge" data-crew-name="${encodeURIComponent(c.name)}" title="Add skill" style="display: none;">+</span>
             </td>
+            <td data-label="New">${c.is_new ? 'Yes' : 'No'}</td>
             <td data-label="Level">
                 <span class="level-badge" data-idx="${idx}" tabindex="0">
                     Lv. ${Math.trunc(c.level)}
@@ -575,7 +595,10 @@
                 }
                 th.onclick = () => {
                     if (sortKey === th.dataset.key) sortDir *= -1;
-                    else { sortKey = th.dataset.key; sortDir = -1; }
+                    else {
+                        sortKey = th.dataset.key;
+                        sortDir = -1;
+                    }
                     sortAndRender();
                 };
             });
@@ -657,7 +680,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         const skillsW = (c.level_from_skills / total) * 100;
         const climbsW = (c.level_from_climbs / total) * 100;
         const climbsInCurrent = c.climbs % 5;
-        const nextPct = (climbsInCurrent / 5) * 100;
+        const climbsToNext = 5 - climbsInCurrent;
         
         // Create the progress content
         const progressContent = document.createElement('div');
@@ -667,7 +690,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 <div class="progress-next-label">Progress to Next Level</div>
                 <div class="progress-next-bar">
                     <div class="progress-next-bar-inner" style="width:0%"></div>
-                    <div class="progress-next-bar-text">${Math.round(nextPct)}%</div>
+                    <div class="progress-next-bar-text">${climbsToNext} climb${climbsToNext === 1 ? '' : 's'} to next level</div>
                 </div>
                 <div class="progress-bar-label">Level Breakdown</div>
                 <div class="progress-bar">
@@ -679,7 +702,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 <div class="progress-breakdown">
                     <span class="crew">1 level from being crew</span>
                     <span class="skills">${c.level_from_skills} levels from ${c.skills.length} skills</span>
-                    <span class="climbs">${c.climbs / 5} levels from <a href="/albums?people=${encodeURIComponent(c.name)}" class="climbs-link">${c.climbs} climbs</a></span>
+                    <span class="climbs">${Math.floor(c.climbs / 5)} levels from <a href="/albums?people=${encodeURIComponent(c.name)}" class="climbs-link">${c.climbs} climbs</a></span>
                 </div>
             </div>
         `;
@@ -692,7 +715,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         setTimeout(() => {
             progressContent.classList.add('expanded');
             // Animate progress bars
-            progressContent.querySelector('.progress-next-bar-inner').style.width = `${nextPct}%`;
+            progressContent.querySelector('.progress-next-bar-inner').style.width = `${(climbsInCurrent / 5) * 100}%`;
             progressContent.querySelector('.progress-bar-inner.crew').style.width = `${crewW}%`;
             progressContent.querySelector('.progress-bar-inner.skills').style.width = `${skillsW}%`;
             progressContent.querySelector('.progress-bar-inner.climbs').style.width = `${climbsW}%`;
@@ -774,23 +797,29 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             });
         }
 
+        function sortByNewThenLevel(a, b) {
+            if (a.is_new && !b.is_new) return -1;
+            if (!a.is_new && b.is_new) return 1;
+            // Fallback to level descending
+            return b.level - a.level;
+        }
+
+        function sortByKey(a, b, key, dir) {
+            let vA = a[key], vB = b[key];
+            if (key === "skills") vA = (a.skills.length + (a.tags ? a.tags.length : 0)), vB = (b.skills.length + (b.tags ? b.tags.length : 0));
+            if (key === "location") vA = a.location[0] || "", vB = b.location[0] || "";
+            if (key === "climbs") vA = a.climbs, vB = b.climbs;
+            if (typeof vA === "string") return dir * vA.localeCompare(vB);
+            return dir * (vA - vB);
+        }
+
         function sortAndRender() {
             let sorted = [...crewData];
-            sorted.sort((a, b) => {
-                // First priority: Always put new climbers at the top (unless specifically sorting by a different field)
-                if (sortKey === "level" && sortDir === -1) { // Default sorting
-                    if (a.is_new && !b.is_new) return -1;
-                    if (!a.is_new && b.is_new) return 1;
-                }
-                
-                // Regular sorting logic
-                let vA = a[sortKey], vB = b[sortKey];
-                if (sortKey === "skills") vA = (a.skills.length + (a.tags ? a.tags.length : 0)), vB = (b.skills.length + (b.tags ? b.tags.length : 0));
-                if (sortKey === "location") vA = a.location[0] || "", vB = b.location[0] || "";
-                if (sortKey === "mbs") vA = a.climbs, vB = b.climbs;
-                if (typeof vA === "string") return sortDir * vA.localeCompare(vB);
-                return sortDir * (vA - vB);
-            });
+            if (sortKey === "new") {
+                sorted.sort(sortByNewThenLevel);
+            } else {
+                sorted.sort((a, b) => sortByKey(a, b, sortKey, sortDir));
+            }
             renderTable(sorted);
         }
 
