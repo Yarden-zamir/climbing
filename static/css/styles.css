@@ -1038,7 +1038,7 @@ nav a.active {
     background: linear-gradient(90deg, #ffb300, #ff5252);
 }
 .progress-bar-inner.achievements {
-    background: linear-gradient(90deg, #F95662, #ff9800);
+    background: linear-gradient(90deg, #f3646e, #ff9800);
 }
 .progress-bar-inner {
     height: 100%;
@@ -1072,7 +1072,7 @@ nav a.active {
 .progress-breakdown .crew { color: #03dac6; }
 .progress-breakdown .skills { color: #bb86fc; }
 .progress-breakdown .climbs { color: #ffae52; }
-.progress-breakdown .achievements { color: #F95662; }
+.progress-breakdown .achievements { color: #f3646e; }
 
 .progress-next-label {
     font-size: 1em;
@@ -1653,7 +1653,7 @@ nav a.active {
 
 .achievement-badge {
     display: inline-block;
-    background: #F95662;
+    background: #f3646e;
     color: #1a1a1a;
     border-radius: 6px;
     padding: 0.3em 0.8em;
