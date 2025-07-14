@@ -2438,7 +2438,7 @@ async def export_database(user: dict = Depends(get_current_user)):
 
 
 async def export_redis_database() -> str:
-    """Export Redis database to Redis DUMP format (excludes sessions and temp data, includes binary images)"""
+    """Export Redis database using standard Redis commands (excludes sessions and temp data, includes binary images)"""
     
     try:
         # Get keys from both text and binary Redis databases
@@ -2454,9 +2454,16 @@ async def export_redis_database() -> str:
         commands.append(f"# Generated: {datetime.datetime.now().isoformat()}")
         commands.append("# Excludes: sessions and temp data")
         commands.append("# Includes: text data (DB 0) and binary images (DB 1)")
-        commands.append("# Usage: redis-cli < this_file.redis")
-        commands.append("# Note: Restores to both DB 0 and DB 1 automatically")
+        commands.append("# Usage: grep -v '^#' this_file.redis | redis-cli")
+        commands.append("# Note: Uses standard Redis commands for maximum compatibility")
         commands.append("")
+        
+        # Helper function to escape Redis values
+        def escape_redis_value(value):
+            if isinstance(value, str):
+                # Escape quotes and backslashes
+                return value.replace('\\', '\\\\').replace('"', '\\"')
+            return str(value)
         
         # Process text database keys (DB 0)
         commands.append("# === TEXT DATA (DB 0) ===")
@@ -2468,32 +2475,61 @@ async def export_redis_database() -> str:
                 continue
             
             try:
-                # Get TTL (Time To Live) for the key
+                # Get key type and TTL
+                key_type = redis_store.redis.type(key)
                 ttl = redis_store.redis.ttl(key)
-                if ttl == -2:  # Key doesn't exist
-                    continue
                 
-                # Use Redis DUMP command to serialize the key
-                dumped_data = redis_store.redis.dump(key)
-                if dumped_data is None:
-                    continue
-                
-                # Convert binary dump to base64 for storage
-                encoded_dump = base64.b64encode(dumped_data).decode('ascii')
-                
-                # Create RESTORE command
-                if ttl == -1:  # No expiration
-                    restore_cmd = f'RESTORE "{key}" 0 "{encoded_dump}"'
-                else:
-                    # Convert TTL to milliseconds
-                    ttl_ms = ttl * 1000
-                    restore_cmd = f'RESTORE "{key}" {ttl_ms} "{encoded_dump}"'
-                
-                commands.append(restore_cmd)
-                export_count += 1
+                if key_type == "string":
+                    value = redis_store.redis.get(key)
+                    if value is not None:
+                        escaped_value = escape_redis_value(value)
+                        commands.append(f'SET "{key}" "{escaped_value}"')
+                        if ttl > 0:
+                            commands.append(f'EXPIRE "{key}" {ttl}')
+                        export_count += 1
+                        
+                elif key_type == "hash":
+                    hash_data = redis_store.redis.hgetall(key)
+                    if hash_data:
+                        hash_args = []
+                        for field, value in hash_data.items():
+                            hash_args.extend([f'"{escape_redis_value(field)}"', f'"{escape_redis_value(value)}"'])
+                        commands.append(f'HSET "{key}" {" ".join(hash_args)}')
+                        if ttl > 0:
+                            commands.append(f'EXPIRE "{key}" {ttl}')
+                        export_count += 1
+                        
+                elif key_type == "set":
+                    set_members = redis_store.redis.smembers(key)
+                    if set_members:
+                        escaped_members = [f'"{escape_redis_value(member)}"' for member in set_members]
+                        commands.append(f'SADD "{key}" {" ".join(escaped_members)}')
+                        if ttl > 0:
+                            commands.append(f'EXPIRE "{key}" {ttl}')
+                        export_count += 1
+                        
+                elif key_type == "list":
+                    list_values = redis_store.redis.lrange(key, 0, -1)
+                    if list_values:
+                        escaped_values = [f'"{escape_redis_value(value)}"' for value in list_values]
+                        commands.append(f'RPUSH "{key}" {" ".join(escaped_values)}')
+                        if ttl > 0:
+                            commands.append(f'EXPIRE "{key}" {ttl}')
+                        export_count += 1
+                        
+                elif key_type == "zset":
+                    zset_data = redis_store.redis.zrange(key, 0, -1, withscores=True)
+                    if zset_data:
+                        zset_args = []
+                        for member, score in zset_data:
+                            zset_args.extend([str(score), f'"{escape_redis_value(member)}"'])
+                        commands.append(f'ZADD "{key}" {" ".join(zset_args)}')
+                        if ttl > 0:
+                            commands.append(f'EXPIRE "{key}" {ttl}')
+                        export_count += 1
                 
             except Exception as e:
-                logger.warning(f"Failed to dump text key {key}: {e}")
+                logger.warning(f"Failed to export text key {key}: {e}")
                 continue
         
         # Process binary database keys (DB 1) 
@@ -2509,32 +2545,21 @@ async def export_redis_database() -> str:
                 continue
                 
             try:
-                # Get TTL (Time To Live) for the key  
+                # Get binary data and TTL
+                binary_data = redis_store.binary_redis.get(key)
                 ttl = redis_store.binary_redis.ttl(key)
-                if ttl == -2:  # Key doesn't exist
-                    continue
                 
-                # Use Redis DUMP command to serialize the key
-                dumped_data = redis_store.binary_redis.dump(key)
-                if dumped_data is None:
-                    continue
-                
-                # Convert binary dump to base64 for storage
-                encoded_dump = base64.b64encode(dumped_data).decode('ascii')
-                
-                # Create RESTORE command using string key
-                if ttl == -1:  # No expiration
-                    restore_cmd = f'RESTORE "{key_str}" 0 "{encoded_dump}"'
-                else:
-                    # Convert TTL to milliseconds
-                    ttl_ms = ttl * 1000
-                    restore_cmd = f'RESTORE "{key_str}" {ttl_ms} "{encoded_dump}"'
-                
-                commands.append(restore_cmd)
-                export_count += 1
+                if binary_data is not None:
+                    # Encode binary data as base64 for storage
+                    encoded_data = base64.b64encode(binary_data).decode('ascii')
+                    # Store as string with base64 marker
+                    commands.append(f'SET "{key_str}" "base64:{encoded_data}"')
+                    if ttl > 0:
+                        commands.append(f'EXPIRE "{key_str}" {ttl}')
+                    export_count += 1
                 
             except Exception as e:
-                logger.warning(f"Failed to dump binary key {key_str}: {e}")
+                logger.warning(f"Failed to export binary key {key_str}: {e}")
                 continue
         
         # Add footer with statistics
@@ -2543,15 +2568,18 @@ async def export_redis_database() -> str:
         commands.append(f"# Export completed: {export_count} keys exported")
         commands.append(f"# Total keys found: {total_keys} (Text DB: {len(text_keys)}, Binary DB: {len(binary_keys)})")
         commands.append(f"# Excluded keys: {total_keys - export_count}")
+        commands.append("")
+        commands.append("# NOTE: Binary data is stored as base64-encoded strings with 'base64:' prefix")
+        commands.append("# You may need to decode them back to binary format depending on your application")
         
         # Join all commands
-        redis_dump = "\n".join(commands)
+        redis_export = "\n".join(commands)
         
-        logger.info(f"Redis dump export completed: {export_count} keys exported out of {total_keys} total keys (Text: {len(text_keys)}, Binary: {len(binary_keys)})")
-        return redis_dump
+        logger.info(f"Redis export completed: {export_count} keys exported out of {total_keys} total keys (Text: {len(text_keys)}, Binary: {len(binary_keys)})")
+        return redis_export
         
     except Exception as e:
-        logger.error(f"Error during Redis dump export: {e}")
+        logger.error(f"Error during Redis export: {e}")
         raise
 
 
