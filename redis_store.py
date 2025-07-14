@@ -223,10 +223,12 @@ class RedisDataStore:
         climber_data["is_new"] = climber_data.get("is_new", "false") == "true"
 
         # Calculate levels dynamically using current logic (ignore stored values)
-        total_level, level_from_skills, level_from_climbs = self.calculate_climber_level(len(skills), climbs)
+        total_level, level_from_skills, level_from_climbs, level_from_achievements = self.calculate_climber_level(
+            len(skills), climbs, len(achievements))
         climber_data["level"] = total_level
         climber_data["level_from_skills"] = level_from_skills
         climber_data["level_from_climbs"] = level_from_climbs
+        climber_data["level_from_achievements"] = level_from_achievements
 
         # Add computed fields
         climber_data["first_climb_date"] = climber_data.get("first_climb_date", None)
@@ -665,15 +667,16 @@ class RedisDataStore:
     # === UTILITY METHODS ===
 
     @staticmethod
-    def calculate_climber_level(skills_count: int, climbs: int) -> tuple[int, int, int]:
+    def calculate_climber_level(skills_count: int, climbs: int, achievements_count: int = 0) -> tuple[int, int, int, int]:
         """
         Central level calculation for climbers.
-        Returns: (total_level, level_from_skills, level_from_climbs)
+        Returns: (total_level, level_from_skills, level_from_climbs, level_from_achievements)
         """
         level_from_skills = skills_count
         level_from_climbs = climbs // 5  # 1 level per 5 climbs
-        total_level = 1 + level_from_skills + level_from_climbs
-        return total_level, level_from_skills, level_from_climbs
+        level_from_achievements = achievements_count
+        total_level = 1 + level_from_skills + level_from_climbs + level_from_achievements
+        return total_level, level_from_skills, level_from_climbs, level_from_achievements
 
     @staticmethod
     def calculate_climbs_to_next_level(climbs: int) -> int:

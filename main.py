@@ -680,7 +680,7 @@ async def level_calculator_utils():
     return JSONResponse(content={
         "climbsPerLevel": 5,
         "baseLevel": 1,
-        "description": "1 base level + 1 level per skill + 1 level per 5 climbs"
+        "description": "1 base level + 1 level per skill + 1 level per 5 climbs + 1 level per achievement"
     })
 
 
