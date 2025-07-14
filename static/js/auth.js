@@ -113,7 +113,7 @@ class AuthManager {
     }
 
     updateUI() {
-        // Update navigation based on auth status
+        // Update navigation
         this.updateNavigation();
         
         // Show/hide auth-specific content
@@ -121,6 +121,9 @@ class AuthManager {
         
         // Update any user info displays
         this.updateUserInfo();
+        
+        // Show pending approval notification if user is pending
+        this.updatePendingNotification();
     }
 
     updateNavigation() {
