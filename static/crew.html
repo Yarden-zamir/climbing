@@ -257,6 +257,104 @@
         let sortKey = "new"; // Default to 'new' sort
         let sortDir = -1;
         
+        // User preferences functions
+        async function saveSortPreference() {
+            try {
+                console.log('saveSortPreference: Checking auth...');
+                
+                // Only save if user is authenticated
+                if (!window.authManager || !window.authManager.isUserAuthenticated()) {
+                    console.log('saveSortPreference: User not authenticated, skipping');
+                    return;
+                }
+                
+                const user = window.authManager.getCurrentUser();
+                console.log('saveSortPreference: User authenticated:', user?.email);
+                
+                const sortPreference = {
+                    sortKey: sortKey,
+                    sortDir: sortDir
+                };
+                
+                console.log('saveSortPreference: Saving preference:', sortPreference);
+                
+                const response = await fetch('/api/user/preferences/crew_sort', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        value: sortPreference
+                    })
+                });
+                
+                console.log('saveSortPreference: Response status:', response.status);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('saveSortPreference: Success response:', data);
+                } else {
+                    const errorText = await response.text();
+                    console.error('saveSortPreference: Error response:', response.status, errorText);
+                }
+            } catch (error) {
+                console.error('Error saving sort preference:', error);
+            }
+        }
+        
+        async function loadSortPreference() {
+            try {
+                console.log('loadSortPreference: Checking auth...');
+                
+                // Only load if user is authenticated
+                if (!window.authManager || !window.authManager.isUserAuthenticated()) {
+                    console.log('loadSortPreference: User not authenticated, skipping');
+                    return;
+                }
+                
+                const user = window.authManager.getCurrentUser();
+                console.log('loadSortPreference: User authenticated:', user?.email);
+                
+                const response = await fetch('/api/user/preferences/crew_sort', {
+                    method: 'GET',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                console.log('loadSortPreference: Response status:', response.status);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('loadSortPreference: Response data:', data);
+                    
+                    if (data.exists && data.preference_value) {
+                        const savedPreference = data.preference_value;
+                        const oldSortKey = sortKey;
+                        const oldSortDir = sortDir;
+                        
+                        sortKey = savedPreference.sortKey || "new";
+                        sortDir = savedPreference.sortDir || -1;
+                        
+                        console.log('Sort preference loaded:', {
+                            old: { sortKey: oldSortKey, sortDir: oldSortDir },
+                            new: { sortKey, sortDir },
+                            saved: savedPreference
+                        });
+                    } else {
+                        console.log('loadSortPreference: No saved preference found');
+                    }
+                } else {
+                    const errorText = await response.text();
+                    console.error('loadSortPreference: Error response:', response.status, errorText);
+                }
+            } catch (error) {
+                console.error('Error loading sort preference:', error);
+            }
+        }
+        
         // Function to format first onion climb tooltip with days ago and date
         function getFirstClimbTooltip(firstClimbDate) {
             if (!firstClimbDate) {
@@ -595,12 +693,16 @@
                 if (th.dataset.key === sortKey) {
                     th.classList.add(sortDir === 1 ? "sorted-asc" : "sorted-desc");
                 }
-                th.onclick = () => {
+                th.onclick = async () => {
                     if (sortKey === th.dataset.key) sortDir *= -1;
                     else {
                         sortKey = th.dataset.key;
                         sortDir = -1;
                     }
+                    
+                    // Save the new sort preference
+                    await saveSortPreference();
+                    
                     sortAndRender();
                 };
             });
@@ -1246,10 +1348,37 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         window.autoRefreshCrew = autoRefreshCrewWithParticles;
         window.particleSystem = particleSystem;
          
-         // Initial load (store initial data for comparison)
-         autoRefreshCrewWithParticles(false, false).then(() => {
-             previousCrewData = [...crewData]; // Store initial state
-         });
+         // Wait for auth manager to be ready, then load preferences and data
+         async function initializePage() {
+             // Wait for auth manager to be ready
+             if (window.authManager) {
+                 // If authManager exists but might still be initializing, wait a bit
+                 let retries = 0;
+                 while (retries < 10 && window.authManager && typeof window.authManager.isUserAuthenticated === 'undefined') {
+                     await new Promise(resolve => setTimeout(resolve, 100));
+                     retries++;
+                 }
+             }
+             
+             // Load sort preferences first
+             await loadSortPreference();
+             
+             // Then load crew data
+             await autoRefreshCrewWithParticles(false, false);
+             
+             // Store initial state
+             previousCrewData = [...crewData];
+         }
+         
+         // Initialize when auth is ready
+         if (window.authManager) {
+             initializePage();
+         } else {
+             // Wait for auth manager to be created
+             document.addEventListener('DOMContentLoaded', () => {
+                 setTimeout(initializePage, 200); // Give auth manager time to initialize
+             });
+         }
 
          // Initialize add crew functionality
         initAddCrewModal();

@@ -78,6 +78,14 @@ class AuthManager {
                 this.closeProfileDropdown();
             }
         });
+
+        // Clear preferences button click
+        document.addEventListener('click', (e) => {
+            if (e.target.matches('.clear-preferences-btn, .clear-preferences-btn *')) {
+                e.preventDefault();
+                this.clearUserPreferences();
+            }
+        });
     }
 
     login() {
@@ -184,6 +192,10 @@ class AuthManager {
                 </div>
                 <hr class="dropdown-divider">
                 ${adminPanelLink}
+                <button class="clear-preferences-btn dropdown-item" style="background: none; border: none; color: inherit; padding: 8px 12px; text-align: left; width: 100%; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                    <span>🗑️</span> Clear Preferences
+                </button>
+                <hr class="dropdown-divider">
                 <a href="/auth/logout" class="logout-btn dropdown-item">
                     <span>🚪</span> Logout
                 </a>
@@ -242,6 +254,63 @@ class AuthManager {
     async refreshAuthStatus() {
         await this.checkAuthStatus();
         this.updateUI();
+    }
+
+    // Method to clear all user preferences
+    async clearUserPreferences() {
+        if (!this.isAuthenticated || !this.currentUser) {
+            console.log('Cannot clear preferences: user not authenticated');
+            return;
+        }
+
+        const confirmed = confirm('Are you sure you want to clear all your saved preferences? This cannot be undone.');
+        if (!confirmed) return;
+
+        try {
+            console.log('Clearing user preferences...');
+            
+            // Get all current preferences
+            const response = await fetch('/api/user/preferences', {
+                method: 'GET',
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const preferences = data.preferences || {};
+                
+                // Delete each preference
+                const deletePromises = Object.keys(preferences).map(async (key) => {
+                    const deleteResponse = await fetch(`/api/user/preferences/${key}`, {
+                        method: 'DELETE',
+                        credentials: 'include'
+                    });
+                    
+                    if (!deleteResponse.ok) {
+                        console.error(`Failed to delete preference: ${key}`);
+                    }
+                    return { key, success: deleteResponse.ok };
+                });
+
+                const results = await Promise.all(deletePromises);
+                const successCount = results.filter(r => r.success).length;
+                
+                if (successCount > 0) {
+                    alert(`Successfully cleared ${successCount} preference(s). The page will reload to apply changes.`);
+                    // Reload the page to reset any UI state
+                    window.location.reload();
+                } else {
+                    alert('No preferences found to clear.');
+                }
+            } else {
+                throw new Error('Failed to fetch preferences');
+            }
+        } catch (error) {
+            console.error('Error clearing preferences:', error);
+            alert('Failed to clear preferences. Please try again.');
+        } finally {
+            this.closeProfileDropdown();
+        }
     }
 }
 

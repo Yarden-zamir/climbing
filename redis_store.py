@@ -1030,6 +1030,72 @@ class RedisDataStore:
         result = self.redis.delete(session_key)
         return result > 0
 
+    # === USER PREFERENCES ===
+
+    async def set_user_preference(self, user_id: str, preference_key: str, preference_value: any) -> None:
+        """Set a user preference"""
+        if not user_id or not preference_key:
+            raise ValidationError("User ID and preference key are required")
+
+        preference_field = f"preferences:{preference_key}"
+        user_key = f"user:{user_id}"
+
+        # Store preference as JSON if it's a complex object
+        if isinstance(preference_value, (dict, list)):
+            preference_value = json.dumps(preference_value)
+
+        self.redis.hset(user_key, preference_field, preference_value)
+        logger.info(f"Set user preference: {user_id}:{preference_key} = {preference_value}")
+
+    async def get_user_preference(self, user_id: str, preference_key: str, default=None) -> any:
+        """Get a user preference"""
+        if not user_id or not preference_key:
+            return default
+
+        preference_field = f"preferences:{preference_key}"
+        user_key = f"user:{user_id}"
+
+        preference_value = self.redis.hget(user_key, preference_field)
+
+        if preference_value is None:
+            return default
+
+        # Try to parse as JSON, fall back to string
+        try:
+            return json.loads(preference_value)
+        except (json.JSONDecodeError, TypeError):
+            return preference_value
+
+    async def get_all_user_preferences(self, user_id: str) -> Dict[str, any]:
+        """Get all user preferences"""
+        if not user_id:
+            return {}
+
+        user_key = f"user:{user_id}"
+        user_data = self.redis.hgetall(user_key)
+
+        preferences = {}
+        for field, value in user_data.items():
+            if field.startswith("preferences:"):
+                pref_key = field.replace("preferences:", "")
+                try:
+                    preferences[pref_key] = json.loads(value)
+                except (json.JSONDecodeError, TypeError):
+                    preferences[pref_key] = value
+
+        return preferences
+
+    async def delete_user_preference(self, user_id: str, preference_key: str) -> bool:
+        """Delete a user preference"""
+        if not user_id or not preference_key:
+            return False
+
+        preference_field = f"preferences:{preference_key}"
+        user_key = f"user:{user_id}"
+
+        result = self.redis.hdel(user_key, preference_field)
+        return result > 0
+
     # === UTILITY METHODS ===
 
     async def health_check(self) -> Dict[str, Any]:
