@@ -750,7 +750,7 @@ class RedisDataStore:
             if album:
                 albums.append(album)
 
-        # Sort by album date (newest climbing dates first)
+        # Sort by album date (newest climbing dates first), fallback to updated_at for consistent order
         def parse_album_date_for_sort(date_str):
             """Parse album date for sorting - newest first"""
             if not date_str:
@@ -782,7 +782,23 @@ class RedisDataStore:
             except Exception:
                 return "0000-00-00"  # Unparseable dates go to bottom
 
-        albums.sort(key=lambda x: parse_album_date_for_sort(x.get("date", "")), reverse=True)
+        def parse_updated_at_for_sort(updated_at_str):
+            if not updated_at_str:
+                return "0000-00-00T00:00:00"
+            try:
+                from datetime import datetime
+                return datetime.fromisoformat(updated_at_str).isoformat()
+            except Exception:
+                return "0000-00-00T00:00:00"
+
+        # Sort by date (newest first), then by updated_at (newest first)
+        albums.sort(
+            key=lambda x: (
+                parse_album_date_for_sort(x.get("date", "")),
+                parse_updated_at_for_sort(x.get("updated_at", ""))
+            ),
+            reverse=True
+        )
         return albums
 
     # === IMAGES ===
