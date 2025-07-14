@@ -1320,6 +1320,105 @@
 			
 			// Initialize edit album functionality
 			initEditAlbumModal();
+			
+			// Function to smoothly update just one album's crew display
+			window.refreshSingleAlbumCrew = async function(albumUrl) {
+				try {
+					// Fetch updated enriched albums data  
+					const response = await fetch("/api/albums/enriched?_t=" + Date.now());
+					if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+					
+					const enrichedAlbums = await response.json();
+					
+					// Find the updated album data - try both metadata.url and url
+					const updatedAlbum = enrichedAlbums.find(album => 
+						(album.metadata && album.metadata.url === albumUrl) || 
+						album.url === albumUrl
+					);
+					
+					if (!updatedAlbum) {
+						return;
+					}
+					
+					// Find the album card on the page
+					const albumCard = document.querySelector(`[data-album-url="${albumUrl}"]`);
+					if (!albumCard) {
+						return;
+					}
+					
+					// Get the correct metadata
+					const newMetadata = updatedAlbum.metadata || updatedAlbum;
+					
+					// Force update regardless of perceived changes
+					forceUpdateAlbumCrewDisplay(albumCard, newMetadata);
+					
+				} catch (error) {
+					window.location.reload();
+				}
+			};
+			
+			// Force update album crew display (no change detection)
+			function forceUpdateAlbumCrewDisplay(albumCard, newMetadata) {
+				// Always remove any existing crew stack
+				const existingCrewStack = albumCard.querySelector('.album-crew-stack');
+				
+				if (existingCrewStack) {
+					existingCrewStack.remove();
+				}
+				
+				// Always add new crew stack with animation
+				if (newMetadata.crew && Array.isArray(newMetadata.crew) && newMetadata.crew.length > 0) {
+					addNewCrewStack(albumCard, newMetadata);
+				}
+				
+				// Always update metadata
+				albumCard.albumMeta = newMetadata;
+			}
+			
+			function addNewCrewStack(albumCard, metadata) {
+				const faceStack = document.createElement('div');
+				faceStack.className = 'album-crew-stack';
+				
+				// Initially hidden for animation
+				faceStack.style.opacity = '0';
+				faceStack.style.transform = 'scale(0.8)';
+				faceStack.style.transition = 'opacity 0.4s ease-out, transform 0.4s ease-out';
+				
+				// Render the new crew faces
+				metadata.crew.forEach((climber, index) => {
+					const climberName = climber.name;
+					const isNew = climber.is_new;
+
+					const faceLink = document.createElement('a');
+					faceLink.href = `/crew?highlight=${encodeURIComponent(climberName)}`;
+					faceLink.className = 'album-crew-face-link';
+					faceLink.title = climberName;
+					faceLink.tabIndex = 0;
+					
+					const faceImg = document.createElement('img');
+					faceImg.src = climber.image_url || `/redis-image/climber/${encodeURIComponent(climberName)}/face`;
+					faceImg.alt = climberName;
+					faceImg.className = `album-crew-face${isNew ? ' new-climber' : ''}`;
+					
+					faceLink.appendChild(faceImg);
+					faceStack.appendChild(faceLink);
+				});
+				
+				albumCard.appendChild(faceStack);
+				
+				// Animate in the new crew stack
+				setTimeout(() => {
+					faceStack.style.opacity = '1';
+					faceStack.style.transform = 'scale(1)';
+				}, 50);
+				
+				// Add a subtle highlight effect to show the change
+				albumCard.style.transition = 'box-shadow 0.5s ease-out';
+				albumCard.style.boxShadow = '0 8px 25px rgba(3, 218, 198, 0.4)';
+				setTimeout(() => {
+					albumCard.style.boxShadow = '';
+				}, 2000);
+			}
 		});
 		
 		// Add Album Modal Functionality
@@ -1864,10 +1963,14 @@
 					</div>
 				`;
 				
-				// Close modal immediately and refresh in background
+				// Store URL before closing modal
+				const albumUrlToRefresh = currentEditAlbum.url;
+				// Close modal immediately and refresh just this album
 				closeModal();
-				// Start auto-refresh in background after modal closes (particles will be focused on the new album card)
-				autoRefreshAlbumsWithParticles(true, true);
+				// Smoothly update just the edited album's crew display
+				setTimeout(() => {
+					refreshSingleAlbumCrew(albumUrlToRefresh);
+				}, 1500);
 			}
 			
 			function showSubmissionError(message) {
@@ -2360,8 +2463,12 @@
 						}, 800);
 					}
 				} else {
-					// Start auto-refresh in background after modal closes
-					autoRefreshAlbumsWithParticles(true, true);
+					// Store URL before clearing currentEditAlbum
+					const albumUrlToRefresh = currentEditAlbum.url;
+					// Smoothly update just the edited album's crew display  
+					setTimeout(() => {
+						refreshSingleAlbumCrew(albumUrlToRefresh);
+					}, 1500);
 				}
 			}
 			
