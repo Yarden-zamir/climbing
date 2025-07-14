@@ -222,24 +222,75 @@ class AuthManager {
     }
 
     updateUserInfo() {
-        if (!this.isAuthenticated || !this.currentUser) return;
-
-        // Update any user info placeholders
+        // Update user info displays based on authentication status
         const userNameElements = document.querySelectorAll('[data-user-name]');
         const userEmailElements = document.querySelectorAll('[data-user-email]');
         const userAvatarElements = document.querySelectorAll('[data-user-avatar]');
+        
+        if (this.isAuthenticated && this.currentUser) {
+            userNameElements.forEach(el => el.textContent = this.currentUser.name);
+            userEmailElements.forEach(el => el.textContent = this.currentUser.email);
+            userAvatarElements.forEach(el => el.src = this.getProfilePictureUrl(this.currentUser));
+        } else {
+            userNameElements.forEach(el => el.textContent = '');
+            userEmailElements.forEach(el => el.textContent = '');
+            userAvatarElements.forEach(el => el.src = '');
+        }
+    }
 
-        userNameElements.forEach(el => {
-            el.textContent = this.currentUser.name;
-        });
+    updatePendingNotification() {
+        // Remove existing pending notification
+        const existingNotification = document.querySelector('.pending-approval-notification');
+        if (existingNotification) {
+            existingNotification.remove();
+        }
 
-        userEmailElements.forEach(el => {
-            el.textContent = this.currentUser.email;
-        });
+        // Show pending notification if user has pending status
+        if (this.isAuthenticated && this.currentUser && this.currentUser.role === 'pending') {
+            this.showPendingApprovalNotification();
+        }
+    }
 
-        userAvatarElements.forEach(el => {
-            el.src = this.getProfilePictureUrl(this.currentUser);
-            el.alt = this.currentUser.name;
+    showPendingApprovalNotification() {
+        // Create notification banner
+        const notification = document.createElement('div');
+        notification.className = 'pending-approval-notification';
+        notification.innerHTML = `
+            <div class="pending-notification-content">
+                <div class="pending-notification-icon">⏳</div>
+                <div class="pending-notification-text">
+                    <h3>Account Pending Approval</h3>
+                    <p>Your account is currently under review. An administrator will approve your access soon. You can browse the site but cannot create or edit content yet.</p>
+                </div>
+                <div class="pending-notification-status">
+                    <span class="status-badge">PENDING</span>
+                </div>
+            </div>
+        `;
+
+        // Insert at the top of the body
+        document.body.insertBefore(notification, document.body.firstChild);
+
+        // Auto-hide after 8 seconds (but user can dismiss manually)
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.classList.add('fade-out');
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.remove();
+                    }
+                }, 500);
+            }
+        }, 8000);
+
+        // Add click to dismiss
+        notification.addEventListener('click', () => {
+            notification.classList.add('fade-out');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 500);
         });
     }
 
