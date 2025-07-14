@@ -10,6 +10,10 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 ## Features
 
 - **Excalidraw flowchart** on the main page, visually explaining climbing concepts
+- **Albums**: Browse climbing albums with filtering by crew members
+- **Crew**: View crew member progress, skills, and level statistics  
+- **Memes**: Browse climbing photos and memes
+- **Add Albums**: Submit new Google Photos albums with instant database updates
 - **Animated skeleton loading** for both images and text
 - **Blur + fade-in** for images (works with cached/lazy images)
 - **Typewriter effect** for album titles/descriptions
@@ -18,7 +22,6 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 - **Animated page transitions** (content fades, navbar stays)
 - **Google Photos album preview** with OpenGraph scraping and image proxying
 - **Production-ready FastAPI backend** (serves both API and static UI)
-- **Nginx/Uvicorn deployment ready**
 
 ---
 
@@ -27,14 +30,12 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 1. **Clone the repo**
     ```bash
     git clone github.com/yarden-zamir/climbing
-    cd <your-repo>
+    cd climbing
     ```
 
-2. **Install Python dependencies**
+2. **Install dependencies**
     ```bash
-    uv venv
-    source .venv/bin/activate
-    uv pip install -e .
+    uv sync
     ```
 
 3. **Run the server**
@@ -44,8 +45,8 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 
 4. **Browse**
     - Open [http://localhost:8001](http://localhost:8001)
-    - The main page displays the Excalidraw climbing flowchart.
-    - The Albums page shows animated Google Photos album previews.
+    - The main page displays the Excalidraw climbing flowchart
+    - The Albums page shows animated Google Photos album previews
 
 ---
 
@@ -55,54 +56,117 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 .
 ├── main.py                # FastAPI backend (serves API + static UI)
 ├── pyproject.toml         # Python dependencies
+├── redis_store.py         # Redis data layer [[memory:2866449]]
+├── redis-schema.yml       # Redis schema documentation
 ├── static/
 │   ├── index.html         # Main page with Excalidraw flowchart
 │   ├── albums.html        # Albums page with filtering and crew faces
-│   ├── albums.json        # Album metadata with crew information and URLs
 │   ├── crew.html          # Crew directory page
+│   ├── memes.html         # Memes page
 │   ├── css/
 │   │   └── styles.css
 │   ├── js/
 │   │   └── albums.js
-│   ├── memes.html         # Memes page
 │   └── photos/            # Static photos
+├── climbers/              # Legacy climber profile files (now in Redis)
+└── scripts/               # Utility scripts
 ```
 
 ---
 
-## Deployment (Production)
+## Adding Albums
 
-- **Recommended:** Uvicorn + Nginx + systemd
-- See deployment instructions above or ask for a full guide.
+The album submission feature allows users to:
+
+1. **Add Album Button**: Click the orange "+" button on the albums page
+2. **Google Photos URL**: Paste a Google Photos album link (e.g., `https://photos.app.goo.gl/...`)
+3. **URL Validation**: The system automatically validates the URL and fetches album metadata
+4. **Crew Selection**: Select existing crew members who participated in the climb
+5. **Add New People**: Optionally add new people to the crew database
+6. **Instant Addition**: Albums are immediately added to the database
+
+### How Album Submission Works
+
+When you submit an album:
+
+1. The URL is validated to ensure it's a valid Google Photos album
+2. Album metadata (title, description, cover image) is fetched and displayed
+3. Album data is directly stored in Redis [[memory:2866449]] with proper data types
+4. New climber profiles are created in Redis if any new people were added
+5. The album appears immediately on the albums page with animated effects
+6. Crew member climb counts and levels are automatically updated
 
 ---
 
 ## How it Works
 
 - **Main Page:**  
-  - Displays an embedded Excalidraw flowchart explaining climbing.
+  - Displays an embedded Excalidraw flowchart explaining climbing
+  
 - **Albums Page:**  
-  - Loads album links from `albums.json`
+  - Loads album data from Redis [[memory:2866449]] using proper data types
   - Shows animated skeletons for images/text
   - Fetches album metadata and preview image via backend API
   - Fades in images with blur, types in text, and shows album date
   - Page transitions are animated (main content only, navbar stays)
+  - Real-time updates with particle animations for new/updated albums
 
 - **Backend:**  
   - `/get-meta?url=...` — Scrapes OpenGraph data from Google Photos album
   - `/get-image?url=...` — Proxies images to avoid CORS/CORB
+  - Uses Redis for data storage with proper data types for better performance [[memory:2866449]]
   - Serves all static files from `/static`
+
+---
+
+## Deployment (Production)
+
+**Recommended setup:** Uvicorn + Nginx + systemd
+
+```bash
+# Install dependencies
+uv sync
+
+# Run with uvicorn
+uv run uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+For production deployment, consider using a reverse proxy like Nginx and a process manager like systemd.
+
+---
+
+## Development
+
+The application uses:
+- **Backend**: FastAPI with Python
+- **Data Layer**: Redis with proper data types (sets, hashes, etc.) [[memory:2866449]]
+- **Frontend**: Vanilla HTML/CSS/JavaScript
+- **Image Processing**: Pillow for photo metadata
+- **HTTP Requests**: httpx for external API calls
+
+### Development Commands
+
+```bash
+# Install dependencies
+uv sync
+
+# Add new dependency
+uv add package-name
+
+# Run development server
+uv run uvicorn main:app --reload
+
+# Run scripts
+uv run python scripts/script_name.py
+```
 
 ---
 
 ## Customization
 
-- **Add albums:**  
-  - Edit `static/albums.json` (add new album metadata)
-- **Change styles:**  
-  - Edit `static/css/styles.css`
-- **Change text effects:**  
-  - Edit `static/js/albums.js` (`typewriter` function)
+- **Add albums:** Use the web interface or directly update Redis data [[memory:2866449]]
+- **Change styles:** Edit `static/css/styles.css`
+- **Change text effects:** Edit `static/js/albums.js` (`typewriter` function)
 
 ---
 
@@ -110,6 +174,7 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 
 - Respects `prefers-reduced-motion` for faster transitions on accessibility devices
 - Fast, responsive, and works on all modern browsers
+- Uses Redis for efficient data operations [[memory:2866449]]
 
 ---
 
@@ -126,95 +191,4 @@ MIT
 - [Poppins font](https://fonts.google.com/specimen/Poppins)
 - [Google Photos](https://photos.google.com/)
 - [Excalidraw](https://excalidraw.com/)
-
-# Climbing Album Management
-
-A web application for managing climbing albums and crew progress.
-
-## Features
-
-- **Albums**: Browse climbing albums with filtering by crew members
-- **Crew**: View crew member progress, skills, and level statistics  
-- **Memes**: Browse climbing photos and memes
-- **Add Albums**: Submit new Google Photos albums with automatic PR creation
-
-## Setup
-
-### Prerequisites
-- Python 3.13+
-- uv package manager
-
-### Installation
-```bash
-uv pip install -e .
-```
-
-### Environment Variables
-
-For the album submission feature to work, you need to set up these environment variables:
-
-```bash
-# GitHub Personal Access Token with repo permissions
-export GITHUB_TOKEN="your_github_token_here"
-
-# GitHub repository URL (optional, defaults to yarden-zamir/climbing)
-export GITHUB_REPO_URL="https://github.com/your-username/your-repo.git"
-```
-
-#### Creating a GitHub Token
-
-1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
-2. Click "Generate new token (classic)"
-3. Select the following scopes:
-   - `repo` (Full control of private repositories)
-   - `pull_request` (Access to pull requests)
-4. Copy the generated token and set it as the `GITHUB_TOKEN` environment variable
-
-### Running the Application
-
-```bash
-uv run uvicorn main:app --reload
-```
-
-The application will be available at `http://localhost:8000`
-
-## Adding Albums
-
-The new album submission feature allows users to:
-
-1. **Add Album Button**: Click the orange "+" button on the albums page
-2. **Google Photos URL**: Paste a Google Photos album link (e.g., `https://photos.app.goo.gl/...`)
-3. **URL Validation**: The system automatically validates the URL and fetches album metadata
-4. **Crew Selection**: Select existing crew members who participated in the climb
-5. **Add New People**: Optionally add new people to the crew database
-6. **Automatic PR**: The system creates a GitHub branch and pull request automatically
-
-### How It Works
-
-When you submit an album:
-
-1. The URL is validated to ensure it's a valid Google Photos album
-2. Album metadata (title, description, cover image) is fetched and displayed
-3. A new Git branch is created with timestamp (e.g., `add-album-20241215-143022`)
-4. The following files are updated:
-   - `static/albums.json` - Album metadata is added
-   - `climbers/*/details.json` - New climber profiles are created (if any)
-5. A pull request is automatically created for review
-6. You receive a link to the PR for review and merging
-
-### File Structure
-
-- `static/albums.json` - List of album metadata
-- `climbers/` - Individual climber profiles and photos
-- `static/photos/` - Meme photos
-- `main.py` - FastAPI backend application
-- `static/` - Frontend assets (HTML, CSS, JS)
-
-## Development
-
-The application uses:
-- **Backend**: FastAPI with Python
-- **Frontend**: Vanilla HTML/CSS/JavaScript
-- **GitHub API**: PyGithub for repository operations
-- **Image Processing**: Pillow for photo metadata
-- **HTTP Requests**: httpx for external API calls
+- [Redis](https://redis.io/)
