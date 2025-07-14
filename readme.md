@@ -25,27 +25,38 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 ## Quickstart (Development)
 
 1. **Clone the repo**
-    ```bash
-    git clone github.com/yarden-zamir/climbing
-    cd <your-repo>
-    ```
+
+   ```bash
+   git clone github.com/yarden-zamir/climbing
+   cd <your-repo>
+   ```
 
 2. **Install Python dependencies**
-    ```bash
-    uv venv
-    source .venv/bin/activate
-    uv pip install -e .
-    ```
 
-3. **Run the server**
-    ```bash
-    uv run uvicorn main:app --host 0.0.0.0 --port 8001 --reload
-    ```
+   ```bash
+   uv venv
+   source .venv/bin/activate
+   uv pip install -e .
+   ```
 
-4. **Browse**
-    - Open [http://localhost:8001](http://localhost:8001)
-    - The main page displays the Excalidraw climbing flowchart.
-    - The Albums page shows animated Google Photos album previews.
+3. **Set the SECRET_KEY environment variable**
+
+   > The backend requires a secret key for session management and security. Generate and set it with:
+
+   ```bash
+   echo "SECRET_KEY=$(openssl rand -hex 32)" > .env
+   ```
+
+4. **Run the server**
+
+   ```bash
+   uv run uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+   ```
+
+5. **Browse**
+   - Open [http://localhost:8001](http://localhost:8001)
+   - The main page displays the Excalidraw climbing flowchart.
+   - The Albums page shows animated Google Photos album previews.
 
 ---
 
@@ -79,16 +90,17 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 
 ## How it Works
 
-- **Main Page:**  
+- **Main Page:**
   - Displays an embedded Excalidraw flowchart explaining climbing.
-- **Albums Page:**  
+- **Albums Page:**
+
   - Loads album links from `albums.json`
   - Shows animated skeletons for images/text
   - Fetches album metadata and preview image via backend API
   - Fades in images with blur, types in text, and shows album date
   - Page transitions are animated (main content only, navbar stays)
 
-- **Backend:**  
+- **Backend:**
   - `/get-meta?url=...` — Scrapes OpenGraph data from Google Photos album
   - `/get-image?url=...` — Proxies images to avoid CORS/CORB
   - Serves all static files from `/static`
@@ -97,11 +109,11 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 
 ## Customization
 
-- **Add albums:**  
+- **Add albums:**
   - Edit `static/albums.json` (add new album metadata)
-- **Change styles:**  
+- **Change styles:**
   - Edit `static/css/styles.css`
-- **Change text effects:**  
+- **Change text effects:**
   - Edit `static/js/albums.js` (`typewriter` function)
 
 ---
@@ -134,17 +146,19 @@ A web application for managing climbing albums and crew progress.
 ## Features
 
 - **Albums**: Browse climbing albums with filtering by crew members
-- **Crew**: View crew member progress, skills, and level statistics  
+- **Crew**: View crew member progress, skills, and level statistics
 - **Memes**: Browse climbing photos and memes
 - **Add Albums**: Submit new Google Photos albums with automatic PR creation
 
 ## Setup
 
 ### Prerequisites
+
 - Python 3.13+
 - uv package manager
 
 ### Installation
+
 ```bash
 uv pip install -e .
 ```
@@ -213,6 +227,7 @@ When you submit an album:
 ## Development
 
 The application uses:
+
 - **Backend**: FastAPI with Python
 - **Frontend**: Vanilla HTML/CSS/JavaScript
 - **GitHub API**: PyGithub for repository operations

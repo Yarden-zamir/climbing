@@ -1,0 +1,6 @@
+pyproject.toml
+climbing.egg-info/PKG-INFO
+climbing.egg-info/SOURCES.txt
+climbing.egg-info/dependency_links.txt
+climbing.egg-info/requires.txt
+climbing.egg-info/top_level.txt
