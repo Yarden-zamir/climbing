@@ -808,10 +808,8 @@ function enableMobileCardHighlight() {
 		
 		const enrichedAlbums = await response.json();
 		
-		// Detect changes and create particles before updating DOM
-		if (detectChanges && previousAlbumData.length > 0) {
-			await detectAlbumChangesAndAnimate(previousAlbumData, enrichedAlbums);
-		}
+		// Store previous data for change detection
+		const oldData = detectChanges && previousAlbumData.length > 0 ? [...previousAlbumData] : [];
 		
 		// Clear existing content
 		container.innerHTML = '';
@@ -826,6 +824,11 @@ function enableMobileCardHighlight() {
 		}
 		
 		await processEnrichedAlbums(enrichedAlbums);
+		
+		// Detect changes and create particles after DOM is updated
+		if (detectChanges && oldData.length > 0) {
+			await detectAlbumChangesAndAnimate(oldData, enrichedAlbums);
+		}
 		
 		// Restore scroll position after refresh
 		setTimeout(() => {
