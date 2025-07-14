@@ -496,7 +496,9 @@
 
 
         function applyImageToEdit(croppedFile, dataUrl) {
+            console.log('Debug: applyImageToEdit called with:', croppedFile.name, croppedFile.type, croppedFile.size);
             editCurrentImage = croppedFile;
+            console.log('Debug: editCurrentImage set to:', editCurrentImage);
             const uploadContent = document.getElementById('edit-upload-content');
             uploadContent.innerHTML = `
                 <img src="${dataUrl}" alt="Preview" class="image-preview">
@@ -1692,7 +1694,21 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             
             let editAllSkills = [];
             let editSelectedSkills = [];
-            let editCurrentImage = null;
+            
+            // Debug wrapper to track editCurrentImage changes
+            let _editCurrentImageInternal = null;
+            Object.defineProperty(window, 'editCurrentImage', {
+                get: function() {
+                    return _editCurrentImageInternal;
+                },
+                set: function(value) {
+                    console.log('Debug: editCurrentImage being set to:', value ? `${value.name} (${value.size} bytes)` : 'null', 'Stack:', new Error().stack.split('\n')[2]);
+                    _editCurrentImageInternal = value;
+                }
+            });
+            
+            // Initialize
+            editCurrentImage = null;
             let selectedCrewMember = null;
             let originalCrewName = null;
             
@@ -1840,16 +1856,20 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     }
                 }
                 
-                // Set current image (show existing image)
-                const editUploadContent = document.getElementById('edit-upload-content');
-                editUploadContent.innerHTML = `
-                    <img src="${member.face}" alt="${member.name}" class="image-preview">
-                    <div class="upload-text" style="margin-top: 0.5rem;">
-                        Current image<br>
-                        <small>Click to change</small>
-                    </div>
-                `;
-                editCurrentImage = null; // No new image initially
+                // Set current image (show existing image) only if user hasn't selected a new one
+                if (!editCurrentImage) {
+                    const editUploadContent = document.getElementById('edit-upload-content');
+                    editUploadContent.innerHTML = `
+                        <img src="${member.face}" alt="${member.name}" class="image-preview">
+                        <div class="upload-text" style="margin-top: 0.5rem;">
+                            Current image<br>
+                            <small>Click to change</small>
+                        </div>
+                    `;
+                    console.log('Debug: Showing existing image, editCurrentImage remains null');
+                } else {
+                    console.log('Debug: User has selected new image, keeping editCurrentImage:', editCurrentImage.name);
+                }
                 
                 updateEditSubmitButton();
             }
@@ -1972,6 +1992,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             editForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 
+                console.log('Debug: Edit form submission started, editCurrentImage:', editCurrentImage);
                 const name = editNameInput.value.trim();
                 const city = document.getElementById('edit-location-city').value.trim();
                 const country = document.getElementById('edit-location-country').value.trim();
@@ -1990,8 +2011,12 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     formData.append('achievements', JSON.stringify([])); // Empty achievements for now
                     
                     // Add image if provided
+                    console.log('Debug: editCurrentImage check:', editCurrentImage);
                     if (editCurrentImage) {
+                        console.log('Debug: Adding image to FormData:', editCurrentImage.name, editCurrentImage.type, editCurrentImage.size);
                         formData.append('image', editCurrentImage);
+                    } else {
+                        console.log('Debug: No image to add to FormData');
                     }
                     
                     const response = await fetch('/api/crew/edit', {
@@ -2004,10 +2029,12 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     
                     if (response.ok) {
                         showEditSubmissionSuccess(data);
-                        // Refresh the crew data and table
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 2000);
+                        // Refresh the crew data and table without full page reload
+                        setTimeout(async () => {
+                            await autoRefreshCrewWithParticles(false, true);
+                            // Close the edit modal after successful update
+                            closeEditModal();
+                        }, 1500);
                     } else {
                         showEditSubmissionError(data.detail || 'Update failed');
                     }
@@ -2147,22 +2174,55 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             }
             
             function resetEditForm() {
-                editForm.reset();
+                const editFormElement = document.getElementById('edit-crew-form');
+                const editNameInputElement = document.getElementById('edit-crew-name');
+                const editSubmitBtnElement = document.getElementById('edit-submit-crew-btn');
+                const editUploadContent = document.getElementById('edit-upload-content');
+                const editNameError = document.getElementById('edit-name-error');
+                const editSubmissionStatus = document.getElementById('edit-submission-status');
+                const editSkillsAutocomplete = document.getElementById('edit-skills-autocomplete');
+                
+                if (editFormElement) {
+                    editFormElement.reset();
+                }
+                
                 editSelectedSkills = [];
                 editCurrentImage = null;
                 originalCrewName = null;
-                document.getElementById('edit-upload-content').innerHTML = `
-                    <div class="upload-text">
-                        📷 Click or drag to upload profile image<br>
-                        <small>(JPG, PNG, max 5MB)</small>
-                    </div>
-                `;
-                document.getElementById('edit-name-error').style.display = 'none';
-                editNameInput.classList.remove('error');
-                document.getElementById('edit-submission-status').innerHTML = '';
-                document.getElementById('edit-skills-autocomplete').style.display = 'none';
-                editSubmitBtn.textContent = 'Update Crew Member';
-                updateEditSubmitButton();
+                
+                if (editUploadContent) {
+                    editUploadContent.innerHTML = `
+                        <div class="upload-text">
+                            📷 Click or drag to upload profile image<br>
+                            <small>(JPG, PNG, max 5MB)</small>
+                        </div>
+                    `;
+                }
+                
+                if (editNameError) {
+                    editNameError.style.display = 'none';
+                }
+                
+                if (editNameInputElement) {
+                    editNameInputElement.classList.remove('error');
+                }
+                
+                if (editSubmissionStatus) {
+                    editSubmissionStatus.innerHTML = '';
+                }
+                
+                if (editSkillsAutocomplete) {
+                    editSkillsAutocomplete.style.display = 'none';
+                }
+                
+                if (editSubmitBtnElement) {
+                    editSubmitBtnElement.textContent = 'Update Crew Member';
+                }
+                
+                // Call updateEditSubmitButton if it exists
+                if (typeof updateEditSubmitButton === 'function') {
+                    updateEditSubmitButton();
+                }
             }
         })();
 

@@ -442,9 +442,18 @@ async def get_redis_image(image_type: str, identifier: str):
         elif identifier.lower().endswith('.webp'):
             content_type = "image/webp"
 
-        headers = {
-            "Cache-Control": "public, max-age=604800, immutable"
-        }
+        # Different caching strategies based on image type
+        if image_type == "climber" or image_type == "profile":
+            # For profile images that can be updated, use shorter cache with validation
+            headers = {
+                "Cache-Control": "public, max-age=300, must-revalidate",
+                "ETag": f'"{hash(image_data)}"'
+            }
+        else:
+            # For other images (temp, memes, etc.), use longer cache
+            headers = {
+                "Cache-Control": "public, max-age=604800, immutable"
+            }
 
         return Response(
             content=image_data,
@@ -1070,76 +1079,188 @@ async def edit_crew_member(
     image: UploadFile = File(None),
     user: dict = Depends(get_current_user)
 ):
-    """Edit an existing crew member in Redis with optional image upload."""
+    """Edit an existing crew member with comprehensive validation and error handling."""
+
+    # Track resources for cleanup on failure
+    cleanup_tasks = []
 
     try:
-        # Validate and parse form data
-        validated_original_name, validated_name, validated_skills, validated_location, validated_achievements = validate_crew_edit_form_data(
-            original_name, name, skills, location, achievements)
-
+        # === AUTHENTICATION & AUTHORIZATION ===
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
         user_id = user.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Authentication required")
 
-        # Check resource access permissions if permissions system is available
+        # === INPUT VALIDATION ===
+        logger.info(f"Starting crew edit: {original_name} -> {name} by user {user_id}")
+
+        # Validate and sanitize inputs
+        try:
+            validated_original_name = validate_name(original_name)
+            validated_name = validate_name(name)
+            validated_skills = validate_form_json_field(skills, "skills", validate_skill_list)
+            validated_location = validate_form_json_field(location, "location", validate_location_list)
+            validated_achievements = validate_form_json_field(achievements, "achievements", validate_achievements_list)
+        except ValidationError as e:
+            logger.warning(f"Validation failed for crew edit {original_name}: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # === CHECK CREW MEMBER EXISTS ===
+        existing_member = await redis_store.get_climber(validated_original_name)
+        if not existing_member:
+            logger.warning(f"Crew member not found: {validated_original_name}")
+            raise HTTPException(status_code=404, detail=f"Crew member '{validated_original_name}' not found")
+
+        # === PERMISSION CHECK ===
         if permissions_manager is not None:
             try:
                 await permissions_manager.require_resource_access(
                     user_id, ResourceType.CREW_MEMBER, validated_original_name, "edit"
                 )
+                logger.debug(f"Permission check passed for user {user_id} to edit {validated_original_name}")
             except Exception as e:
-                logger.error(f"Permission check failed: {e}")
+                logger.error(f"Permission check failed for user {user_id} to edit {validated_original_name}: {e}")
                 raise HTTPException(
-                    status_code=403, detail=f"You don't have permission to edit crew member '{validated_original_name}'. You can only edit crew members you created.")
-
-        # Handle image if provided
-        if image and image.filename:
-            # Validate image
-            if not image.content_type or not image.content_type.startswith('image/'):
-                raise HTTPException(status_code=400, detail="Please upload a valid image file")
-
-            # Read image data
-            image_data = await image.read()
-
-            # Store image directly as climber image
-            await redis_store.store_image("climber", f"{name.strip()}/face", image_data)
-
-        # Update climber in Redis
-        await redis_store.update_climber(
-            original_name=validated_original_name,
-            name=validated_name,
-            location=validated_location,
-            skills=validated_skills,
-            achievements=validated_achievements
-        )
-
-        # Update ownership if name changed and permissions system is available
-        if original_name.strip() != name.strip() and permissions_manager is not None:
-            try:
-                await permissions_manager.transfer_resource_ownership(
-                    ResourceType.CREW_MEMBER, original_name.strip(), user_id, user_id
+                    status_code=403,
+                    detail=f"You don't have permission to edit crew member '{validated_original_name}'. You can only edit crew members you created."
                 )
+
+        # === NAME CONFLICT CHECK ===
+        name_changed = validated_original_name != validated_name
+        if name_changed:
+            # Check if new name conflicts with existing crew member
+            existing_with_new_name = await redis_store.get_climber(validated_name)
+            if existing_with_new_name:
+                logger.warning(f"Name conflict: {validated_name} already exists")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"A crew member named '{validated_name}' already exists. Please choose a different name."
+                )
+
+        # === IMAGE VALIDATION & PROCESSING ===
+        new_image_data = None
+        image_content_type = None
+
+        # Debug logging for image detection
+        logger.debug(f"Image detection for {validated_name}: image={image}, filename={getattr(image, 'filename', 'NO_ATTR') if image else 'NULL'}, content_type={getattr(image, 'content_type', 'NO_ATTR') if image else 'NULL'}, size={getattr(image, 'size', 'NO_ATTR') if image else 'NULL'}")
+
+        if image and image.filename:
+            logger.info(
+                f"Processing image upload for {validated_name}: filename={image.filename}, content_type={image.content_type}")
+
+            try:
+                # Validate image file
+                if not image.content_type or not image.content_type.startswith('image/'):
+                    raise HTTPException(status_code=400, detail="Please upload a valid image file")
+
+                # Read and validate image data
+                new_image_data = await image.read()
+                image_content_type = image.content_type
+
+                # Validate image file size and type
+                validate_image_file(image_content_type, len(new_image_data))
+
+                logger.debug(f"Successfully validated image: {len(new_image_data)} bytes, type: {image_content_type}")
+
+            except ValidationError as e:
+                logger.error(f"Image validation failed for {validated_name}: {e}")
+                raise HTTPException(status_code=400, detail=f"Image validation failed: {str(e)}")
             except Exception as e:
-                logger.warning(f"Failed to transfer resource ownership: {e}")
+                logger.error(f"Image processing failed for {validated_name}: {e}")
+                raise HTTPException(status_code=500, detail="Failed to process uploaded image")
+        else:
+            logger.debug(f"No image uploaded for {validated_name} - keeping existing image")
+
+        # === ATOMIC DATABASE UPDATE ===
+        try:
+            # Step 1: Update the crew member data
+            await redis_store.update_climber(
+                original_name=validated_original_name,
+                name=validated_name,
+                location=validated_location,
+                skills=validated_skills,
+                achievements=validated_achievements
+            )
+            logger.info(f"Successfully updated crew member data: {validated_original_name} -> {validated_name}")
+
+            # Step 2: Handle image update if provided
+            if new_image_data:
+                try:
+                    # Store new image
+                    image_path = await redis_store.store_image("climber", f"{validated_name}/face", new_image_data)
+                    cleanup_tasks.append(("delete_image", "climber", f"{validated_name}/face"))
+                    logger.info(f"Successfully stored new image for {validated_name}: {image_path}")
+
+                except Exception as e:
+                    logger.error(f"Failed to store image for {validated_name}: {e}")
+                    # Don't fail the entire operation for image issues, just log the error
+                    logger.warning(f"Crew member data updated but image upload failed for {validated_name}")
+
+            # Step 3: Update resource ownership if name changed
+            if name_changed and permissions_manager is not None:
+                try:
+                    # Remove old ownership and add new ownership
+                    await permissions_manager.remove_resource_owner(ResourceType.CREW_MEMBER, validated_original_name, user_id)
+                    await permissions_manager.set_resource_owner(ResourceType.CREW_MEMBER, validated_name, user_id)
+                    logger.info(f"Updated resource ownership: {validated_original_name} -> {validated_name}")
+
+                except Exception as e:
+                    logger.warning(f"Failed to update resource ownership for {validated_name}: {e}")
+                    # Don't fail the operation for ownership issues
+
+        except Exception as e:
+            logger.error(f"Database update failed for crew member {validated_original_name}: {e}")
+
+            # Attempt cleanup
+            for task in cleanup_tasks:
+                try:
+                    if task[0] == "delete_image":
+                        await redis_store.delete_image(task[1], task[2])
+                        logger.info(f"Cleanup: deleted image {task[1]}:{task[2]}")
+                except Exception as cleanup_error:
+                    logger.error(f"Cleanup failed for {task}: {cleanup_error}")
+
+            raise HTTPException(status_code=500, detail=f"Failed to update crew member: {str(e)}")
+
+        # === SUCCESS RESPONSE ===
+        success_message = f"Crew member '{validated_name}' updated successfully!"
+        if new_image_data:
+            success_message += " New image uploaded."
+        if name_changed:
+            success_message += f" Name changed from '{validated_original_name}'."
+
+        logger.info(f"Crew edit completed successfully: {validated_original_name} -> {validated_name}")
 
         return JSONResponse({
             "success": True,
-            "message": "Crew member updated successfully!",
-            "crew_name": name.strip()
+            "message": success_message,
+            "crew_name": validated_name,
+            "name_changed": name_changed,
+            "image_updated": new_image_data is not None,
+            "previous_name": validated_original_name if name_changed else None
         })
 
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON format in form fields")
-    except ValueError as e:
-        if "not found" in str(e):
-            raise HTTPException(status_code=404, detail=str(e))
-        elif "already exists" in str(e):
-            raise HTTPException(status_code=400, detail=str(e))
-        else:
-            raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except ValidationError as e:
+        logger.error(f"Validation error in crew edit {original_name}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Error editing crew member: {e}")
-        raise HTTPException(status_code=500, detail="Failed to edit crew member")
+        logger.error(f"Unexpected error in crew edit {original_name}: {e}", exc_info=True)
+
+        # Attempt cleanup on unexpected errors
+        for task in cleanup_tasks:
+            try:
+                if task[0] == "delete_image":
+                    await redis_store.delete_image(task[1], task[2])
+                    logger.info(f"Emergency cleanup: deleted image {task[1]}:{task[2]}")
+            except Exception as cleanup_error:
+                logger.error(f"Emergency cleanup failed for {task}: {cleanup_error}")
+
+        raise HTTPException(status_code=500, detail="An unexpected error occurred while updating the crew member")
 
 
 @app.post("/api/albums/edit-crew")
