@@ -3125,9 +3125,16 @@ nav a.active {
 	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
 	gap: 20px;
 	padding: 0;
-	margin: 0 1rem;
-	max-width: calc(100vw - 2rem);
+	margin: 0 auto;
+	max-width: 1200px;
 	box-sizing: border-box;
+}
+
+@media (max-width: 1232px) {
+	.memes-grid {
+		margin: 0 1rem;
+		max-width: calc(100vw - 2rem);
+	}
 }
 
 .meme-card {
@@ -3514,8 +3521,15 @@ nav a.active {
 	display: block;
 	box-sizing: border-box;
 	padding: 0;
-	margin: 0 1rem;
-	max-width: calc(100vw - 2rem);
+	margin: 0 auto;
+	max-width: 1050px;
+}
+
+@media (max-width: 1232px) {
+	.memes-grid.masonry-ready {
+		margin: 0 1rem;
+		max-width: calc(100vw - 2rem);
+	}
 }
 
 .memes-grid.masonry-ready .meme-card {
