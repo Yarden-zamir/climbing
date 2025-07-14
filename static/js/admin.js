@@ -107,6 +107,11 @@ class AdminPanel {
             this.refreshMetadata();
         });
 
+        // Export database button
+        document.getElementById('export-database-btn').addEventListener('click', () => {
+            this.exportDatabase();
+        });
+
         // Achievements management
         document.getElementById('add-achievement-btn').addEventListener('click', () => {
             this.addAchievement();
@@ -614,6 +619,67 @@ class AdminPanel {
             const btn = document.getElementById('refresh-metadata-btn');
             btn.disabled = false;
             btn.innerHTML = '🔄 Refresh Album Metadata';
+        }
+    }
+
+    async exportDatabase() {
+        try {
+            const btn = document.getElementById('export-database-btn');
+            const result = document.getElementById('export-database-result');
+            
+            // Clear previous result
+            result.className = 'action-result loading';
+            result.textContent = 'Exporting database...';
+            
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Exporting...';
+            
+            const response = await fetch('/api/admin/export', {
+                method: 'GET'
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}`);
+            }
+            
+            // Get the filename from response headers or generate one
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = 'climbing_db_export.json';
+            if (contentDisposition) {
+                const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                if (match) filename = match[1];
+            }
+            
+            // Create blob and download
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            result.className = 'action-result success';
+            result.innerHTML = `
+                ✅ Database exported successfully!<br>
+                <small>File: ${filename}</small><br><br>
+                <strong>To load into Redis:</strong><br>
+                <code style="background: #f8f9fa; padding: 4px 8px; border-radius: 4px; font-family: monospace; display: block; margin: 8px 0;">redis-cli &lt; ${filename}</code>
+                <small>Or for remote Redis: <code>redis-cli -h hostname -p 6379 &lt; ${filename}</code></small>
+            `;
+            
+        } catch (error) {
+            console.error('Database export error:', error);
+            const result = document.getElementById('export-database-result');
+            result.className = 'action-result error';
+            result.textContent = `❌ Failed to export database: ${error.message}`;
+        } finally {
+            const btn = document.getElementById('export-database-btn');
+            btn.disabled = false;
+            btn.innerHTML = '📦 Export Database';
         }
     }
 

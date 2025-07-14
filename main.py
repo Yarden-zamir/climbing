@@ -2391,6 +2391,170 @@ async def get_admin_stats(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Failed to get admin stats")
 
 
+@app.get("/api/admin/export")
+async def export_database(user: dict = Depends(get_current_user)):
+    """Export Redis database to Redis DUMP format (admin only, excludes sessions and temp data)"""
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check if permissions system is available
+    if permissions_manager is None:
+        logger.error("Permissions system not available")
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        logger.info(f"Database export requested by admin user {user.get('email')}")
+
+        # Export data from Redis
+        export_data = await export_redis_database()
+
+                # Generate filename with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"climbing_db_export_{timestamp}.redis"
+        
+        # Create response with proper headers for download
+        headers = {
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Type": "text/plain"
+        }
+        
+        return Response(
+            content=export_data,
+            media_type="text/plain",
+            headers=headers
+        )
+
+    except Exception as e:
+        logger.error(f"Error exporting database: {e}")
+        raise HTTPException(status_code=500, detail="Failed to export database")
+
+
+async def export_redis_database() -> str:
+    """Export Redis database to Redis DUMP format (excludes sessions and temp data, includes binary images)"""
+    
+    try:
+        # Get keys from both text and binary Redis databases
+        text_keys = redis_store.redis.keys("*")
+        binary_keys = redis_store.binary_redis.keys("*")
+        
+        # Start building the Redis commands file
+        commands = []
+        export_count = 0
+        
+        # Add header comment
+        commands.append("# Redis Database Export")
+        commands.append(f"# Generated: {datetime.datetime.now().isoformat()}")
+        commands.append("# Excludes: sessions and temp data")
+        commands.append("# Includes: text data (DB 0) and binary images (DB 1)")
+        commands.append("# Usage: redis-cli < this_file.redis")
+        commands.append("# Note: Restores to both DB 0 and DB 1 automatically")
+        commands.append("")
+        
+        # Process text database keys (DB 0)
+        commands.append("# === TEXT DATA (DB 0) ===")
+        commands.append("SELECT 0")
+        for key in text_keys:
+            # Skip sensitive data
+            if (key.startswith("session:") or 
+                key.startswith("temp:")):
+                continue
+            
+            try:
+                # Get TTL (Time To Live) for the key
+                ttl = redis_store.redis.ttl(key)
+                if ttl == -2:  # Key doesn't exist
+                    continue
+                
+                # Use Redis DUMP command to serialize the key
+                dumped_data = redis_store.redis.dump(key)
+                if dumped_data is None:
+                    continue
+                
+                # Convert binary dump to base64 for storage
+                encoded_dump = base64.b64encode(dumped_data).decode('ascii')
+                
+                # Create RESTORE command
+                if ttl == -1:  # No expiration
+                    restore_cmd = f'RESTORE "{key}" 0 "{encoded_dump}"'
+                else:
+                    # Convert TTL to milliseconds
+                    ttl_ms = ttl * 1000
+                    restore_cmd = f'RESTORE "{key}" {ttl_ms} "{encoded_dump}"'
+                
+                commands.append(restore_cmd)
+                export_count += 1
+                
+            except Exception as e:
+                logger.warning(f"Failed to dump text key {key}: {e}")
+                continue
+        
+        # Process binary database keys (DB 1) 
+        commands.append("")
+        commands.append("# === BINARY DATA (DB 1) ===")
+        commands.append("SELECT 1")
+        for key in binary_keys:
+            # Convert bytes key to string for processing
+            key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+            
+            # Skip temp images
+            if key_str.startswith("image:temp:"):
+                continue
+                
+            try:
+                # Get TTL (Time To Live) for the key  
+                ttl = redis_store.binary_redis.ttl(key)
+                if ttl == -2:  # Key doesn't exist
+                    continue
+                
+                # Use Redis DUMP command to serialize the key
+                dumped_data = redis_store.binary_redis.dump(key)
+                if dumped_data is None:
+                    continue
+                
+                # Convert binary dump to base64 for storage
+                encoded_dump = base64.b64encode(dumped_data).decode('ascii')
+                
+                # Create RESTORE command using string key
+                if ttl == -1:  # No expiration
+                    restore_cmd = f'RESTORE "{key_str}" 0 "{encoded_dump}"'
+                else:
+                    # Convert TTL to milliseconds
+                    ttl_ms = ttl * 1000
+                    restore_cmd = f'RESTORE "{key_str}" {ttl_ms} "{encoded_dump}"'
+                
+                commands.append(restore_cmd)
+                export_count += 1
+                
+            except Exception as e:
+                logger.warning(f"Failed to dump binary key {key_str}: {e}")
+                continue
+        
+        # Add footer with statistics
+        total_keys = len(text_keys) + len(binary_keys)
+        commands.append("")
+        commands.append(f"# Export completed: {export_count} keys exported")
+        commands.append(f"# Total keys found: {total_keys} (Text DB: {len(text_keys)}, Binary DB: {len(binary_keys)})")
+        commands.append(f"# Excluded keys: {total_keys - export_count}")
+        
+        # Join all commands
+        redis_dump = "\n".join(commands)
+        
+        logger.info(f"Redis dump export completed: {export_count} keys exported out of {total_keys} total keys (Text: {len(text_keys)}, Binary: {len(binary_keys)})")
+        return redis_dump
+        
+    except Exception as e:
+        logger.error(f"Error during Redis dump export: {e}")
+        raise
+
+
 # ============= End Admin Panel Routes =============
 
 # Middleware setup
