@@ -1035,10 +1035,11 @@ nav a.active {
     background: linear-gradient(90deg, #bb86fc, #bb86fc);
 }
 .progress-bar-inner.climbs {
-    background: linear-gradient(90deg, #ffb300, #ff5252);
+    background: linear-gradient(90deg, #ff8052
+    , #ff5252);
 }
 .progress-bar-inner.achievements {
-    background: linear-gradient(90deg, #f3646e, #ff9800);
+    background: linear-gradient(90deg, #f3646e, #531c1f);
 }
 .progress-bar-inner {
     height: 100%;
@@ -1874,7 +1875,7 @@ nav a.active {
     background: white;
     border-radius: 12px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-    max-width: 500px;
+    max-width: 800px;
     width: 90%;
     max-height: 80vh;
     overflow-y: auto;
@@ -2116,8 +2117,8 @@ nav a.active {
 }
 
 .image-preview {
-    max-width: 200px;
-    max-height: 200px;
+    /* max-width: 200px; */
+    /* max-height: 200px; */
     border-radius: 12px;
     object-fit: cover;
     margin-top: 1rem;
