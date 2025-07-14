@@ -254,42 +254,92 @@ class MemesManager {
 	async shareMeme() {
 		if (!this.currentContextMeme) return;
 		
-		const memeUrl = `${window.location.origin}/redis-image/meme/${this.currentContextMeme.id}`;
-		const shareText = `Check out this climbing meme!`;
-		
-		if (navigator.share) {
-			// Use native sharing if available
-			try {
-				await navigator.share({
-					title: 'Climbing Meme',
-					text: shareText,
-					url: memeUrl
-				});
-				this.showSuccess('Meme shared successfully!');
-			} catch (error) {
-				if (error.name !== 'AbortError') {
-					console.error('Share error:', error);
-					this.fallbackShare(memeUrl, shareText);
-				}
+		try {
+			// Fetch the image file
+			const imageUrl = `/redis-image/meme/${this.currentContextMeme.id}`;
+			const response = await fetch(imageUrl);
+			
+			if (!response.ok) {
+				throw new Error('Failed to fetch meme image');
 			}
-		} else {
-			// Fallback to clipboard
-			this.fallbackShare(memeUrl, shareText);
+			
+			const blob = await response.blob();
+			const fileName = `climbing-meme-${this.currentContextMeme.id}.jpg`;
+			const file = new File([blob], fileName, { type: blob.type });
+			
+			// Check if we can share files
+			if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+				// Share the actual file
+				try {
+					await navigator.share({
+						title: 'Climbing Meme',
+						text: 'Check out this climbing meme!',
+						files: [file]
+					});
+					this.showSuccess('Meme shared successfully!');
+				} catch (error) {
+					if (error.name !== 'AbortError') {
+						console.error('File share error:', error);
+						// Fallback to URL sharing
+						this.fallbackUrlShare();
+					}
+				}
+			} else if (navigator.share) {
+				// Fallback to URL sharing if file sharing not supported
+				this.fallbackUrlShare();
+			} else {
+				// No native sharing available, use clipboard fallback
+				this.fallbackShare();
+			}
+		} catch (error) {
+			console.error('Share error:', error);
+			this.showError('Failed to prepare meme for sharing');
 		}
 		
 		this.hideContextMenu();
 	}
 
+	fallbackUrlShare() {
+		// Share URL instead of file when file sharing isn't supported
+		const memeUrl = `${window.location.origin}/redis-image/meme/${this.currentContextMeme.id}`;
+		const shareText = 'Check out this climbing meme!';
+		
+		if (navigator.share) {
+			navigator.share({
+				title: 'Climbing Meme',
+				text: shareText,
+				url: memeUrl
+			}).then(() => {
+				this.showSuccess('Meme link shared successfully!');
+			}).catch((error) => {
+				if (error.name !== 'AbortError') {
+					console.error('URL share error:', error);
+					this.fallbackShare();
+				}
+			});
+		} else {
+			this.fallbackShare();
+		}
+	}
+
 	fallbackShare(url, text) {
+		// If no URL provided, use the current meme URL
+		if (!url && this.currentContextMeme) {
+			url = `${window.location.origin}/redis-image/meme/${this.currentContextMeme.id}`;
+			text = 'Check out this climbing meme!';
+		}
+		
 		// Copy to clipboard
-		if (navigator.clipboard) {
+		if (navigator.clipboard && url) {
 			navigator.clipboard.writeText(url).then(() => {
 				this.showSuccess('Meme URL copied to clipboard!');
 			}).catch(() => {
 				this.showShareDialog(url, text);
 			});
-		} else {
+		} else if (url) {
 			this.showShareDialog(url, text);
+		} else {
+			this.showError('Unable to share meme');
 		}
 	}
 
