@@ -296,6 +296,20 @@ class RedisDataStore:
             # Update existing record
             pipe.hset(original_key, mapping=updated_data)
 
+        # Clean up old indexes if name changed
+        if name_changed:
+            # Remove old name from skill indexes
+            for skill in current_climber["skills"]:
+                pipe.srem(f"index:climbers:skill:{skill}", original_name)
+            
+            # Remove old name from tag indexes
+            for tag in current_climber["tags"]:
+                pipe.srem(f"index:climbers:tag:{tag}", original_name)
+            
+            # Remove old name from achievement indexes
+            for achievement in current_climber["achievements"]:
+                pipe.srem(f"index:climbers:achievement:{achievement}", original_name)
+
         # Update skill sets and indexes
         pipe.delete(f"climber:{name}:skills")
         if skills:
@@ -312,7 +326,6 @@ class RedisDataStore:
             pipe.sadd(f"climber:{name}:achievements", *achievements)
 
         # Rebuild indexes for skills, tags, achievements
-        # (This is simplified - in production you'd want to be more efficient)
         for skill in skills:
             pipe.sadd("index:skills:all", skill)
             pipe.sadd(f"index:climbers:skill:{skill}", name)
@@ -328,8 +341,38 @@ class RedisDataStore:
         # Execute all operations
         pipe.execute()
 
-        # Handle image renaming in binary database (after pipeline execution)
+        # Handle album crew references and image renaming (after pipeline execution)
         if name_changed:
+            # Update album crew references
+            album_urls = list(self.redis.smembers(f"index:albums:crew:{original_name}"))
+            for url in album_urls:
+                try:
+                    # Remove old name from crew set and add new name
+                    album_crew_key = f"album:{url}:crew"
+                    crew_updated = False
+
+                    # Check if old name is in the crew set
+                    if self.redis.sismember(album_crew_key, original_name):
+                        # Use pipeline for atomic crew update
+                        crew_pipe = self.redis.pipeline()
+                        crew_pipe.srem(album_crew_key, original_name)
+                        crew_pipe.sadd(album_crew_key, name)
+                        crew_pipe.execute()
+                        crew_updated = True
+
+                        logger.debug(f"Updated crew in album {url}: {original_name} -> {name}")
+
+                    # Update reverse indexes
+                    if crew_updated:
+                        self.redis.srem(f"index:albums:crew:{original_name}", url)
+                        self.redis.sadd(f"index:albums:crew:{name}", url)
+
+                except Exception as e:
+                    logger.error(f"Failed to update album crew for {url}: {e}")
+
+            logger.info(f"Updated {len(album_urls)} album crew references for: {original_name} -> {name}")
+
+            # Handle image renaming in binary database
             original_image_key = f"image:climber:{original_name}/face"
             new_image_key = f"image:climber:{name}/face"
             
