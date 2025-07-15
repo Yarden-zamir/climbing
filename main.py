@@ -335,7 +335,6 @@ async def read_admin():
 # Custom OpenAPI schema endpoint
 from fastapi.openapi.utils import get_openapi
 
-@app.get("/openapi.json", include_in_schema=False)
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -347,6 +346,10 @@ def custom_openapi():
     )
     app.openapi_schema = openapi_schema
     return app.openapi_schema
+
+
+# Override the default openapi method
+app.openapi = custom_openapi
 
 # Mount static files and add middleware
 app.mount("/static", StaticFiles(directory="static"), name="static")
