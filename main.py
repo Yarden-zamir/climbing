@@ -332,6 +332,22 @@ async def read_admin():
 # Upload face endpoint moved to routes/utilities.py
 
 
+# Custom OpenAPI schema endpoint
+from fastapi.openapi.utils import get_openapi
+
+@app.get("/openapi.json", include_in_schema=False)
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version="1.0.0",
+        description=app.description,
+        routes=app.routes,
+    )
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
 # Mount static files and add middleware
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
