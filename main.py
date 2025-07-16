@@ -16,7 +16,7 @@ from typing import List, Optional
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, HTTPException, Query, Response, Form, File, UploadFile, Depends
+from fastapi import FastAPI, HTTPException, Query, Response, Form, File, UploadFile, Depends, Path
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -165,9 +165,25 @@ async def start_background_tasks():
 
 # === API Routes ===
 
-@app.get("/get-meta")
-async def get_meta(url: str = Query(...)):
-    """API endpoint to fetch and parse metadata from a URL with Redis caching."""
+@app.get("/get-meta", tags=["utilities"])
+async def get_meta(url: str = Query(..., description="URL to fetch metadata from")):
+    """
+    Fetch and parse metadata from a URL with Redis caching.
+    
+    Args:
+        url: The URL to fetch metadata from (e.g., Google Photos album URL)
+        
+    Returns:
+        JSON object containing:
+        - title: Album title
+        - description: Album description
+        - images: List of image URLs
+        - timestamp: When the metadata was last fetched
+        
+    Cache:
+        - Results are cached for 5 minutes
+        - Stale-while-revalidate for up to 24 hours
+    """
     # Check cache first
     cached_meta = await redis_store.get_cached_metadata(url)
     if cached_meta:
@@ -194,8 +210,21 @@ async def get_meta(url: str = Query(...)):
 # Albums endpoints moved to routes/albums.py
 
 
-@app.get("/get-image")
-async def get_image(url: str = Query(...)):
+@app.get("/get-image", tags=["utilities"])
+async def get_image(url: str = Query(..., description="URL of the image to fetch")):
+    """
+    Proxy endpoint to fetch and serve images with proper caching headers.
+    
+    Args:
+        url: Direct URL to the image
+        
+    Returns:
+        - Image data with original content-type
+        - Cache headers for 7 days
+        
+    Note:
+        This endpoint helps avoid CORS issues and adds proper caching
+    """
     async with httpx.AsyncClient() as client:
         response = await fetch_url(client, url)
         content_type = response.headers.get("content-type", "application/octet-stream")
@@ -207,9 +236,28 @@ async def get_image(url: str = Query(...)):
 # === Redis Image Serving ===
 
 
-@app.get("/redis-image/{image_type}/{identifier:path}")
-async def get_redis_image(image_type: str, identifier: str):
-    """Serve images stored in Redis"""
+@app.get("/redis-image/{image_type}/{identifier:path}", tags=["utilities"])
+async def get_redis_image(
+    image_type: str = Path(..., description="Type of image (climber, profile, meme)"),
+    identifier: str = Path(..., description="Image identifier or path")
+):
+    """
+    Serve images stored in Redis with proper caching and content types.
+    
+    Args:
+        image_type: Category of image (climber, profile, meme)
+        identifier: Unique identifier or path for the image
+        
+    Returns:
+        - Image data with correct content-type
+        - Appropriate cache headers based on image type:
+            * Profile images: 5 minutes with validation
+            * Other images: 7 days, immutable
+            
+    Raises:
+        404: Image not found
+        500: Server error while serving image
+    """
     try:
         image_data = await redis_store.get_image(image_type, identifier)
         if not image_data:
@@ -250,8 +298,9 @@ async def get_redis_image(image_type: str, identifier: str):
 # === HTML Pages ===
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def read_root():
+    """Serve the main crew page."""
     content = inject_css_version("static/crew.html")
     response = HTMLResponse(content=content, status_code=200)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -260,8 +309,9 @@ async def read_root():
     return response
 
 
-@app.get("/albums", response_class=HTMLResponse)
+@app.get("/albums", response_class=HTMLResponse, include_in_schema=False)
 async def read_albums():
+    """Serve the climbing albums page."""
     content = inject_css_version("static/albums.html")
     response = HTMLResponse(content=content, status_code=200)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -270,8 +320,9 @@ async def read_albums():
     return response
 
 
-@app.get("/memes", response_class=HTMLResponse)
+@app.get("/memes", response_class=HTMLResponse, include_in_schema=False)
 async def read_memes():
+    """Serve the memes gallery page."""
     content = inject_css_version("static/memes.html")
     response = HTMLResponse(content=content, status_code=200)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -280,8 +331,9 @@ async def read_memes():
     return response
 
 
-@app.get("/knowledge", response_class=HTMLResponse)
+@app.get("/knowledge", response_class=HTMLResponse, include_in_schema=False)
 async def read_knowledge():
+    """Serve the knowledge base page."""
     content = inject_css_version("static/index.html")
     response = HTMLResponse(content=content, status_code=200)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -290,8 +342,9 @@ async def read_knowledge():
     return response
 
 
-@app.get("/crew", response_class=HTMLResponse)
+@app.get("/crew", response_class=HTMLResponse, include_in_schema=False)
 async def read_crew():
+    """Serve the crew management page."""
     content = inject_css_version("static/crew.html")
     response = HTMLResponse(content=content, status_code=200)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -300,8 +353,9 @@ async def read_crew():
     return response
 
 
-@app.get("/privacy", response_class=HTMLResponse)
+@app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
 async def read_privacy():
+    """Serve the privacy policy page."""
     content = inject_css_version("static/privacy.html")
     response = HTMLResponse(content=content, status_code=200)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -310,9 +364,17 @@ async def read_privacy():
     return response
 
 
-@app.get("/admin", response_class=HTMLResponse)
+@app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
 async def read_admin():
-    """Serve the admin panel page"""
+    """
+    Serve the admin panel page.
+    
+    This page provides administrative functions like:
+    - User management
+    - Permission control
+    - System statistics
+    - Database operations
+    """
     content = inject_css_version("static/admin.html")
     response = HTMLResponse(content=content, status_code=200)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -339,14 +401,67 @@ def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
     openapi_schema = get_openapi(
-        title=app.title,
+        title="Climbing App API",
         version="1.0.0",
-        description=app.description,
+        summary="API for managing climbing crew, albums, and memes",
+        description="""
+        The Climbing App API provides endpoints for managing:
+        * 🧗‍♂️ Crew members and their profiles
+        * 📸 Climbing albums and photos
+        * 😄 Memes and fun content
+        * 🔐 Authentication and permissions
+        
+        For more information, check out our [documentation](/docs).
+        """,
         routes=app.routes,
     )
+    
+    # Add custom tags metadata with consistent naming and ordering
+    openapi_schema["tags"] = [
+        {
+            "name": "authentication",
+            "description": "User authentication and session management",
+            "x-displayName": "Authentication"
+        },
+        {
+            "name": "crew",
+            "description": "Manage climbing crew members, their skills, and achievements",
+            "x-displayName": "Crew Management"
+        },
+        {
+            "name": "albums",
+            "description": "Manage climbing photo albums and metadata",
+            "x-displayName": "Photo Albums"
+        },
+        {
+            "name": "memes",
+            "description": "Handle climbing memes and fun content",
+            "x-displayName": "Meme Gallery"
+        },
+        {
+            "name": "admin",
+            "description": "Administrative functions and system management",
+            "x-displayName": "Admin Panel"
+        },
+        {
+            "name": "utilities",
+            "description": "Helper endpoints for metadata, images, and system health",
+            "x-displayName": "Utilities"
+        },
+        {
+            "name": "management",
+            "description": "System configuration and feature management",
+            "x-displayName": "Management"
+        },
+        {
+            "name": "user",
+            "description": "User preferences and settings",
+            "x-displayName": "User Settings"
+        }
+    ]
+    
     app.openapi_schema = openapi_schema
     return app.openapi_schema
-
 
 # Override the default openapi method
 app.openapi = custom_openapi
