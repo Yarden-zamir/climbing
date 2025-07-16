@@ -2780,7 +2780,7 @@ nav a.active {
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
     padding: 1rem;
-    min-width: 200px;
+    min-width: 210px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     z-index: 1001;
     animation: dropdown-fade-in 0.2s ease-out;
