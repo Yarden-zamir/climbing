@@ -74,6 +74,9 @@ from routes.utilities import router as utilities_router
 # Import dependencies
 import dependencies
 
+# Import auth initialization
+from auth import initialize_jwt_manager
+
 # Set up logging
 logger = setup_logging()
 
@@ -95,6 +98,14 @@ except Exception as e:
     logger.error(f"❌ Failed to initialize Redis: {e}")
     raise
 
+# Initialize JWT manager with Redis store
+try:
+    initialize_jwt_manager(redis_store)
+    logger.info("✅ JWT manager initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize JWT manager: {e}")
+    raise
+
 # Initialize Permissions Manager
 try:
     permissions_manager = PermissionsManager(redis_store)
@@ -108,8 +119,9 @@ except Exception as e:
     # Create a fallback permissions manager that won't break the app
     permissions_manager = None
 
-# Initialize dependencies
-dependencies.initialize_dependencies(redis_store, permissions_manager, logger)
+# Initialize dependencies (get jwt_manager after initialization)
+from auth import jwt_manager
+dependencies.initialize_dependencies(redis_store, permissions_manager, logger, jwt_manager)
 
 # Register route modules
 app.include_router(auth_router)

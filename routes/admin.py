@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends, Form
 from fastapi.responses import JSONResponse
 
 from auth import get_current_user
-from dependencies import get_redis_store, get_permissions_manager
+from dependencies import get_redis_store, get_permissions_manager, get_jwt_manager
 from permissions import ResourceType, UserRole
 from utils.export_utils import export_redis_database
 from utils.background_tasks import perform_album_metadata_refresh
@@ -178,13 +178,32 @@ async def change_user_role(target_user_id: str, new_role: str = Form(...), user:
         raise HTTPException(status_code=400, detail=f"Invalid role: {new_role}")
 
     try:
-        success = await permissions_manager.set_user_role(target_user_id, role_enum)
+        # Get current user data before role change
+        target_user = await permissions_manager.get_user(target_user_id)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        old_role = target_user.get("role", "user")
+
+        # Update the role
+        success = await permissions_manager.update_user_role(target_user_id, role_enum)
         if not success:
             raise HTTPException(status_code=404, detail="User not found")
 
+        # Blacklist all JWT tokens for this user since their permissions changed
+        blacklisted_count = 0
+        jwt_manager = get_jwt_manager()
+        if jwt_manager:
+            blacklisted_count = jwt_manager.blacklist_all_user_tokens(target_user_id)
+
+        logger.info(
+            f"Admin {user.get('email')} changed user {target_user.get('email')} role from {old_role} to {new_role}, blacklisted {blacklisted_count} tokens")
+
         return JSONResponse({
             "success": True,
-            "message": f"User role updated to {new_role}"
+            "message": f"User role updated to {new_role}",
+            "blacklisted_tokens": blacklisted_count,
+            "security_note": "All existing API tokens have been invalidated due to permission changes"
         })
 
     except Exception as e:

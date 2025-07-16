@@ -64,6 +64,14 @@ class AuthManager {
             }
         });
 
+        // Token management button click
+        document.addEventListener('click', (e) => {
+            if (e.target.matches('.manage-tokens-btn, .manage-tokens-btn *')) {
+                e.preventDefault();
+                this.showTokenManagement();
+            }
+        });
+
         // Profile dropdown toggle
         document.addEventListener('click', (e) => {
             if (e.target.matches('.user-profile-btn, .user-profile-btn *')) {
@@ -86,6 +94,46 @@ class AuthManager {
                 this.clearUserPreferences();
             }
         });
+
+        // Token modal event listeners
+        document.addEventListener('click', (e) => {
+            // Close token modal
+            if (e.target.matches('.token-modal-close, .token-modal-overlay')) {
+                this.closeTokenModal();
+            }
+            
+            // Create new token button
+            if (e.target.matches('.create-token-btn')) {
+                this.showCreateTokenForm();
+            }
+            
+            // Cancel create token
+            if (e.target.matches('.cancel-create-token')) {
+                this.hideCreateTokenForm();
+            }
+            
+            // Submit create token
+            if (e.target.matches('.submit-create-token')) {
+                this.createToken();
+            }
+            
+            // Revoke token
+            if (e.target.matches('.revoke-token-btn')) {
+                const tokenId = e.target.getAttribute('data-token-id');
+                this.revokeToken(tokenId);
+            }
+            
+            // Toggle permission badge
+            if (e.target.matches('.permission-badge-toggleable:not(.disabled)')) {
+                e.target.classList.toggle('selected');
+            }
+            
+            // API documentation button
+            if (e.target.matches('.api-docs-btn, .api-docs-btn *')) {
+                e.preventDefault();
+                window.open('/docs', '_blank');
+            }
+        });
     }
 
     login() {
@@ -100,15 +148,27 @@ class AuthManager {
 
     toggleProfileDropdown() {
         const dropdown = document.querySelector('.profile-dropdown-menu');
-        if (dropdown) {
-            dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+        const dropdownContainer = document.querySelector('.user-profile-dropdown');
+        if (dropdown && dropdownContainer) {
+            const isOpen = dropdown.classList.contains('show');
+            if (isOpen) {
+                dropdown.classList.remove('show');
+                dropdownContainer.classList.remove('open');
+            } else {
+                dropdown.classList.add('show');
+                dropdownContainer.classList.add('open');
+            }
         }
     }
 
     closeProfileDropdown() {
         const dropdown = document.querySelector('.profile-dropdown-menu');
+        const dropdownContainer = document.querySelector('.user-profile-dropdown');
         if (dropdown) {
-            dropdown.style.display = 'none';
+            dropdown.classList.remove('show');
+        }
+        if (dropdownContainer) {
+            dropdownContainer.classList.remove('open');
         }
     }
 
@@ -188,13 +248,24 @@ class AuthManager {
                 <span class="user-name">${firstName}</span>
                 <span class="dropdown-arrow">▼</span>
             </button>
-            <div class="profile-dropdown-menu" style="display: none;">
+            <div class="profile-dropdown-menu">
                 <div class="profile-info">
                     <div class="profile-name">${this.currentUser.name}</div>
                     <div class="profile-email">${this.currentUser.email}</div>
                 </div>
                 <hr class="dropdown-divider">
                 ${adminPanelLink}
+                <button class="manage-tokens-btn dropdown-item">
+                    <span>⚙️</span> Manage Tokens
+                </button>
+                <a href="https://photos.google.com/albums" target="_blank" class="dropdown-item">
+                    <svg width="16" height="16" viewBox="0 0 176 192" style="flex-shrink: 0;">
+                        <path fill="#F6B704" d="M45.6,49.8C69,49.8,88,68.8,88,92.2v3.9H7.1c-2.1,0-3.8-1.7-3.9-3.9C3.2,68.8,22.2,49.8,45.6,49.8z"/>
+                        <path fill="#E54335" d="M134.2,53.6c0,23.4-19,42.4-42.4,42.4H88V15.1c0-2.1,1.7-3.9,3.8-3.9C115.3,11.2,134.2,30.2,134.2,53.6L134.2,53.6z"/>
+                        <path fill="#4280EF" d="M130.4,142.3c-23.4,0-42.4-19-42.4-42.4V96h80.9c2.1,0,3.9,1.7,3.9,3.8C172.8,123.3,153.8,142.3,130.4,142.3z"/>
+                        <path fill="#34A353" d="M41.8,138.4c0-23.4,19-42.4,42.4-42.4H88v80.9c0,2.1-1.7,3.8-3.9,3.9C60.7,180.8,41.8,161.8,41.8,138.4z"/>
+                    </svg> Google Photos
+                </a>
                 <button class="clear-preferences-btn dropdown-item" style="background: none; border: none; color: inherit; padding: 8px 12px; text-align: left; width: 100%; cursor: pointer; display: flex; align-items: center; gap: 8px;">
                     <span>🗑️</span> Clear Preferences
                 </button>
@@ -365,6 +436,1333 @@ class AuthManager {
         } finally {
             this.closeProfileDropdown();
         }
+    }
+
+    // Token Management Methods
+    async showTokenManagement() {
+        this.closeProfileDropdown();
+        
+        try {
+            // Fetch user's tokens and available permissions
+            const [tokensResponse, permissionsResponse] = await Promise.all([
+                fetch('/api/auth/tokens'),
+                fetch('/api/auth/permissions')
+            ]);
+            
+            const tokens = await tokensResponse.json();
+            const permissionsData = await permissionsResponse.json();
+            
+            this.displayTokenModal(tokens, permissionsData);
+        } catch (error) {
+            console.error('Error loading token management:', error);
+            alert('Failed to load token management. Please try again.');
+        }
+    }
+
+    displayTokenModal(tokens, permissionsData) {
+        // Remove existing modal
+        const existingModal = document.querySelector('.token-management-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        const modal = document.createElement('div');
+        modal.className = 'token-management-modal';
+        modal.innerHTML = `
+            <div class="token-modal-overlay"></div>
+            <div class="token-modal-content">
+                <div class="token-modal-header">
+                    <h2>API Token Management</h2>
+                    <button class="token-modal-close">&times;</button>
+                </div>
+                
+                <div class="token-modal-body">
+                    <div class="token-section">
+                        <div class="token-section-header">
+                            <h3>Your API Tokens</h3>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="api-docs-btn" type="button">
+                                    <span>📚</span> API Docs
+                                </button>
+                                <button class="create-token-btn">Create New Token</button>
+                            </div>
+                        </div>
+                        
+                        <div class="tokens-list">
+                            ${this.renderTokensList(tokens)}
+                        </div>
+                    </div>
+                    
+                    <div class="create-token-section" style="display: none;">
+                        ${this.renderCreateTokenForm(permissionsData)}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+        
+        // Add styles if not already present
+        this.addTokenModalStyles();
+    }
+
+    renderTokensList(tokens) {
+        if (!tokens || tokens.length === 0) {
+            return `
+                <div class="no-tokens">
+                    <p>You don't have any API tokens yet.</p>
+                    <p>Create one to start using the API!</p>
+                </div>
+            `;
+        }
+
+        return tokens.map(token => {
+            const createdDate = new Date(token.created_at).toLocaleDateString();
+            const expiresDate = new Date(token.expires_at).toLocaleDateString();
+            const lastUsed = token.last_used 
+                ? new Date(token.last_used).toLocaleDateString()
+                : 'Never';
+            
+            const permissionsList = Object.entries(token.permissions || {})
+                .filter(([_, enabled]) => enabled)
+                .map(([perm, _]) => perm.replace('can_', '').replace(/_/g, ' '))
+                .join(', ');
+
+            // Check if token is expiring soon (within 24 hours)
+            const now = new Date();
+            const expiryTime = new Date(token.expires_at);
+            const hoursUntilExpiry = (expiryTime - now) / (1000 * 60 * 60);
+            const isExpiringSoon = hoursUntilExpiry > 0 && hoursUntilExpiry <= 24;
+            const isExpired = hoursUntilExpiry <= 0;
+
+            let expiryStatus = '';
+            if (isExpired) {
+                expiryStatus = '<span style="color: #cf6679; font-weight: 600;">⚠️ EXPIRED</span>';
+            } else if (isExpiringSoon) {
+                expiryStatus = '<span style="color: #ffae52; font-weight: 600;">⏰ Expires soon</span>';
+            }
+
+            return `
+                <div class="token-item ${isExpired ? 'token-expired' : ''}">
+                    <div class="token-info">
+                        <div class="token-name">
+                            ${token.name}
+                            ${expiryStatus}
+                        </div>
+                        <div class="token-details">
+                            <span>Created: ${createdDate}</span>
+                            <span>Expires: ${expiresDate}</span>
+                            <span>Last used: ${lastUsed}</span>
+                        </div>
+                        <div class="token-permissions">
+                            Permissions: ${permissionsList || 'None'}
+                        </div>
+                    </div>
+                    <button class="revoke-token-btn" data-token-id="${token.id}">
+                        Revoke
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    renderCreateTokenForm(permissionsData) {
+        const { permissions, descriptions } = permissionsData;
+        
+        const permissionBadges = Object.entries(permissions)
+            .map(([key, userHasPermission]) => {
+                const description = descriptions[key] || key;
+                const disabled = !userHasPermission ? 'disabled' : '';
+                const selected = userHasPermission ? 'selected' : '';
+                
+                return `
+                    <div class="permission-badge-toggleable ${disabled} ${selected}" 
+                         data-permission="${key}"
+                         title="${!userHasPermission ? 'Not available - you don\'t have this permission' : 'Click to toggle'}">
+                        ${description}
+                        ${!userHasPermission ? ' 🚫' : ''}
+                    </div>
+                `;
+            }).join('');
+
+        // Generate expiry options
+        const expiryOptions = [
+            { hours: 1, label: '1 Hour' },
+            { hours: 6, label: '6 Hours' },
+            { hours: 12, label: '12 Hours' },
+            { hours: 24, label: '1 Day (Default)' },
+            { hours: 48, label: '2 Days' },
+            { hours: 168, label: '1 Week' },
+            { hours: 720, label: '1 Month' },
+            { hours: 2160, label: '3 Months' },
+            { hours: 4320, label: '6 Months' },
+            { hours: 8760, label: '1 Year (Maximum)' }
+        ].map(option => 
+            `<option value="${option.hours}" ${option.hours === 24 ? 'selected' : ''}>${option.label}</option>`
+        ).join('');
+
+        return `
+            <div class="create-token-form">
+                <h3>Create New API Token</h3>
+                
+                <div class="form-group">
+                    <label for="token-name">Token Name</label>
+                    <input type="text" 
+                           id="token-name" 
+                           placeholder="My App Token" 
+                           maxlength="50">
+                </div>
+                
+                <div class="form-group">
+                    <label for="token-expiry">Token Expiry</label>
+                    <select id="token-expiry" class="form-select">
+                        ${expiryOptions}
+                    </select>
+                    <p style="color: #888; font-size: 0.85rem; margin-top: 6px;">
+                        ⏰ Choose how long this token should remain valid. After expiry, you'll need to create a new token.
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label>Select Permissions</label>
+                    <p style="color: #888; font-size: 0.85rem; margin-bottom: 12px;">
+                        Choose which permissions this token should have. You can only select permissions you currently possess.
+                    </p>
+                    <div class="permissions-list">
+                        ${permissionBadges}
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button class="api-docs-btn" type="button">
+                        <span>📚</span> API Documentation
+                    </button>
+                    <div style="flex: 1;"></div>
+                    <button class="cancel-create-token">Cancel</button>
+                    <button class="submit-create-token">Create Token</button>
+                </div>
+            </div>
+        `;
+    }
+
+    showCreateTokenForm() {
+        const section = document.querySelector('.create-token-section');
+        if (section) {
+            section.style.display = 'block';
+        }
+    }
+
+    hideCreateTokenForm() {
+        const section = document.querySelector('.create-token-section');
+        if (section) {
+            section.style.display = 'none';
+        }
+    }
+
+    async createToken() {
+        const tokenName = document.getElementById('token-name').value.trim();
+        if (!tokenName) {
+            alert('Please enter a token name');
+            return;
+        }
+
+        // Get selected expiry hours
+        const expiryHours = parseInt(document.getElementById('token-expiry').value);
+        if (!expiryHours || expiryHours < 1 || expiryHours > 8760) {
+            alert('Please select a valid expiry time');
+            return;
+        }
+
+        // Get selected permissions from badges
+        const allPermissionBadges = document.querySelectorAll('.create-token-form .permission-badge-toggleable');
+        const permissions = {};
+        
+        // Process each permission badge
+        allPermissionBadges.forEach(badge => {
+            const permission = badge.getAttribute('data-permission');
+            const isSelected = badge.classList.contains('selected') && !badge.classList.contains('disabled');
+            permissions[permission] = isSelected;
+        });
+
+        try {
+            const response = await fetch('/api/auth/token/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    token_name: tokenName,
+                    permissions: permissions,
+                    expires_in_hours: expiryHours
+                })
+            });
+
+            if (response.ok) {
+                const tokenData = await response.json();
+                this.showTokenCreatedDialog(tokenData);
+                // Refresh the token list
+                this.showTokenManagement();
+            } else {
+                const error = await response.json();
+                alert(`Failed to create token: ${error.detail}`);
+            }
+        } catch (error) {
+            console.error('Error creating token:', error);
+            alert('Failed to create token. Please try again.');
+        }
+    }
+
+    showTokenCreatedDialog(tokenData) {
+        const baseUrl = window.location.origin;
+        const exportStatement = `export CLIMBING_API_TOKEN="${tokenData.access_token}"`;
+        const curlExampleWithEnv = `curl -H "Authorization: Bearer $CLIMBING_API_TOKEN" ${baseUrl}/api/crew`;
+        const curlExampleRaw = `curl -H "Authorization: Bearer ${tokenData.access_token}" ${baseUrl}/api/crew`;
+
+        // Format expiry date for display
+        const expiryDate = new Date(tokenData.expires_at);
+        const expiryString = expiryDate.toLocaleString();
+
+        // Create dialog
+        const dialog = document.createElement('div');
+        dialog.className = 'token-created-dialog';
+        
+        // Create content with proper event handling
+        const dialogContent = document.createElement('div');
+        dialogContent.className = 'token-dialog-content';
+        dialogContent.innerHTML = `
+            <h3>🎉 API Token Created Successfully!</h3>
+            <p style="color: #cf6679; font-weight: 600; margin-bottom: 20px;">
+                <strong>⚠️ Important:</strong> Copy this token now. You won't be able to see it again!
+            </p>
+            
+            <div class="token-display">
+                <label>🔑 API Token:</label>
+                <textarea readonly onclick="this.select()">${tokenData.access_token}</textarea>
+                <div class="token-buttons">
+                    <button class="copy-token-btn">📋 Copy Token</button>
+                    <button class="download-token-btn">💾 Download Token</button>
+                </div>
+            </div>
+            
+            <div class="token-display">
+                <label>🌍 Environment Variable:</label>
+                <textarea readonly onclick="this.select()">${exportStatement}</textarea>
+                <div class="token-buttons">
+                    <button class="copy-export-btn">📋 Copy Export</button>
+                </div>
+            </div>
+            
+            <div class="token-display">
+                <label>🛠️ Example Usage </label>
+                <textarea readonly onclick="this.select()" style="height: 80px; font-size: 11px;">${curlExampleWithEnv}</textarea>
+                <div class="token-buttons">
+                    <button class="copy-env-example-btn">📋 Copy (Env)</button>
+                    <button class="copy-raw-example-btn">📋 Copy (Raw)</button>
+                </div>
+            </div>
+            
+            <p class="token-expiry">⏰ Token expires on ${expiryString} (${Math.floor(tokenData.expires_in / 3600)} hours from now)</p>
+            
+            <div style="display: flex; gap: 12px; justify-content: center; margin-top: 24px;">
+                <button class="api-docs-btn" style="background: linear-gradient(135deg, #03dac6 0%, #018786 100%); color: #121212; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                    📚 API Documentation
+                </button>
+                <button class="close-dialog-btn" style="background: linear-gradient(135deg, #444 0%, #666 100%); color: #e0e0e0; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                    ✅ Close
+                </button>
+            </div>
+        `;
+
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'token-dialog-overlay';
+        
+        // Assemble dialog
+        dialog.appendChild(overlay);
+        dialog.appendChild(dialogContent);
+        document.body.appendChild(dialog);
+
+        // Add event listeners
+        dialogContent.querySelector('.copy-token-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(tokenData.access_token);
+            this.showCopyFeedback(dialogContent.querySelector('.copy-token-btn'));
+        });
+
+        dialogContent.querySelector('.download-token-btn').addEventListener('click', () => {
+            this.downloadToken(tokenData.access_token);
+        });
+
+        dialogContent.querySelector('.copy-export-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(exportStatement);
+            this.showCopyFeedback(dialogContent.querySelector('.copy-export-btn'));
+        });
+
+        dialogContent.querySelector('.copy-env-example-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(curlExampleWithEnv);
+            this.showCopyFeedback(dialogContent.querySelector('.copy-env-example-btn'));
+        });
+
+        dialogContent.querySelector('.copy-raw-example-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(curlExampleRaw);
+            this.showCopyFeedback(dialogContent.querySelector('.copy-raw-example-btn'));
+        });
+
+        dialogContent.querySelector('.api-docs-btn').addEventListener('click', () => {
+            window.open('/docs', '_blank');
+        });
+
+        dialogContent.querySelector('.close-dialog-btn').addEventListener('click', () => {
+            dialog.remove();
+        });
+
+        overlay.addEventListener('click', () => {
+            dialog.remove();
+        });
+    }
+
+    // Add visual feedback for copy operations
+    showCopyFeedback(button) {
+        const originalText = button.textContent;
+        button.textContent = '✅ Copied!';
+        button.style.background = 'linear-gradient(135deg, #4caf50 0%, #388e3c 100%)';
+        
+        setTimeout(() => {
+            button.textContent = originalText;
+            button.style.background = '';
+        }, 2000);
+    }
+
+    // Helper function to download token as a file
+    downloadToken(token) {
+        const blob = new Blob([token], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'climbing_api_token.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+    }
+
+    async revokeToken(tokenId) {
+        if (!confirm('Are you sure you want to revoke this token? This action cannot be undone.')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/auth/tokens/${tokenId}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                // Refresh the token list
+                this.showTokenManagement();
+            } else {
+                const error = await response.json();
+                alert(`Failed to revoke token: ${error.detail}`);
+            }
+        } catch (error) {
+            console.error('Error revoking token:', error);
+            alert('Failed to revoke token. Please try again.');
+        }
+    }
+
+    closeTokenModal() {
+        const modal = document.querySelector('.token-management-modal');
+        if (modal) {
+            modal.remove();
+        }
+        
+        const dialog = document.querySelector('.token-created-dialog');
+        if (dialog) {
+            dialog.remove();
+        }
+    }
+
+    addTokenModalStyles() {
+        if (document.getElementById('token-modal-styles')) {
+            return; // Styles already added
+        }
+
+        const styles = document.createElement('style');
+        styles.id = 'token-modal-styles';
+        styles.textContent = `
+            .token-management-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 10000;
+                font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                opacity: 0;
+                animation: modal-fade-in 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            }
+
+            @keyframes modal-fade-in {
+                from {
+                    opacity: 0;
+                }
+                to {
+                    opacity: 1;
+                }
+            }
+
+            @keyframes modal-fade-out {
+                from {
+                    opacity: 1;
+                }
+                to {
+                    opacity: 0;
+                }
+            }
+
+            .token-modal-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.75);
+                backdrop-filter: blur(8px);
+            }
+
+            .token-modal-content {
+                position: relative;
+                max-width: 800px;
+                max-height: 90vh;
+                margin: 5vh auto;
+                background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+                border-radius: 12px;
+                overflow-y: auto;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+                border: 1px solid #333;
+                color: #e0e0e0;
+                transform: translateY(20px);
+                animation: modal-slide-in 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            }
+
+            @keyframes modal-slide-in {
+                from {
+                    transform: translateY(20px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+
+            .token-modal-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 24px;
+                border-bottom: 1px solid #333;
+                background: linear-gradient(135deg, #232323 0%, #1a1a1a 100%);
+                border-radius: 12px 12px 0 0;
+            }
+
+            .token-modal-header h2 {
+                margin: 0;
+                color: #bb86fc;
+                font-size: 1.4rem;
+                font-weight: 700;
+            }
+
+            .token-modal-close {
+                background: none;
+                border: none;
+                font-size: 24px;
+                cursor: pointer;
+                padding: 8px;
+                width: 40px;
+                height: 40px;
+                border-radius: 8px;
+                color: #a0a0a0;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .token-modal-close:hover {
+                background: rgba(187, 134, 252, 0.2);
+                color: #bb86fc;
+                transform: scale(1.1);
+            }
+
+            .token-modal-body {
+                padding: 24px;
+            }
+
+            .token-section-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 24px;
+            }
+
+            .token-section-header h3 {
+                margin: 0;
+                color: #03dac6;
+                font-size: 1.2rem;
+                font-weight: 600;
+            }
+
+            .create-token-btn {
+                background: linear-gradient(135deg, #bb86fc 0%, #6200ea 100%);
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: 600;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 0 4px 15px rgba(187, 134, 252, 0.3);
+                position: relative;
+                overflow: hidden;
+            }
+
+            .create-token-btn::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+                transition: left 0.5s;
+            }
+
+            .create-token-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(187, 134, 252, 0.4);
+                background: linear-gradient(135deg, #cf6679 0%, #bb86fc 100%);
+            }
+
+            .create-token-btn:hover::before {
+                left: 100%;
+            }
+
+            .token-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                padding: 20px;
+                border: 1px solid #333;
+                border-radius: 8px;
+                margin-bottom: 12px;
+                background: linear-gradient(135deg, #232323 0%, #1a1a1a 100%);
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                position: relative;
+                overflow: hidden;
+            }
+
+            .token-item:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+                border-color: rgba(187, 134, 252, 0.3);
+            }
+
+            .token-item.token-expired {
+                opacity: 0.7;
+                border-color: #cf6679;
+                background: linear-gradient(135deg, #2d1b1e 0%, #1a1a1a 100%);
+            }
+
+            .token-item.token-expired:hover {
+                border-color: #cf6679;
+                box-shadow: 0 6px 20px rgba(207, 102, 121, 0.2);
+            }
+
+            .token-info {
+                flex: 1;
+            }
+
+            .token-name {
+                font-weight: 700;
+                margin-bottom: 8px;
+                color: #bb86fc;
+                font-size: 1.1rem;
+            }
+
+            .token-details {
+                font-size: 0.9rem;
+                color: #a0a0a0;
+                margin-bottom: 8px;
+                line-height: 1.4;
+            }
+
+            .token-details span {
+                margin-right: 16px;
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .token-permissions {
+                font-size: 0.85rem;
+                color: #03dac6;
+                font-weight: 500;
+            }
+
+            .revoke-token-btn {
+                background: linear-gradient(135deg, #cf6679 0%, #b00020 100%);
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-weight: 600;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 0 2px 8px rgba(207, 102, 121, 0.3);
+            }
+
+            .revoke-token-btn:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 15px rgba(207, 102, 121, 0.4);
+                background: linear-gradient(135deg, #e91e63 0%, #c62828 100%);
+            }
+
+            .no-tokens {
+                text-align: center;
+                padding: 60px 20px;
+                color: #888;
+                font-style: italic;
+                font-size: 1.1rem;
+            }
+
+            .create-token-form {
+                border-top: 1px solid #333;
+                padding-top: 24px;
+                margin-top: 24px;
+                background: linear-gradient(135deg, #1a1a1a 0%, #232323 100%);
+                border-radius: 12px;
+                padding: 24px;
+                margin: 24px -24px -24px -24px;
+            }
+
+            .form-group {
+                margin-bottom: 20px;
+            }
+
+            .form-group label {
+                display: block;
+                margin-bottom: 8px;
+                font-weight: 600;
+                color: #03dac6;
+                font-size: 0.95rem;
+            }
+
+            .form-group input[type="text"] {
+                width: 100%;
+                padding: 12px;
+                border: 1px solid #444;
+                border-radius: 8px;
+                background: #2a2a2a;
+                color: #e0e0e0;
+                font-size: 1rem;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-sizing: border-box;
+            }
+
+            .form-group input[type="text"]:focus {
+                outline: none;
+                border-color: #bb86fc;
+                box-shadow: 0 0 0 2px rgba(187, 134, 252, 0.2);
+                background: #333;
+            }
+
+            .form-select {
+                width: 100%;
+                padding: 12px;
+                border: 1px solid #444;
+                border-radius: 8px;
+                background: #2a2a2a;
+                color: #e0e0e0;
+                font-size: 1rem;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-sizing: border-box;
+                cursor: pointer;
+            }
+
+            .form-select:focus {
+                outline: none;
+                border-color: #bb86fc;
+                box-shadow: 0 0 0 2px rgba(187, 134, 252, 0.2);
+                background: #333;
+            }
+
+            .form-select option {
+                background: #2a2a2a;
+                color: #e0e0e0;
+                padding: 8px;
+            }
+
+            .permissions-list {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 16px;
+                border: 1px solid #444;
+                border-radius: 8px;
+                max-height: 200px;
+                overflow-y: auto;
+                background: #2a2a2a;
+            }
+
+            .permission-badge-toggleable {
+                display: inline-block;
+                background: #444;
+                color: #e0e0e0;
+                border: 2px solid #555;
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-size: 0.9rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                user-select: none;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .permission-badge-toggleable::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+                transition: left 0.5s;
+            }
+
+            .permission-badge-toggleable:hover {
+                background: #555;
+                border-color: #bb86fc;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(187, 134, 252, 0.2);
+            }
+
+            .permission-badge-toggleable:hover::before {
+                left: 100%;
+            }
+
+            .permission-badge-toggleable.selected {
+                background: linear-gradient(135deg, #bb86fc 0%, #6200ea 100%);
+                color: #fff;
+                border-color: #bb86fc;
+                font-weight: 700;
+                box-shadow: 0 4px 15px rgba(187, 134, 252, 0.3);
+            }
+
+            .permission-badge-toggleable.selected:hover {
+                background: linear-gradient(135deg, #cf6679 0%, #bb86fc 100%);
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(187, 134, 252, 0.4);
+            }
+
+            .permission-badge-toggleable.disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+                background: #333;
+                border-color: #444;
+            }
+
+            .permission-badge-toggleable.disabled:hover {
+                transform: none;
+                box-shadow: none;
+                background: #333;
+                border-color: #444;
+            }
+
+            .form-actions {
+                display: flex;
+                gap: 12px;
+                justify-content: flex-end;
+                align-items: center;
+                margin-top: 24px;
+            }
+
+            .api-docs-btn {
+                background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
+                color: #121212;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: 600;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                font-size: 0.95rem;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                box-shadow: 0 2px 8px rgba(3, 218, 198, 0.3);
+                position: relative;
+                overflow: hidden;
+            }
+
+            .api-docs-btn::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+                transition: left 0.5s;
+            }
+
+            .api-docs-btn:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 15px rgba(3, 218, 198, 0.4);
+                background: linear-gradient(135deg, #26c6da 0%, #00acc1 100%);
+            }
+
+            .api-docs-btn:hover::before {
+                left: 100%;
+            }
+
+            .form-actions button {
+                padding: 12px 24px;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: 600;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                font-size: 0.95rem;
+            }
+
+            .cancel-create-token {
+                background: linear-gradient(135deg, #444 0%, #666 100%);
+                color: #e0e0e0;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            }
+
+            .cancel-create-token:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+                background: linear-gradient(135deg, #555 0%, #777 100%);
+            }
+
+            .submit-create-token {
+                background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
+                color: #121212;
+                box-shadow: 0 2px 8px rgba(3, 218, 198, 0.3);
+            }
+
+            .submit-create-token:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 15px rgba(3, 218, 198, 0.4);
+                background: linear-gradient(135deg, #26c6da 0%, #00acc1 100%);
+            }
+
+            .token-created-dialog {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 10001;
+                font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                opacity: 0;
+                animation: modal-fade-in 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            }
+
+            .token-dialog-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.8);
+                backdrop-filter: blur(12px);
+            }
+
+            .token-dialog-content {
+                position: relative;
+                max-width: 600px;
+                margin: 10vh auto;
+                background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+                border-radius: 12px;
+                padding: 24px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+                border: 1px solid #333;
+                color: #e0e0e0;
+                transform: translateY(20px);
+                animation: modal-slide-in 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            }
+
+            .token-dialog-content h3 {
+                margin: 0 0 20px 0;
+                color: #bb86fc;
+                font-size: 1.3rem;
+                font-weight: 700;
+                text-align: center;
+            }
+
+            .token-display {
+                margin: 20px 0;
+            }
+
+            .token-display label {
+                display: block;
+                font-weight: 600;
+                margin-bottom: 8px;
+                color: #03dac6;
+                font-size: 0.95rem;
+            }
+
+            .token-display textarea {
+                width: 100%;
+                height: 80px;
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                font-size: 12px;
+                resize: vertical;
+                margin-bottom: 8px;
+                background: #2a2a2a;
+                border: 1px solid #444;
+                border-radius: 8px;
+                color: #e0e0e0;
+                padding: 12px;
+                box-sizing: border-box;
+                line-height: 1.4;
+            }
+
+            .token-display textarea:focus {
+                outline: none;
+                border-color: #bb86fc;
+                box-shadow: 0 0 0 2px rgba(187, 134, 252, 0.2);
+            }
+
+            .token-buttons {
+                display: flex;
+                gap: 8px;
+                margin-top: 8px;
+                flex-wrap: wrap;
+            }
+
+            .token-display button {
+                background: linear-gradient(135deg, #bb86fc 0%, #6200ea 100%);
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-weight: 600;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 0 2px 8px rgba(187, 134, 252, 0.3);
+                font-size: 0.85rem;
+                flex: 1;
+                min-width: 120px;
+            }
+
+            .token-display button:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 15px rgba(187, 134, 252, 0.4);
+            }
+
+            .token-display .download-token-btn, 
+            .token-display .copy-export-btn,
+            .token-display .copy-raw-example-btn {
+                background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
+                color: #121212;
+                box-shadow: 0 2px 8px rgba(3, 218, 198, 0.3);
+            }
+
+            .token-display .download-token-btn:hover, 
+            .token-display .copy-export-btn:hover,
+            .token-display .copy-raw-example-btn:hover {
+                box-shadow: 0 4px 15px rgba(3, 218, 198, 0.4);
+                background: linear-gradient(135deg, #26c6da 0%, #00acc1 100%);
+            }
+
+            .token-expiry {
+                font-style: italic;
+                color: #888;
+                text-align: center;
+                font-size: 0.9rem;
+                margin-top: 16px;
+                padding: 12px;
+                background: rgba(3, 218, 198, 0.1);
+                border-radius: 8px;
+                border: 1px solid rgba(3, 218, 198, 0.2);
+            }
+
+            .manage-tokens-btn {
+                background: none;
+                border: none;
+                color: inherit;
+                padding: 8px 12px;
+                text-align: left;
+                width: 100%;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            /* User Profile Dropdown Styles */
+            .user-profile-dropdown {
+                position: relative;
+                display: inline-block;
+            }
+
+            .user-profile-btn {
+                background: none;
+                border: none;
+                color: #a0a0a0;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px 12px;
+                border-radius: 8px;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                font-family: inherit;
+                font-weight: 500;
+            }
+
+            .user-profile-btn:hover {
+                background: rgba(187, 134, 252, 0.1);
+                color: #bb86fc;
+            }
+
+            .user-avatar {
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                object-fit: cover;
+                border: 2px solid #bb86fc;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .user-profile-btn:hover .user-avatar {
+                border-color: #03dac6;
+                transform: scale(1.05);
+            }
+
+            .user-name {
+                font-size: 0.95rem;
+                font-weight: 600;
+            }
+
+            .dropdown-arrow {
+                font-size: 0.8rem;
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .user-profile-dropdown.open .dropdown-arrow {
+                transform: rotate(180deg);
+            }
+
+            .profile-dropdown-menu {
+                position: absolute;
+                top: 100%;
+                right: 0;
+                background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+                border: 1px solid #333;
+                border-radius: 12px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+                backdrop-filter: blur(12px);
+                min-width: 240px;
+                z-index: 10000;
+                margin-top: 8px;
+                opacity: 0;
+                transform: translateY(-10px);
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                pointer-events: none;
+                padding: 8px;
+            }
+
+            .profile-dropdown-menu.show {
+                opacity: 1;
+                transform: translateY(0);
+                pointer-events: auto;
+            }
+
+            .profile-info {
+                padding: 12px 16px 16px 16px;
+                border-bottom: 1px solid #333;
+                margin: 0 4px 8px 4px;
+                border-radius: 8px;
+                background: rgba(187, 134, 252, 0.05);
+            }
+
+            .profile-name {
+                font-weight: 700;
+                color: #bb86fc;
+                margin-bottom: 6px;
+                font-size: 1.05rem;
+                text-shadow: 0 1px 2px rgba(187, 134, 252, 0.3);
+            }
+
+            .profile-email {
+                color: #a0a0a0;
+                font-size: 0.85rem;
+                font-weight: 500;
+            }
+
+            .dropdown-divider {
+                border: none;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+                margin: 8px 8px;
+                opacity: 0.6;
+            }
+
+            .dropdown-item {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 12px 16px;
+                color: #e0e0e0;
+                text-decoration: none;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                font-size: 0.95rem;
+                font-weight: 500;
+                cursor: pointer;
+                border: none;
+                background: none;
+                width: 100%;
+                text-align: left;
+                box-sizing: border-box;
+                border-radius: 6px;
+                margin: 2px 4px;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .dropdown-item::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+                transition: left 0.5s;
+            }
+
+            .dropdown-item:hover {
+                background: rgba(187, 134, 252, 0.1);
+                color: #bb86fc;
+                transform: translateX(2px);
+                border-left: 3px solid #bb86fc;
+                padding-left: 13px;
+            }
+
+            .dropdown-item:hover::before {
+                left: 100%;
+            }
+
+            .manage-tokens-btn:hover {
+                background: rgba(3, 218, 198, 0.1);
+                color: #03dac6;
+                border-left-color: #03dac6;
+            }
+
+            .logout-btn:hover {
+                background: rgba(207, 102, 121, 0.1);
+                color: #cf6679;
+                border-left-color: #cf6679;
+            }
+
+            .clear-preferences-btn:hover {
+                background: rgba(255, 174, 82, 0.1);
+                color: #ffae52;
+                border-left-color: #ffae52;
+            }
+
+            /* Pending Notification Styles */
+            .pending-approval-notification {
+                position: fixed;
+                top: 70px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(135deg, #2d1b1e 0%, #1a1a1a 100%);
+                border: 2px solid #cf6679;
+                border-radius: 12px;
+                padding: 20px;
+                box-shadow: 0 8px 32px rgba(207, 102, 121, 0.4);
+                z-index: 9999;
+                max-width: 600px;
+                width: 90%;
+                color: #e0e0e0;
+                animation: notification-slide-in 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+                cursor: pointer;
+            }
+
+            @keyframes notification-slide-in {
+                from {
+                    opacity: 0;
+                    transform: translateX(-50%) translateY(-20px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(-50%) translateY(0);
+                }
+            }
+
+            .pending-approval-notification.fade-out {
+                animation: notification-fade-out 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            }
+
+            @keyframes notification-fade-out {
+                from {
+                    opacity: 1;
+                    transform: translateX(-50%) translateY(0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateX(-50%) translateY(-20px);
+                }
+            }
+
+            .pending-notification-content {
+                display: flex;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .pending-notification-icon {
+                font-size: 2rem;
+                color: #ffae52;
+                flex-shrink: 0;
+            }
+
+            .pending-notification-text h3 {
+                margin: 0 0 8px 0;
+                color: #cf6679;
+                font-size: 1.2rem;
+                font-weight: 700;
+            }
+
+            .pending-notification-text p {
+                margin: 0;
+                line-height: 1.4;
+                color: #a0a0a0;
+            }
+
+            .pending-notification-status {
+                margin-left: auto;
+                flex-shrink: 0;
+            }
+
+            .status-badge {
+                background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+                color: #121212;
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-size: 0.8rem;
+                font-weight: 700;
+                letter-spacing: 0.05em;
+            }
+        `;
+        
+        document.head.appendChild(styles);
     }
 }
 

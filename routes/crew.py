@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends, Form, File, UploadFile, Query
 from fastapi.responses import JSONResponse
 
-from auth import get_current_user
+from auth import get_current_user, get_current_user_hybrid, require_auth_hybrid
 from dependencies import get_redis_store, get_permissions_manager
 from models.api_models import AddSkillsRequest, AddAchievementsRequest
 from permissions import ResourceType
@@ -83,9 +83,12 @@ async def submit_crew_member(
     location: str = Form(default="[]"),
     achievements: str = Form(default="[]"),
     image: UploadFile = File(None),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user_hybrid)
 ):
-    """Submit a new crew member directly to Redis with optional image upload."""
+    """Submit a new crew member directly to Redis with optional image upload.
+    
+    Supports both session-based authentication (web) and JWT Bearer token authentication (API).
+    """
     redis_store = get_redis_store()
     permissions_manager = get_permissions_manager()
 

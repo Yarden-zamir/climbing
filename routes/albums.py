@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse, Response
 
-from auth import get_current_user, require_auth
+from auth import get_current_user, require_auth, get_current_user_hybrid, require_auth_hybrid
 from dependencies import get_redis_store, get_permissions_manager
 from models.api_models import AlbumSubmission, AlbumCrewEdit
 from permissions import ResourceType
@@ -126,8 +126,11 @@ async def validate_album_url(url: str = Query(...)):
 
 
 @router.post("/submit")
-async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_current_user)):
-    """Submit a new album directly to Redis (no GitHub)."""
+async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_current_user_hybrid)):
+    """Submit a new album directly to Redis (no GitHub).
+    
+    Supports both session-based authentication (web) and JWT Bearer token authentication (API).
+    """
     redis_store = get_redis_store()
     permissions_manager = get_permissions_manager()
 
@@ -233,8 +236,11 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
 
 
 @router.post("/edit-crew")
-async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(require_auth)):
-    """Edit crew members for an existing album in Redis (no GitHub)."""
+async def edit_album_crew(edit_data: AlbumCrewEdit, user: dict = Depends(require_auth_hybrid)):
+    """Edit crew members for an album.
+    
+    Supports both session-based authentication (web) and JWT Bearer token authentication (API).
+    """
     redis_store = get_redis_store()
     permissions_manager = get_permissions_manager()
 
