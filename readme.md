@@ -1,57 +1,40 @@
-readme is 100% ai generated gpt-4.1
+# Climbing App
 
-# Climbing UI
-
-A modern, animated web app for browsing Google Photos climbing albums, featuring beautiful transitions, skeleton loading, image blur/fade-in, and typewriter text effects.  
-**The main page includes an [Excalidraw flowchart](https://link.excalidraw.com/readonly/AtAowLIPvMThzN3XHsEf) that explains everything about climbing.**
+A modern, animated web app for browsing climbing albums, managing crew, and sharing memes. Features beautiful transitions, real-time updates, and a modular FastAPI backend with Redis.
 
 ---
 
-## Features
+## Highlights
 
-- **Excalidraw flowchart** on the main page, visually explaining climbing concepts
-- **Albums**: Browse climbing albums with filtering by crew members
-- **Crew**: View crew member progress, skills, and level statistics  
-- **Memes**: Browse climbing photos and memes
-- **Add Albums**: Submit new Google Photos albums with instant database updates
-- **Animated skeleton loading** for both images and text
-- **Blur + fade-in** for images (works with cached/lazy images)
-- **Typewriter effect** for album titles/descriptions
-- **Responsive, modern design** with Poppins font and gradient heading
-- **RTL support** for Hebrew and other right-to-left languages
-- **Animated page transitions** (content fades, navbar stays)
-- **Google Photos album preview** with OpenGraph scraping and image proxying
-- **Production-ready FastAPI backend** (serves both API and static UI)
+- **Visual Flowchart:** [Excalidraw diagram](https://link.excalidraw.com/readonly/AtAowLIPvMThzN3XHsEf) on the main page
+- **Albums:** Browse, filter, and auto-refresh climbing albums with animated particle effects
+- **Crew:** Track crew member progress, skills, achievements, and levels
+- **Memes:** Upload and browse memes in a dedicated gallery
+- **Admin Panel:** Manage users, stats, and trigger metadata refresh (admin only)
+- **Hybrid Auth:** Supports both Google OAuth (session) and JWT Bearer tokens for API/mobile
+- **Animated UI:** Skeleton loading, blur/fade-in, typewriter text, and particle animations for real-time feedback
+- **Responsive Design:** Modern, RTL-ready, accessible, and mobile-friendly
+- **Production-ready:** Modular FastAPI backend, Redis data layer, and robust permission system
 
 ---
 
-## Quickstart (Development)
+## Quickstart
 
-1. **Clone the repo**
+1. **Clone & Install**
     ```bash
     git clone github.com/yarden-zamir/climbing
     cd climbing
-    ```
-
-2. **Install dependencies**
-    ```bash
     uv sync
     ```
-
-3. **Set the SECRET_KEY environment variable**
-
-   > The backend requires a secret key for session management and security. Generate and set it with:
-
-   ```bash
-   echo "SECRET_KEY=$(openssl rand -hex 32)" > .env
-   ```
-
-4. **Run the server**
+2. **Set Secret Key**
+    ```bash
+    echo "SECRET_KEY=$(openssl rand -hex 32)" > .env
+    ```
+3. **Run the Server**
     ```bash
     uv run uvicorn main:app --host 0.0.0.0 --port 8001 --reload
     ```
-
-5. **Browse**
+4. **Browse**
     - Open [http://localhost:8001](http://localhost:8001)
 
 ---
@@ -59,128 +42,88 @@ A modern, animated web app for browsing Google Photos climbing albums, featuring
 ## Project Structure
 
 ```
-.
-├── main.py                # FastAPI backend (serves API + static UI)
+climbing/
+├── main.py                # FastAPI app entrypoint
+├── routes/                # Modular API endpoints (albums, crew, memes, admin, etc.)
+├── middleware/            # Custom middleware (case-insensitive, cache-busting, pretty JSON)
+├── models/                # Pydantic models for API
+├── utils/                 # Logging, metadata parsing, background tasks, export
+├── scripts/               # CLI scripts (migrate, admin, export, etc.)
+├── redis_store.py         # Redis data layer (crew, albums, memes)
+├── static/                # HTML, CSS, JS, images
+├── redis-schema.yml       # Redis schema docs
 ├── pyproject.toml         # Python dependencies
-├── redis_store.py         # Redis data layer [[memory:2866449]]
-├── redis-schema.yml       # Redis schema documentation
-├── static/
-│   ├── index.html         # Main page with Excalidraw flowchart
-│   ├── albums.html        # Albums page with filtering and crew faces
-│   ├── crew.html          # Crew directory page
-│   ├── memes.html         # Memes page
-│   ├── css/
-│   │   └── styles.css
-│   ├── js/
-│   │   └── albums.js
-│   └── photos/            # Static photos
-├── climbers/              # Legacy climber profile files (now in Redis)
-└── scripts/               # Utility scripts
 ```
 
 ---
 
-## Adding Albums
+## Key Features
 
-The album submission feature allows users to:
+- **Albums:**
+  - Add albums via Google Photos URL
+  - Crew selection and instant DB update
+  - Animated auto-refresh with change detection (particles for add/delete/update)
+  - Album metadata scraping and image proxying
 
-1. **Add Album Button**: Click the orange "+" button on the albums page
-2. **Google Photos URL**: Paste a Google Photos album link (e.g., `https://photos.app.goo.gl/...`)
-3. **URL Validation**: The system automatically validates the URL and fetches album metadata
-4. **Crew Selection**: Select existing crew members who participated in the climb
-5. **Add New People**: Optionally add new people to the crew database
-6. **Instant Addition**: Albums are immediately added to the database
+- **Crew:**
+  - Add/edit/delete crew members with skills, achievements, and images
+  - Real-time updates and particle animations for changes
+  - Team stats exclude "Is Etherial" members
+  - "NEW" badge for recent crew, with tooltip for first climb date
 
-### How Album Submission Works
+- **Memes:**
+  - Upload, browse, and delete memes in a responsive gallery
+  - Masonry layout, image preview, and context menu for deletion
 
-When you submit an album:
+- **Admin:**
+  - View system stats, manage users, refresh album metadata
+  - Permission system with roles (user, admin, pending)
 
-1. The URL is validated to ensure it's a valid Google Photos album
-2. Album metadata (title, description, cover image) is fetched and displayed
-3. Album data is directly stored in Redis [[memory:2866449]] with proper data types
-4. New climber profiles are created in Redis if any new people were added
-5. The album appears immediately on the albums page with animated effects
-6. Crew member climb counts and levels are automatically updated
+- **Authentication:**
+  - Google OAuth for web
+  - JWT Bearer tokens for API/mobile (see `JWT_API_AUTH.md`)
+  - Hybrid endpoints support both session and JWT
 
----
-
-## How it Works
-
-- **Main Page:**  
-  - Displays an embedded Excalidraw flowchart explaining climbing
-  
-- **Albums Page:**  
-  - Loads album data from Redis [[memory:2866449]] using proper data types
-  - Shows animated skeletons for images/text
-  - Fetches album metadata and preview image via backend API
-  - Fades in images with blur, types in text, and shows album date
-  - Page transitions are animated (main content only, navbar stays)
-  - Real-time updates with particle animations for new/updated albums
-
-- **Backend:**  
-  - `/get-meta?url=...` — Scrapes OpenGraph data from Google Photos album
-  - `/get-image?url=...` — Proxies images to avoid CORS/CORB
-  - Uses Redis for data storage with proper data types for better performance [[memory:2866449]]
-  - Serves all static files from `/static`
+- **Backend:**
+  - Modular FastAPI app (routes, middleware, models, utils)
+  - Redis for all data (crew, albums, memes, sessions)
+  - Proper Redis data types (sets, hashes, etc.)
+  - Scripts for migration, admin, and export
 
 ---
 
-## Deployment (Production)
+## API & Scripts
 
-**Recommended setup:** Uvicorn + Nginx + systemd
+- **API:**
+  - `/api/crew` — Crew management (CRUD, skills, achievements)
+  - `/api/albums` — Album management (submit, edit crew, enriched listing)
+  - `/api/memes` — Meme gallery (list, upload, delete)
+  - `/api/admin` — Admin stats, metadata refresh
+  - `/api/auth` — Auth endpoints (login, user info, JWT)
+  - `/api/utilities` — Health check, image endpoints
+  - See `JWT_API_AUTH.md` for JWT usage and hybrid auth
 
-```bash
-# Install dependencies
-uv sync
-
-# Run with uvicorn
-uv run uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-For production deployment, consider using a reverse proxy like Nginx and a process manager like systemd.
-
----
-
-## Development
-
-The application uses:
-- **Backend**: FastAPI with Python
-- **Data Layer**: Redis with proper data types (sets, hashes, etc.) [[memory:2866449]]
-- **Frontend**: Vanilla HTML/CSS/JavaScript
-- **Image Processing**: Pillow for photo metadata
-- **HTTP Requests**: httpx for external API calls
-
-### Development Commands
-
-```bash
-# Install dependencies
-uv sync
-
-# Add new dependency
-uv add package-name
-
-# Run development server
-uv run uvicorn main:app --reload
-
-# Run scripts
-uv run python scripts/script_name.py
-```
+- **Scripts:**
+  - `scripts/redis_data_migration.py` — Migrate old JSON arrays to Redis sets
+  - `scripts/make_admin.py` — Promote user to admin
+  - `scripts/list_users.py` — List all users
+  - `scripts/export_utils.py` — Export Redis DB
 
 ---
 
 ## Customization
 
-- **Add albums:** Use the web interface or directly update Redis data [[memory:2866449]]
-- **Change styles:** Edit `static/css/styles.css`
-- **Change text effects:** Edit `static/js/albums.js` (`typewriter` function)
+- **Styles:** Edit `static/css/styles.css`
+- **Text Effects:** Edit `static/js/albums.js` (typewriter, particles)
+- **Add Data:** Use web UI or scripts for crew/albums/memes
 
 ---
 
 ## Accessibility & Performance
 
-- Respects `prefers-reduced-motion` for faster transitions on accessibility devices
+- Respects `prefers-reduced-motion` for accessibility
 - Fast, responsive, and works on all modern browsers
-- Uses Redis for efficient data operations [[memory:2866449]]
+- Efficient Redis operations and batch updates
 
 ---
 
@@ -194,7 +137,7 @@ MIT
 
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Uvicorn](https://www.uvicorn.org/)
-- [Poppins font](https://fonts.google.com/specimen/Poppins)
-- [Google Photos](https://photos.google.com/)
-- [Excalidraw](https://excalidraw.com/)
 - [Redis](https://redis.io/)
+- [Excalidraw](https://excalidraw.com/)
+- [Google Photos](https://photos.google.com/)
+- [Poppins font](https://fonts.google.com/specimen/Poppins)
