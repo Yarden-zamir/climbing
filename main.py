@@ -55,6 +55,7 @@ from utils.export_utils import export_redis_database
 
 # Import middleware
 from middleware.app_middleware import CaseInsensitiveMiddleware, NoCacheMiddleware
+from middleware.pretty_json_middleware import PrettyJSONMiddleware
 
 # Import models
 from models.api_models import (
@@ -489,5 +490,6 @@ async def favicon():
 
 # Add GZip compression middleware (add first for best performance)
 app.add_middleware(GZipMiddleware, minimum_size=500)
+app.add_middleware(PrettyJSONMiddleware, api_prefix="/api")
 app.add_middleware(CaseInsensitiveMiddleware)
 app.add_middleware(NoCacheMiddleware)

@@ -737,8 +737,8 @@ class AuthManager {
     showTokenCreatedDialog(tokenData) {
         const baseUrl = window.location.origin;
         const exportStatement = `export CLIMBING_API_TOKEN="${tokenData.access_token}"`;
-        const curlExampleWithEnv = `curl -H "Authorization: Bearer $CLIMBING_API_TOKEN" ${baseUrl}/api/crew`;
-        const curlExampleRaw = `curl -H "Authorization: Bearer ${tokenData.access_token}" ${baseUrl}/api/crew`;
+        const curlExampleWithEnv = `curl -H "Authorization: Bearer $CLIMBING_API_TOKEN" "${baseUrl}/api/crew?pretty=true"`;
+        const curlExampleRaw = `curl -H "Authorization: Bearer ${tokenData.access_token}" "${baseUrl}/api/crew?pretty=true"`;
 
         // Format expiry date for display
         const expiryDate = new Date(tokenData.expires_at);
