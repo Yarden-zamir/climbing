@@ -266,7 +266,7 @@ class AuthManager {
                         <path fill="#34A353" d="M41.8,138.4c0-23.4,19-42.4,42.4-42.4H88v80.9c0,2.1-1.7,3.8-3.9,3.9C60.7,180.8,41.8,161.8,41.8,138.4z"/>
                     </svg> Google Photos
                 </a>
-                <button class="clear-preferences-btn dropdown-item" style="background: none; border: none; color: inherit; padding: 8px 12px; text-align: left; width: 100%; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                <button class="clear-preferences-btn dropdown-item">
                     <span>🗑️</span> Clear Preferences
                 </button>
                 <hr class="dropdown-divider">
