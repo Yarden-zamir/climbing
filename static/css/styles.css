@@ -2771,7 +2771,7 @@ nav a.active {
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
     padding: 1rem;
-    min-width: 210px;
+    min-width: 285px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     z-index: 1001;
     
@@ -2944,6 +2944,22 @@ button.dropdown-item {
     color: #03dac6;
     border-left-color: #03dac6;
     box-shadow: inset 0 0 0 1px rgba(3, 218, 198, 0.2);
+}
+
+/* Pending status item styling */
+.pending-status-item {
+    background: rgba(255, 152, 0, 0.1);
+    color: #ff9800;
+    border-left: 3px solid #ff9800;
+    cursor: default;
+    pointer-events: none;
+    opacity: 0.9;
+}
+
+.pending-status-item:hover {
+    background: rgba(255, 152, 0, 0.1);
+    color: #ff9800;
+    transform: none;
 }
 
 /* Default hover for any other items */

@@ -239,6 +239,14 @@ class AuthManager {
             </a>
             <hr class="dropdown-divider">
         ` : '';
+
+        // Generate pending approval item if user is pending
+        const pendingApprovalItem = this.currentUser.role === 'pending' ? `
+            <div class="dropdown-item pending-status-item">
+                <span>⏳</span> Account Pending Approval
+            </div>
+            <hr class="dropdown-divider">
+        ` : '';
         
         userDropdown.innerHTML = `
             <button class="user-profile-btn">
@@ -254,6 +262,7 @@ class AuthManager {
                     <div class="profile-email">${this.currentUser.email}</div>
                 </div>
                 <hr class="dropdown-divider">
+                ${pendingApprovalItem}
                 ${adminPanelLink}
                 <button class="manage-tokens-btn dropdown-item">
                     <span>⚙️</span> Manage Tokens
@@ -316,9 +325,22 @@ class AuthManager {
             existingNotification.remove();
         }
 
-        // Show pending notification if user has pending status
-        if (this.isAuthenticated && this.currentUser && this.currentUser.role === 'pending') {
-            this.showPendingApprovalNotification();
+        if (this.isAuthenticated && this.currentUser) {
+            const notificationKey = `pending_notification_shown_${this.currentUser.id}`;
+            
+            if (this.currentUser.role === 'pending') {
+                // Show pending notification if user has pending status and hasn't seen it before
+                const hasSeenNotification = localStorage.getItem(notificationKey);
+                
+                if (!hasSeenNotification) {
+                    this.showPendingApprovalNotification();
+                    // Mark as shown in localStorage
+                    localStorage.setItem(notificationKey, 'true');
+                }
+            } else {
+                // User is no longer pending, clear the notification flag so they can see it again if needed
+                localStorage.removeItem(notificationKey);
+            }
         }
     }
 
