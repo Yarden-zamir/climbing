@@ -93,21 +93,16 @@ class RedisDataStore:
 
     def _validate_skills(self, skills: List[str]) -> List[str]:
         """Validate skills list"""
-        if not isinstance(skills, list):
-            raise ValidationError("Skills must be a list")
-
-        allowed_skills = [
-            "climber", "belayer", "lead climber", "lead belayer",
-            "anchor closer", "self belayer", "rope coiler", "diversity pick"
-        ]
+        if not skills:
+            return []
 
         validated_skills = []
         for skill in skills:
             if not isinstance(skill, str):
                 raise ValidationError(f"Skill must be a string: {skill}")
             skill = skill.strip()
-            if skill not in allowed_skills:
-                raise ValidationError(f"Invalid skill: {skill}")
+            if not skill:
+                raise ValidationError("Skill cannot be empty")
             if skill not in validated_skills:  # Remove duplicates
                 validated_skills.append(skill)
 
