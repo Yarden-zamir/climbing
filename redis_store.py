@@ -710,14 +710,24 @@ class RedisDataStore:
                 if first_date >= cutoff_date:
                     new_climbers.add(climber)
             
-            # Update the new climbers index
+            # Update both the index and individual climber records
             pipe = self.redis.pipeline()
             pipe.delete("index:climbers:new")
             if new_climbers:
                 pipe.sadd("index:climbers:new", *new_climbers)
+
+            # Update individual climber records
+            for climber in first_appearance.keys():
+                climber_key = f"climber:{climber}"
+                if self.redis.exists(climber_key):
+                    is_new = climber in new_climbers
+                    pipe.hset(climber_key, "is_new", "true" if is_new else "false")
+                    pipe.hset(climber_key, "updated_at", datetime.now().isoformat())
+
             pipe.execute()
             
             logger.info(f"Found {len(new_climbers)} new climbers: {new_climbers}")
+            logger.info(f"Updated is_new status for {len(first_appearance)} total climbers")
             return new_climbers
             
         except Exception as e:
