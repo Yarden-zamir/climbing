@@ -13,7 +13,7 @@ class Settings:
         # Session Configuration
         self.SECRET_KEY: str = os.getenv("SECRET_KEY") or ""
         if not self.SECRET_KEY:
-            raise ValueError("SECRET_KEY environment variable is required and must be set to a secure random value")
+            print("SECRET_KEY environment variable is must be set to a secure random value to enable google auth")
 
         # App Configuration
         self.BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8001")
