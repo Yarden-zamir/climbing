@@ -95,6 +95,14 @@ class AuthManager {
             }
         });
 
+        // Notifications toggle button click
+        document.addEventListener('click', (e) => {
+            if (e.target.matches('.notifications-toggle-btn, .notifications-toggle-btn *')) {
+                e.preventDefault();
+                this.toggleNotifications();
+            }
+        });
+
         // Token modal event listeners
         document.addEventListener('click', (e) => {
             // Close token modal
@@ -184,6 +192,9 @@ class AuthManager {
         
         // Show pending approval notification if user is pending
         this.updatePendingNotification();
+        
+        // Update notifications UI
+        this.updateNotificationsUI();
     }
 
     updateNavigation() {
@@ -275,6 +286,9 @@ class AuthManager {
                         <path fill="#34A353" d="M41.8,138.4c0-23.4,19-42.4,42.4-42.4H88v80.9c0,2.1-1.7,3.8-3.9,3.9C60.7,180.8,41.8,161.8,41.8,138.4z"/>
                     </svg> Google Photos
                 </a>
+                <button class="notifications-toggle-btn dropdown-item">
+                    <span id="notifications-icon">🔔</span> <span id="notifications-text">Enable Notifications</span>
+                </button>
                 <button class="clear-preferences-btn dropdown-item">
                     <span>🗑️</span> Clear Preferences
                 </button>
@@ -401,6 +415,95 @@ class AuthManager {
     async refreshAuthStatus() {
         await this.checkAuthStatus();
         this.updateUI();
+    }
+
+    // Notification management methods
+    updateNotificationsUI() {
+        const icon = document.getElementById('notifications-icon');
+        const text = document.getElementById('notifications-text');
+        
+        if (!icon || !text) return;
+        
+        // Check if notifications manager is available
+        if (window.notificationsManager) {
+            const isEnabled = window.notificationsManager.enabled;
+            const isSupported = window.notificationsManager.supported;
+            
+            if (!isSupported) {
+                icon.textContent = '🚫';
+                text.textContent = 'Notifications Not Supported';
+                document.querySelector('.notifications-toggle-btn').disabled = true;
+            } else if (isEnabled) {
+                icon.textContent = '🔔';
+                text.textContent = 'Disable Notifications';
+            } else {
+                icon.textContent = '🔕';
+                text.textContent = 'Enable Notifications';
+            }
+        } else {
+            icon.textContent = '⏳';
+            text.textContent = 'Loading Notifications...';
+        }
+    }
+
+    async toggleNotifications() {
+        if (!this.isAuthenticated) {
+            alert('Please log in to enable notifications');
+            return;
+        }
+
+        if (!window.notificationsManager) {
+            alert('Notification manager not available. Please refresh the page.');
+            return;
+        }
+
+        if (!window.notificationsManager.supported) {
+            alert('Push notifications are not supported in this browser');
+            return;
+        }
+
+        this.closeProfileDropdown();
+
+        try {
+            const isCurrentlyEnabled = window.notificationsManager.enabled;
+            
+            if (isCurrentlyEnabled) {
+                // Disable notifications
+                const confirmed = confirm('Are you sure you want to disable notifications? You won\'t receive alerts for new albums, crew members, or memes.');
+                if (!confirmed) return;
+                
+                await window.notificationsManager.disableNotifications();
+                alert('Notifications disabled successfully');
+                
+            } else {
+                // Enable notifications
+                await window.notificationsManager.enableNotifications();
+                alert('Notifications enabled successfully! You\'ll now receive alerts for new content.');
+                
+                // Send a test notification after a short delay
+                setTimeout(async () => {
+                    try {
+                        await window.notificationsManager.sendTestNotification();
+                    } catch (error) {
+                        console.log('Test notification failed:', error);
+                    }
+                }, 1000);
+            }
+            
+            // Update UI
+            this.updateNotificationsUI();
+            
+        } catch (error) {
+            console.error('Error toggling notifications:', error);
+            
+            if (error.message.includes('denied')) {
+                alert('Notification permission was denied. Please enable notifications in your browser settings and try again.');
+            } else if (error.message.includes('dismissed')) {
+                alert('Notification permission was dismissed. Please try again and allow notifications.');
+            } else {
+                alert('Failed to toggle notifications: ' + error.message);
+            }
+        }
     }
 
     // Method to clear all user preferences

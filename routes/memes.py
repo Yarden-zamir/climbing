@@ -7,6 +7,7 @@ from auth import get_current_user
 from dependencies import get_redis_store, get_permissions_manager
 from permissions import ResourceType
 from validation import ValidationError, validate_image_file
+from routes.notifications import send_notification_for_event
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api/memes", tags=["memes"])
@@ -99,6 +100,21 @@ async def submit_meme(
         # Set resource ownership and increment count
         await permissions_manager.set_resource_owner(ResourceType.MEME, meme_id, user_id)
         await permissions_manager.increment_user_creation_count(user_id, ResourceType.MEME)
+
+        # Send notification for new meme
+        try:
+            await send_notification_for_event(
+                event_type="meme_uploaded",
+                event_data={
+                    "meme_id": meme_id,
+                    "creator": user.get("name", "Someone"),
+                    "creator_id": user_id
+                },
+                redis_store=redis_store,
+                target_users=None  # Notify all users
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send meme notification: {e}")
 
         return JSONResponse({
             "success": True,

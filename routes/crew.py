@@ -12,6 +12,7 @@ from validation import (
     validate_form_json_field, validate_skill_list, validate_location_list,
     validate_achievements_list
 )
+from routes.notifications import send_notification_for_event
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api/crew", tags=["crew"])
@@ -155,6 +156,22 @@ async def submit_crew_member(
                 await permissions_manager.increment_user_creation_count(user_id, ResourceType.CREW_MEMBER)
             except Exception as e:
                 logger.warning(f"Failed to set ownership/increment count: {e}")
+
+        # Send notification for new crew member
+        try:
+            await send_notification_for_event(
+                event_type="crew_member_added",
+                event_data={
+                    "name": validated_name,
+                    "creator": user.get("name", "Someone"),
+                    "skills": validated_skills,
+                    "location": validated_location
+                },
+                redis_store=redis_store,
+                target_users=None  # Notify all users
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send crew member notification: {e}")
 
         return JSONResponse({
             "success": True,

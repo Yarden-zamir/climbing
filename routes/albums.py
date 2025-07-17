@@ -13,6 +13,7 @@ from utils.metadata_parser import fetch_url, parse_meta_tags
 from validation import (
     ValidationError, validate_google_photos_url, validate_crew_list
 )
+from routes.notifications import send_notification_for_event
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api/albums", tags=["albums"])
@@ -219,6 +220,22 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
                 await permissions_manager.increment_user_creation_count(user_id, ResourceType.ALBUM)
             except Exception as e:
                 logger.warning(f"Failed to set resource ownership: {e}")
+
+        # Send notification for new album
+        try:
+            await send_notification_for_event(
+                event_type="album_created",
+                event_data={
+                    "title": metadata.get('title', 'New Album'),
+                    "url": submission.url,
+                    "crew": submission.crew,
+                    "creator": user.get("name", "Someone")
+                },
+                redis_store=redis_store,
+                target_users=None  # Notify all users
+            )
+        except Exception as e:
+            logger.warning(f": {e}")
 
         return JSONResponse({
             "success": True,

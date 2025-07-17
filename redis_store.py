@@ -1166,6 +1166,200 @@ class RedisDataStore:
         result = self.redis.hdel(user_key, preference_field)
         return result > 0
 
+    # === PUSH NOTIFICATIONS ===
+
+    async def store_push_subscription(self, user_id: str, subscription_data: Dict[str, Any]) -> str:
+        """
+        Store a push notification subscription for a user.
+        
+        Args:
+            user_id: The user's unique identifier
+            subscription_data: The subscription object from browser's pushManager.subscribe()
+                Expected format: {
+                    "endpoint": "https://...",
+                    "keys": {
+                        "p256dh": "...",
+                        "auth": "..."
+                    },
+                    "expirationTime": null or timestamp
+                }
+        
+        Returns:
+            subscription_id: Unique identifier for this subscription
+        """
+        if not user_id or not subscription_data:
+            raise ValidationError("User ID and subscription data are required")
+
+        # Validate subscription data structure
+        if not isinstance(subscription_data, dict):
+            raise ValidationError("Subscription data must be a dictionary")
+
+        endpoint = subscription_data.get("endpoint")
+        keys = subscription_data.get("keys", {})
+
+        if not endpoint:
+            raise ValidationError("Subscription must have an endpoint")
+
+        if not keys.get("p256dh") or not keys.get("auth"):
+            raise ValidationError("Subscription must have p256dh and auth keys")
+
+        # Generate a unique subscription ID based on endpoint and keys
+        subscription_identifier = f"{endpoint}:{keys.get('p256dh', '')}:{keys.get('auth', '')}"
+        subscription_id = hashlib.md5(subscription_identifier.encode()).hexdigest()
+
+        # Store subscription data
+        subscription_key = f"push_subscription:{subscription_id}"
+        subscription_with_metadata = {
+            **subscription_data,
+            "user_id": user_id,
+            "created_at": datetime.now().isoformat(),
+            "last_used": None
+        }
+
+        # Use pipeline for atomic operations
+        pipe = self.redis.pipeline()
+
+        # Store the subscription
+        pipe.set(subscription_key, json.dumps(subscription_with_metadata))
+
+        # Add to user's subscription index
+        pipe.sadd(f"user_subscriptions:{user_id}", subscription_id)
+
+        # Add to global subscription index
+        pipe.sadd("all_subscriptions", subscription_id)
+
+        # Execute all operations
+        pipe.execute()
+
+        logger.info(f"Stored push subscription {subscription_id} for user {user_id}")
+        return subscription_id
+
+    async def get_push_subscription(self, subscription_id: str) -> Optional[Dict[str, Any]]:
+        """Get a push subscription by ID"""
+        if not subscription_id:
+            return None
+
+        subscription_key = f"push_subscription:{subscription_id}"
+        subscription_data = self.redis.get(subscription_key)
+
+        if not subscription_data:
+            return None
+
+        try:
+            return json.loads(subscription_data)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse subscription data for {subscription_id}")
+            return None
+
+    async def get_user_push_subscriptions(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all push subscriptions for a user"""
+        if not user_id:
+            return []
+
+        # Get all subscription IDs for the user
+        subscription_ids = list(self.redis.smembers(f"user_subscriptions:{user_id}"))
+
+        if not subscription_ids:
+            return []
+
+        # Get all subscription data
+        subscriptions = []
+        for subscription_id in subscription_ids:
+            subscription = await self.get_push_subscription(subscription_id)
+            if subscription:
+                # Add the subscription_id to the subscription data
+                subscription["subscription_id"] = subscription_id
+                subscriptions.append(subscription)
+
+        return subscriptions
+
+    async def delete_push_subscription(self, subscription_id: str) -> bool:
+        """Delete a push subscription"""
+        if not subscription_id:
+            return False
+
+        # Get subscription to find user_id
+        subscription = await self.get_push_subscription(subscription_id)
+        if not subscription:
+            return False
+
+        user_id = subscription.get("user_id")
+
+        # Use pipeline for atomic operations
+        pipe = self.redis.pipeline()
+
+        # Delete the subscription
+        pipe.delete(f"push_subscription:{subscription_id}")
+
+        # Remove from user's subscription index
+        if user_id:
+            pipe.srem(f"user_subscriptions:{user_id}", subscription_id)
+
+        # Remove from global subscription index
+        pipe.srem("all_subscriptions", subscription_id)
+
+        # Execute all operations
+        results = pipe.execute()
+
+        success = results[0] > 0  # First operation (delete) should return 1 if successful
+        if success:
+            logger.info(f"Deleted push subscription {subscription_id}")
+
+        return success
+
+    async def get_all_push_subscriptions(self) -> List[Dict[str, Any]]:
+        """Get all push subscriptions in the system"""
+        subscription_ids = list(self.redis.smembers("all_subscriptions"))
+
+        if not subscription_ids:
+            return []
+
+        subscriptions = []
+        for subscription_id in subscription_ids:
+            subscription = await self.get_push_subscription(subscription_id)
+            if subscription:
+                # Add the subscription_id to the subscription data
+                subscription["subscription_id"] = subscription_id
+                subscriptions.append(subscription)
+
+        return subscriptions
+
+    async def update_subscription_last_used(self, subscription_id: str) -> None:
+        """Update the last_used timestamp for a subscription"""
+        subscription = await self.get_push_subscription(subscription_id)
+        if not subscription:
+            return
+
+        subscription["last_used"] = datetime.now().isoformat()
+        subscription_key = f"push_subscription:{subscription_id}"
+        self.redis.set(subscription_key, json.dumps(subscription))
+
+    async def cleanup_expired_subscriptions(self) -> int:
+        """
+        Clean up expired push subscriptions.
+        
+        Returns:
+            Number of subscriptions cleaned up
+        """
+        all_subscriptions = await self.get_all_push_subscriptions()
+        cleaned_count = 0
+
+        for subscription in all_subscriptions:
+            expiration_time = subscription.get("expirationTime")
+            if expiration_time and expiration_time < datetime.now().timestamp() * 1000:
+                # Subscription has expired
+                subscription_id = hashlib.md5(
+                    f"{subscription['endpoint']}:{subscription['keys']['p256dh']}:{subscription['keys']['auth']}".encode()
+                ).hexdigest()
+
+                if await self.delete_push_subscription(subscription_id):
+                    cleaned_count += 1
+
+        if cleaned_count > 0:
+            logger.info(f"Cleaned up {cleaned_count} expired push subscriptions")
+
+        return cleaned_count
+
     # === UTILITY METHODS ===
 
     async def health_check(self) -> Dict[str, Any]:
