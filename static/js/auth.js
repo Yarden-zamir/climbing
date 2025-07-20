@@ -95,6 +95,14 @@ class AuthManager {
             }
         });
 
+        // Notification management button click
+        document.addEventListener('click', (e) => {
+            if (e.target.matches('.notification-management-btn, .notification-management-btn *')) {
+                e.preventDefault();
+                this.openNotificationManagement();
+            }
+        });
+
         // Token modal event listeners
         document.addEventListener('click', (e) => {
             // Close token modal
@@ -184,6 +192,9 @@ class AuthManager {
         
         // Show pending approval notification if user is pending
         this.updatePendingNotification();
+        
+        // Update notifications UI
+        this.updateNotificationsUI();
     }
 
     updateNavigation() {
@@ -275,6 +286,10 @@ class AuthManager {
                         <path fill="#34A353" d="M41.8,138.4c0-23.4,19-42.4,42.4-42.4H88v80.9c0,2.1-1.7,3.8-3.9,3.9C60.7,180.8,41.8,161.8,41.8,138.4z"/>
                     </svg> Google Photos
                 </a>
+                <button class="notification-management-btn dropdown-item">
+                    <span>🔔</span> Notification Settings
+                </button>
+                <hr class="dropdown-divider">
                 <button class="clear-preferences-btn dropdown-item">
                     <span>🗑️</span> Clear Preferences
                 </button>
@@ -401,6 +416,357 @@ class AuthManager {
     async refreshAuthStatus() {
         await this.checkAuthStatus();
         this.updateUI();
+    }
+
+    // Notification management methods
+    updateNotificationsUI() {
+        const icon = document.getElementById('notifications-icon');
+        const text = document.getElementById('notifications-text');
+        
+        if (!icon || !text) return;
+        
+        // Check if notifications manager is available
+        if (window.notificationsManager) {
+            const isEnabled = window.notificationsManager.enabled;
+            const isSupported = window.notificationsManager.supported;
+            
+            if (!isSupported) {
+                icon.textContent = '🚫';
+                text.textContent = 'Notifications Not Supported';
+                document.querySelector('.notifications-toggle-btn').disabled = true;
+            } else if (isEnabled) {
+                icon.textContent = '🔔';
+                text.textContent = 'Disable Notifications';
+            } else {
+                icon.textContent = '🔕';
+                text.textContent = 'Enable Notifications';
+            }
+        } else {
+            icon.textContent = '⏳';
+            text.textContent = 'Loading Notifications...';
+        }
+    }
+
+    async openNotificationManagement() {
+        try {
+            // Get user's devices and their notification preferences
+            const response = await fetch('/api/notifications/devices', {
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch devices: ${response.status}`);
+            }
+
+            const devicesData = await response.json();
+            this.showNotificationManagementModal(devicesData.devices || []);
+
+        } catch (error) {
+            console.error('Error opening notification management:', error);
+            this.showNotification('Failed to load notification settings', 'error');
+        }
+    }
+
+    showNotificationManagementModal(devices) {
+        // Determine if current device is already subscribed
+        const currentDeviceId = notificationsManager.deviceId;
+        const currentDevice = devices.find(d => d.full_device_id === currentDeviceId);
+        const deviceName = notificationsManager.getDeviceInfo().browserName;
+        let enableButtonHtml = '';
+        if (!currentDevice) {
+            enableButtonHtml = `
+                <div class="enable-notifications-banner">
+                    <p>Subscribe to notifications on this device <strong>(${deviceName})</strong>:</p>
+                    <button class="enable-notifications-btn">🔔 Enable Notifications</button>
+                </div>
+            `;
+        }
+        // Create modal HTML
+        const modalHTML = `
+            <div class="notification-management-modal-overlay">
+                <div class="notification-management-modal">
+                    <div class="modal-header">
+                        <h2>Notification Settings</h2>
+                        <button class="close-btn" onclick="authManager.closeNotificationManagement()">&times;</button>
+                    </div>
+                    <div class="modal-content">
+                        ${enableButtonHtml}
+                        <p class="modal-description">
+                            Manage notification preferences for each of your devices. You can enable or disable specific types of notifications per device.
+                        </p>
+                        <div class="devices-table-container">
+                            ${this.renderDevicesTable(devices)}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add modal to DOM
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+        // Add event listeners for preference toggles
+        this.setupNotificationPreferenceListeners();
+
+        // Enable notifications button event
+        const enableBtn = document.querySelector('.enable-notifications-btn');
+        if (enableBtn) {
+            enableBtn.addEventListener('click', async () => {
+                await notificationsManager.enableNotifications();
+                this.closeNotificationManagement();
+                // Optionally, re-open the modal to refresh the device list
+                setTimeout(() => this.openNotificationManagement(), 500);
+            });
+        }
+
+        // Close on overlay click
+        document.querySelector('.notification-management-modal-overlay').addEventListener('click', (e) => {
+            if (e.target.classList.contains('notification-management-modal-overlay')) {
+                this.closeNotificationManagement();
+            }
+        });
+    }
+
+    renderDevicesTable(devices) {
+        if (!devices || devices.length === 0) {
+            return `
+                <div class="no-devices">
+                    <p>🔔 No notification devices found</p>
+                    <p>Enable notifications on a device to manage preferences here.</p>
+                </div>
+            `;
+        }
+
+        const notificationTypes = [
+            { key: 'album_created', label: 'New Albums', icon: '📸' },
+            { key: 'crew_member_added', label: 'New Crew Members', icon: '👥' },
+            { key: 'meme_uploaded', label: 'New Memes', icon: '😂' },
+            { key: 'system_announcements', label: 'System Updates', icon: '📢' }
+        ];
+
+        return `
+            <table class="devices-table">
+                <thead>
+                    <tr>
+                        <th>Device</th>
+                        ${notificationTypes.map(type => `<th>${type.icon}<br>${type.label}</th>`).join('')}
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${devices.map(device => `
+                        <tr data-device-id="${device.full_device_id}">
+                            <td class="device-info">
+                                <div class="device-name">
+                                    <strong>${device.browser_name}</strong>
+                                    <small>${device.platform}</small>
+                                </div>
+                                <div class="device-details">
+                                    <small>Added: ${new Date(device.created_at).toLocaleDateString()}</small>
+                                    <br>
+                                    <small>Last used: ${device.last_used ? new Date(device.last_used).toLocaleDateString() : 'Never'}</small>
+                                </div>
+                            </td>
+                            ${notificationTypes.map(type => `
+                                <td class="checkbox-cell">
+                                    <label class="switch">
+                                        <input type="checkbox" 
+                                               data-device-id="${device.full_device_id}"
+                                               data-notification-type="${type.key}"
+                                               ${device.notification_preferences[type.key] ? 'checked' : ''}>
+                                        <span class="slider"></span>
+                                    </label>
+                                </td>
+                            `).join('')}
+                            <td class="actions-cell">
+                                <button class="remove-device-btn" data-device-id="${device.full_device_id}">
+                                    🗑️ Remove
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+
+    setupNotificationPreferenceListeners() {
+        // Handle preference toggle changes
+        document.querySelectorAll('.devices-table input[type="checkbox"]').forEach(checkbox => {
+            checkbox.addEventListener('change', async (e) => {
+                const deviceId = e.target.dataset.deviceId;
+                const notificationType = e.target.dataset.notificationType;
+                const isEnabled = e.target.checked;
+
+                await this.updateNotificationPreference(deviceId, notificationType, isEnabled);
+            });
+        });
+
+        // Handle device removal
+        document.querySelectorAll('.remove-device-btn').forEach(button => {
+            button.addEventListener('click', async (e) => {
+                const deviceId = e.target.dataset.deviceId;
+                await this.removeDevice(deviceId);
+            });
+        });
+    }
+
+    async updateNotificationPreference(deviceId, notificationType, isEnabled) {
+        try {
+            // Get current preferences for this device
+            const response = await fetch(`/api/notifications/devices/${deviceId}/preferences`, {
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch preferences: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const preferences = data.preferences;
+
+            // Update the specific preference
+            preferences[notificationType] = isEnabled;
+
+            // Send updated preferences to server
+            const updateResponse = await fetch(`/api/notifications/devices/${deviceId}/preferences`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include',
+                body: JSON.stringify(preferences)
+            });
+
+            if (!updateResponse.ok) {
+                throw new Error(`Failed to update preferences: ${updateResponse.status}`);
+            }
+
+            console.log(`✅ Updated ${notificationType} preference for device ${deviceId.substring(0, 15)}...`);
+
+        } catch (error) {
+            console.error('Error updating notification preference:', error);
+            this.showNotification('Failed to update notification preference', 'error');
+            
+            // Revert checkbox state on error
+            const checkbox = document.querySelector(`input[data-device-id="${deviceId}"][data-notification-type="${notificationType}"]`);
+            if (checkbox) {
+                checkbox.checked = !isEnabled;
+            }
+        }
+    }
+
+    async removeDevice(deviceId) {
+        if (!confirm('Are you sure you want to remove this device from notifications?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/notifications/devices/${deviceId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to remove device: ${response.status}`);
+            }
+
+            // Remove the row from the table
+            const row = document.querySelector(`tr[data-device-id="${deviceId}"]`);
+            if (row) {
+                row.remove();
+            }
+
+            this.showNotification('Device removed successfully', 'success');
+            console.log(`✅ Removed device ${deviceId.substring(0, 15)}...`);
+
+        } catch (error) {
+            console.error('Error removing device:', error);
+            this.showNotification('Failed to remove device', 'error');
+        }
+    }
+
+    closeNotificationManagement() {
+        const modal = document.querySelector('.notification-management-modal-overlay');
+        if (modal) {
+            modal.remove();
+        }
+    }
+
+    showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+
+        // Add to DOM
+        document.body.appendChild(notification);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.classList.add('fade-out');
+            setTimeout(() => notification.remove(), 3000);
+        }, 3000);
+    }
+
+    async toggleNotifications() {
+        if (!this.isAuthenticated) {
+            alert('Please log in to enable notifications');
+            return;
+        }
+
+        if (!window.notificationsManager) {
+            alert('Notification manager not available. Please refresh the page.');
+            return;
+        }
+
+        if (!window.notificationsManager.supported) {
+            alert('Push notifications are not supported in this browser');
+            return;
+        }
+
+        this.closeProfileDropdown();
+
+        try {
+            const isCurrentlyEnabled = window.notificationsManager.enabled;
+            
+            if (isCurrentlyEnabled) {
+                // Disable notifications
+                const confirmed = confirm('Are you sure you want to disable notifications? You won\'t receive alerts for new albums, crew members, or memes.');
+                if (!confirmed) return;
+                
+                await window.notificationsManager.disableNotifications();
+                alert('Notifications disabled successfully');
+                
+            } else {
+                // Enable notifications
+                await window.notificationsManager.enableNotifications();
+                alert('Notifications enabled successfully! You\'ll now receive alerts for new content.');
+                
+                // Send a test notification after a short delay
+                setTimeout(async () => {
+                    try {
+                        await window.notificationsManager.sendTestNotification();
+                    } catch (error) {
+                        console.log('Test notification failed:', error);
+                    }
+                }, 1000);
+            }
+            
+            // Update UI
+            this.updateNotificationsUI();
+            
+        } catch (error) {
+            console.error('Error toggling notifications:', error);
+            
+            if (error.message.includes('denied')) {
+                alert('Notification permission was denied. Please enable notifications in your browser settings and try again.');
+            } else if (error.message.includes('dismissed')) {
+                alert('Notification permission was dismissed. Please try again and allow notifications.');
+            } else {
+                alert('Failed to toggle notifications: ' + error.message);
+            }
+        }
     }
 
     // Method to clear all user preferences
@@ -1527,8 +1893,241 @@ class AuthManager {
                 gap: 8px;
             }
 
-            /* User Profile Dropdown Styles */
-            .user-profile-dropdown {
+            /* Notification Management Modal Styles */
+.notification-management-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+}
+
+.notification-management-modal {
+    background: white;
+    border-radius: 8px;
+    max-width: 900px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.notification-management-modal .modal-header {
+    padding: 20px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.notification-management-modal .modal-header h2 {
+    margin: 0;
+    color: #333;
+    font-size: 24px;
+}
+
+.notification-management-modal .close-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #999;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.notification-management-modal .close-btn:hover {
+    color: #333;
+}
+
+.notification-management-modal .modal-content {
+    padding: 20px;
+}
+
+.notification-management-modal .modal-description {
+    margin-bottom: 20px;
+    color: #666;
+    font-size: 14px;
+}
+
+.devices-table-container {
+    overflow-x: auto;
+}
+
+.devices-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.devices-table th,
+.devices-table td {
+    padding: 12px 8px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.devices-table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #333;
+    font-size: 12px;
+    text-align: center;
+}
+
+.devices-table .device-info {
+    min-width: 200px;
+}
+
+.devices-table .device-name {
+    margin-bottom: 4px;
+}
+
+.devices-table .device-name strong {
+    color: #333;
+    font-size: 14px;
+}
+
+.devices-table .device-name small {
+    color: #666;
+    font-size: 12px;
+    display: block;
+}
+
+.devices-table .device-details {
+    font-size: 11px;
+    color: #999;
+}
+
+.checkbox-cell {
+    text-align: center;
+    width: 80px;
+}
+
+.actions-cell {
+    text-align: center;
+    width: 100px;
+}
+
+/* Toggle Switch Styles */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 20px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 20px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: #2196F3;
+}
+
+input:checked + .slider:before {
+    transform: translateX(20px);
+}
+
+.remove-device-btn {
+    background: #ff4757;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color 0.3s;
+}
+
+.remove-device-btn:hover {
+    background: #ff3742;
+}
+
+.no-devices {
+    text-align: center;
+    padding: 40px 20px;
+    color: #666;
+}
+
+.no-devices p:first-child {
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .notification-management-modal {
+        width: 95%;
+        max-height: 90vh;
+    }
+    
+    .devices-table {
+        font-size: 12px;
+    }
+    
+    .devices-table th,
+    .devices-table td {
+        padding: 8px 4px;
+    }
+    
+    .checkbox-cell,
+    .actions-cell {
+        width: auto;
+    }
+    
+    .switch {
+        width: 35px;
+        height: 18px;
+    }
+    
+    .slider:before {
+        height: 14px;
+        width: 14px;
+    }
+    
+    input:checked + .slider:before {
+        transform: translateX(17px);
+    }
+}
+
+/* User Profile Dropdown Styles */
+.user-profile-dropdown {
                 position: relative;
                 display: inline-block;
             }

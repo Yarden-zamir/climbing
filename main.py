@@ -71,6 +71,7 @@ from routes.admin import router as admin_router
 from routes.users import router as users_router
 from routes.albums import router as albums_router
 from routes.utilities import router as utilities_router
+from routes.notifications import router as notifications_router
 
 # Import dependencies
 import dependencies
@@ -134,6 +135,7 @@ app.include_router(admin_router)
 app.include_router(users_router)
 app.include_router(albums_router)
 app.include_router(utilities_router)
+app.include_router(notifications_router)
 
 @app.on_event("startup")
 async def startup_event():
@@ -487,6 +489,18 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def favicon():
     """Serve favicon"""
     return FileResponse("static/favicon/favicon.ico")
+
+# Serve service worker from root
+
+
+@app.get("/sw.js")
+async def service_worker():
+    """Serve service worker from root with proper headers"""
+    response = FileResponse("sw.js", media_type="application/javascript")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 # Add GZip compression middleware (add first for best performance)
 app.add_middleware(GZipMiddleware, minimum_size=500)

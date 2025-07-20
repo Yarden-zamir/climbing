@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<link id="favicon" rel="icon" type="image/x-icon" href="/static/favicon/favicon.ico">
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<meta name="description" content="Browse and share climbing photo albums from our community. Upload, organize, and discover amazing climbing moments and achievements." />
+	<title>Albums</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet" />
+			<link rel="stylesheet" href="/static/css/styles.css?v=1.1" />
+	<!-- Cropper.js CSS -->
+	    <link rel="stylesheet" href="/static/css/cropper.min.css">
+	<style>
+		/* Floating Action Button */
+		.filter-fab {
+			position: fixed;
+			bottom: 2rem;
+			right: 2rem;
+			width: 64px;
+			height: 64px;
+			background: linear-gradient(135deg, #bb86fc 0%, #6200ea 100%);
+			border: none;
+			border-radius: 50%;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			box-shadow: 0 6px 20px rgba(187, 134, 252, 0.4);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		
+		.filter-fab:hover {
+			transform: scale(1.1);
+			box-shadow: 0 8px 30px rgba(187, 134, 252, 0.6);
+		}
+		
+		.filter-fab:active {
+			transform: scale(0.95);
+		}
+		
+		.filter-fab.active {
+			background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
+		}
+		
+		.filter-fab::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -100%;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+			transition: left 0.5s;
+		}
+		
+		.filter-fab:hover::before {
+			left: 100%;
+		}
+		
+		.filter-fab-icon {
+			font-size: 1.5rem;
+			transition: transform 0.3s ease;
+			color: white;
+			z-index: 2;
+		}
+		
+		.filter-fab.active .filter-fab-icon {
+			transform: rotate(45deg);
+		}
+		
+
+		
+		/* Filter Popup */
+		.filter-popup-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			z-index: 999;
+			pointer-events: none;
+			display: none;
+		}
+		
+		.filter-popup-overlay.active {
+			pointer-events: auto;
+			display: block;
+		}
+		
+		.filter-popup {
+			position: fixed;
+			bottom: 6rem;
+			right: 2rem;
+			width: 400px;
+			max-width: calc(100vw - 4rem);
+			max-height: calc(100vh - 12rem);
+			background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+			border-radius: 20px;
+			border: 1px solid #333;
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+			backdrop-filter: blur(20px);
+			transform: translateY(20px) scale(0.9);
+			opacity: 0;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			overflow: hidden;
+			z-index: 1001;
+			pointer-events: none;
+			visibility: hidden;
+		}
+		
+		.filter-popup.active {
+			transform: translateY(0) scale(1);
+			opacity: 1;
+			pointer-events: auto;
+			visibility: visible;
+		}
+		
+		.filter-popup-header {
+			padding: 1.5rem;
+			border-bottom: 1px solid #333;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		
+		.filter-popup-title {
+			font-size: 1.2rem;
+			font-weight: 700;
+			color: #fff;
+			margin: 0;
+			background: linear-gradient(90deg, #bb86fc, #03dac6);
+			background-clip: text;
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+		
+		.filter-popup-close {
+			background: none;
+			border: none;
+			color: #888;
+			font-size: 1.5rem;
+			cursor: pointer;
+			padding: 0.5rem;
+			border-radius: 50%;
+			transition: all 0.2s ease;
+		}
+		
+		.filter-popup-close:hover {
+			background: #333;
+			color: #fff;
+		}
+		
+		.filter-popup-content {
+			padding: 1.5rem;
+			max-height: calc(100vh - 26rem);
+			overflow-y: auto;
+		}
+		
+		.filter-popup-footer {
+			padding: 1.5rem;
+			border-top: 1px solid #333;
+			display: flex;
+			justify-content: center;
+			background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+			border-radius: 0 0 20px 20px;
+		}
+		
+		.filter-controls {
+			display: flex;
+			gap: 0.7rem;
+			margin-bottom: 1.5rem;
+			flex-wrap: wrap;
+		}
+		
+		.filter-btn {
+			background: linear-gradient(135deg, #333 0%, #444 100%);
+			border: 1px solid #555;
+			color: #e0e0e0;
+			padding: 0.6rem 1.2rem;
+			border-radius: 25px;
+			cursor: pointer;
+			font-size: 0.9rem;
+			font-weight: 500;
+			transition: all 0.3s ease;
+			position: relative;
+			overflow: hidden;
+		}
+		
+		.filter-btn::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -100%;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(90deg, transparent, rgba(187, 134, 252, 0.3), transparent);
+			transition: left 0.3s;
+		}
+		
+		.filter-btn:hover {
+			background: linear-gradient(135deg, #444 0%, #555 100%);
+			border-color: #bb86fc;
+			transform: translateY(-1px);
+			box-shadow: 0 4px 15px rgba(187, 134, 252, 0.2);
+		}
+		
+		.filter-btn:hover::before {
+			left: 100%;
+		}
+		
+		.people-filters {
+			display: grid;
+			grid-template-columns: 1fr;
+			gap: 0.6rem;
+			margin-bottom: 1rem;
+		}
+		
+		.person-filter {
+			display: flex;
+			align-items: center;
+			gap: 0.8rem;
+			padding: 0.8rem 1rem;
+			background: linear-gradient(135deg, #252525 0%, #1a1a1a 100%);
+			border-radius: 12px;
+			border: 1px solid #333;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			cursor: pointer;
+			position: relative;
+			overflow: hidden;
+		}
+		
+		.person-filter::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: linear-gradient(135deg, rgba(187, 134, 252, 0.1) 0%, rgba(3, 218, 198, 0.1) 100%);
+			opacity: 0;
+			transition: opacity 0.3s ease;
+		}
+		
+		.person-filter:hover::before,
+		.person-filter.checked::before {
+			opacity: 1;
+		}
+		
+		.person-filter:hover {
+			transform: translateX(4px);
+			border-color: #bb86fc;
+			box-shadow: 0 4px 15px rgba(187, 134, 252, 0.2);
+		}
+		
+		.person-filter.checked {
+			border-color: #03dac6;
+			background: linear-gradient(135deg, #1a3a35 0%, #0d2d28 100%);
+		}
+		
+		.person-filter.checked:hover {
+			border-color: #03dac6;
+		}
+		
+		.person-filter input[type="checkbox"] {
+			display: none;
+		}
+		
+		.person-filter .person-face {
+			width: 32px;
+			height: 32px;
+			border-radius: 50%;
+			object-fit: cover;
+			border: 2px solid #555;
+			transition: all 0.3s ease;
+			z-index: 2;
+			position: relative;
+		}
+		
+		.person-filter.checked .person-face {
+			border-color: #03dac6;
+			box-shadow: 0 0 0 2px rgba(3, 218, 198, 0.3);
+		}
+		
+		.person-filter span {
+			flex: 1;
+			cursor: pointer;
+			color: #e0e0e0;
+			font-size: 0.95rem;
+			font-weight: 500;
+			z-index: 2;
+			position: relative;
+			transition: color 0.3s ease;
+		}
+		
+		.person-filter.checked span {
+			color: #03dac6;
+		}
+		
+		.filter-status {
+			padding: 1rem;
+			background: linear-gradient(135deg, #1a3a35 0%, #0d2d28 100%);
+			border-radius: 12px;
+			border: 1px solid #03dac6;
+			color: #03dac6;
+			font-size: 0.9rem;
+			text-align: center;
+			font-weight: 500;
+			box-shadow: 0 0 15px rgba(3, 218, 198, 0.2);
+		}
+		
+		/* Add Album FAB */
+		.add-album-fab {
+			position: fixed;
+			bottom: 2rem;
+			right: 5rem;
+			width: 64px;
+			height: 64px;
+			background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+			border: none;
+			border-radius: 50%;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			box-shadow: 0 6px 20px rgba(255, 174, 82, 0.4);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		
+		.add-album-fab:hover {
+			transform: scale(1.1);
+			box-shadow: 0 8px 30px rgba(255, 174, 82, 0.6);
+		}
+		
+		.add-album-fab:active {
+			transform: scale(0.95);
+		}
+		
+		.add-album-fab::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -100%;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+			transition: left 0.5s;
+		}
+		
+		.add-album-fab:hover::before {
+			left: 100%;
+		}
+		
+		.add-album-fab-icon {
+			font-size: 1.5rem;
+			transition: transform 0.3s ease;
+			color: white;
+			z-index: 2;
+		}
+		
+		.add-album-fab.active .add-album-fab-icon {
+			transform: rotate(45deg);
+		}
+
+		/* Edit Album FAB */
+		.edit-album-fab {
+			position: fixed;
+			bottom: 2rem;
+			right: 8rem;
+			width: 64px;
+			height: 64px;
+			background: #03dac6;
+			border: none;
+			border-radius: 50%;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			box-shadow: 0 6px 20px rgba(3, 218, 198, 0.4);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		
+		.edit-album-fab:hover {
+			transform: scale(1.1);
+			box-shadow: 0 8px 30px rgba(3, 218, 198, 0.6);
+		}
+		
+		.edit-album-fab:active {
+			transform: scale(0.95);
+		}
+		
+		.edit-album-fab.active {
+			background: #03dac6;
+			box-shadow: 0 6px 20px rgba(3, 218, 198, 0.4);
+		}
+		
+		.edit-album-fab::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: -100%;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+			transition: left 0.5s;
+		}
+		
+		.edit-album-fab:hover::before {
+			left: 100%;
+		}
+		
+		.edit-album-fab-icon {
+			font-size: 1.5rem;
+			transition: transform 0.3s ease;
+			color: white;
+			z-index: 2;
+		}
+		
+		.edit-album-fab.active .edit-album-fab-icon {
+			transform: rotate(180deg);
+		}
+
+		/* Add Album Modal */
+		.add-album-modal-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(0, 0, 0, 0.8);
+			z-index: 2000;
+			display: none;
+			align-items: center;
+			justify-content: center;
+			backdrop-filter: blur(5px);
+		}
+		
+		.add-album-modal-overlay.active {
+			display: flex;
+		}
+		
+		.add-album-modal {
+			background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+			border-radius: 20px;
+			border: 1px solid #333;
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+			width: 90%;
+			max-width: 600px;
+			max-height: 90vh;
+			overflow-y: auto;
+			transform: scale(0.9);
+			opacity: 0;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+		
+		.add-album-modal.active {
+			transform: scale(1);
+			opacity: 1;
+		}
+		
+		.add-album-modal-header {
+			padding: 2rem;
+			border-bottom: 1px solid #333;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		
+		.add-album-modal-title {
+			font-size: 1.5rem;
+			font-weight: 700;
+			color: #fff;
+			margin: 0;
+			background: linear-gradient(90deg, #ffae52, #ff6b35);
+			background-clip: text;
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+		
+		.add-album-modal-close {
+			background: none;
+			border: none;
+			color: #888;
+			font-size: 2rem;
+			cursor: pointer;
+			padding: 0.5rem;
+			border-radius: 50%;
+			transition: all 0.2s ease;
+		}
+		
+		.add-album-modal-close:hover {
+			background: #333;
+			color: #fff;
+		}
+		
+		.add-album-form {
+			padding: 2rem;
+		}
+		
+		.form-group {
+			margin-bottom: 1.5rem;
+		}
+		
+		.form-label {
+			display: block;
+			color: #fff;
+			font-weight: 600;
+			margin-bottom: 0.5rem;
+			font-size: 1rem;
+		}
+		
+		.form-input {
+			width: 100%;
+			padding: 1rem;
+			background: #333;
+			border: 2px solid #444;
+			border-radius: 12px;
+			color: #fff;
+			font-size: 1rem;
+			transition: all 0.3s ease;
+			box-sizing: border-box;
+		}
+		
+		.form-input:focus {
+			outline: none;
+			border-color: #ffae52;
+			box-shadow: 0 0 0 3px rgba(255, 174, 82, 0.2);
+		}
+		
+		.form-input.error {
+			border-color: #cf6679;
+			box-shadow: 0 0 0 3px rgba(207, 102, 121, 0.2);
+		}
+		
+		.form-error {
+			color: #cf6679;
+			font-size: 0.9rem;
+			margin-top: 0.5rem;
+		}
+		
+		.form-success {
+			color: #03dac6;
+			font-size: 0.9rem;
+			margin-top: 0.5rem;
+		}
+		
+		.crew-selector {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+			gap: 0.5rem;
+			max-height: 200px;
+			overflow-y: auto;
+			padding: 1rem;
+			background: #222;
+			border-radius: 12px;
+			border: 2px solid #444;
+		}
+		
+		.crew-option {
+			display: flex;
+			align-items: center;
+			gap: 0.7rem;
+			padding: 0.5rem;
+			border-radius: 8px;
+			cursor: pointer;
+			transition: all 0.2s ease;
+			background: transparent;
+		}
+		
+		.crew-option:hover {
+			background: #333;
+		}
+		
+		.crew-option.selected {
+			background: #ffae5222;
+			border: 2px solid #ffae52;
+		}
+		
+		.crew-option input[type="checkbox"] {
+			display: none;
+		}
+		
+		.crew-option .crew-face {
+			width: 32px;
+			height: 32px;
+			border-radius: 50%;
+			object-fit: cover;
+			border: 2px solid #555;
+		}
+		
+		.crew-option.selected .crew-face {
+			border-color: #ffae52;
+		}
+		
+		.crew-option-name {
+			color: #e0e0e0;
+			font-size: 0.95rem;
+			font-weight: 500;
+		}
+		
+		.crew-option.selected .crew-option-name {
+			color: #ffae52;
+		}
+		
+		.new-person-form {
+			background: #222;
+			border-radius: 12px;
+			padding: 1rem;
+			margin-top: 1rem;
+			border: 2px solid #444;
+		}
+		
+		.new-person-input {
+			display: flex;
+			gap: 0.5rem;
+			margin-bottom: 1rem;
+		}
+		
+		.new-person-input input {
+			flex: 1;
+		}
+		
+		.skills-input-container {
+			position: relative;
+			margin-bottom: 1rem;
+		}
+		
+		.skills-input {
+			width: 100%;
+			padding: 0.7rem;
+			background: #333;
+			border: 2px solid #444;
+			border-radius: 8px;
+			color: #fff;
+			font-size: 0.95rem;
+		}
+		
+		.skills-input:focus {
+			outline: none;
+			border-color: #ffae52;
+		}
+		
+		.skills-autocomplete {
+			position: absolute;
+			top: 100%;
+			left: 0;
+			right: 0;
+			background: #333;
+			border: 2px solid #444;
+			border-top: none;
+			border-radius: 0 0 8px 8px;
+			max-height: 150px;
+			overflow-y: auto;
+			z-index: 1000;
+			display: none;
+		}
+		
+		.skills-autocomplete-item {
+			padding: 0.7rem;
+			cursor: pointer;
+			color: #e0e0e0;
+			transition: background 0.2s ease;
+		}
+		
+		.skills-autocomplete-item:hover,
+		.skills-autocomplete-item.selected {
+			background: #ffae52;
+			color: #1a1a1a;
+		}
+		
+
+		
+		.image-upload-container {
+			margin-bottom: 1rem;
+		}
+		
+		.image-upload-area {
+			border: 2px dashed #444;
+			border-radius: 8px;
+			padding: 1.5rem;
+			text-align: center;
+			cursor: pointer;
+			transition: all 0.3s ease;
+			background: #333;
+		}
+		
+		.image-upload-area:hover {
+			border-color: #ffae52;
+			background: #383838;
+		}
+		
+		.image-upload-area.dragover {
+			border-color: #ffae52;
+			background: #ffae5222;
+		}
+		
+		.image-preview {
+			max-width: 100px;
+			max-height: 100px;
+			border-radius: 50%;
+			object-fit: cover;
+			border: 3px solid #ffae52;
+			margin-bottom: 0.5rem;
+		}
+		
+		.upload-text {
+			color: #ccc;
+			font-size: 0.9rem;
+		}
+		
+		.upload-file-input {
+			display: none;
+		}
+		
+		.add-person-btn {
+			background: #ffae52;
+			color: #1a1a1a;
+			border: none;
+			padding: 0.5rem 1rem;
+			border-radius: 8px;
+			cursor: pointer;
+			font-weight: 600;
+			transition: all 0.2s ease;
+		}
+		
+		.add-person-btn:hover {
+			background: #ff9630;
+		}
+		
+		.submit-btn {
+			width: 100%;
+			padding: 1rem;
+			background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+			color: #1a1a1a;
+			border: none;
+			border-radius: 12px;
+			font-size: 1.1rem;
+			font-weight: 700;
+			cursor: pointer;
+			transition: all 0.3s ease;
+			margin-top: 1rem;
+		}
+		
+		.submit-btn:hover:not(:disabled) {
+			transform: translateY(-2px);
+			box-shadow: 0 8px 25px rgba(255, 174, 82, 0.4);
+		}
+		
+		.submit-btn:disabled {
+			opacity: 0.6;
+			cursor: not-allowed;
+		}
+		
+		.album-preview {
+			background: #222;
+			border-radius: 12px;
+			padding: 1rem;
+			margin-top: 1rem;
+			border: 2px solid #333;
+		}
+		
+		.album-preview.loading {
+			opacity: 0.6;
+		}
+		
+		.album-preview-image {
+			width: 100%;
+			object-fit: cover;
+			border-radius: 8px;
+			margin-bottom: 1rem;
+		}
+		
+		.album-preview-title {
+			font-size: 1.2rem;
+			font-weight: 600;
+			color: #fff;
+			margin-bottom: 0.5rem;
+		}
+		
+		.album-preview-description {
+			color: #ccc;
+			font-size: 0.95rem;
+			line-height: 1.4;
+		}
+
+		/* Edit Mode Overlay */
+		.edit-mode-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(187, 134, 252, 0.1);
+			z-index: 500;
+			display: none;
+			pointer-events: none;
+		}
+		
+		.edit-mode-overlay.active {
+			display: block;
+		}
+		
+		.edit-mode-message {
+			position: fixed;
+			top: 2rem;
+			left: 50%;
+			transform: translateX(-50%);
+			background: linear-gradient(135deg, #bb86fc 0%, #6200ea 100%);
+			color: white;
+			padding: 1rem 2rem;
+			border-radius: 25px;
+			font-weight: 600;
+			font-size: 1.1rem;
+			box-shadow: 0 8px 25px rgba(187, 134, 252, 0.4);
+			z-index: 1001;
+			display: none;
+			animation: slideDown 0.3s ease-out;
+		}
+		
+		.edit-mode-message.active {
+			display: block;
+		}
+		
+		@keyframes slideDown {
+			from {
+				opacity: 0;
+				transform: translateX(-50%) translateY(-20px);
+			}
+			to {
+				opacity: 1;
+				transform: translateX(-50%) translateY(0);
+			}
+		}
+		
+		.album-card.edit-mode {
+			cursor: pointer;
+			transition: all 0.3s ease;
+		}
+		
+		.album-card.edit-mode:hover {
+			transform: translateY(-8px) scale(1.02);
+			box-shadow: 0 12px 30px rgba(187, 134, 252, 0.3);
+			border: 2px solid #bb86fc;
+		}
+
+		/* Edit Album Modal */
+		.edit-album-modal-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(0, 0, 0, 0.8);
+			z-index: 2000;
+			display: none;
+			align-items: center;
+			justify-content: center;
+			backdrop-filter: blur(5px);
+		}
+		
+		.edit-album-modal-overlay.active {
+			display: flex;
+		}
+		
+		.edit-album-modal {
+			background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+			border-radius: 20px;
+			border: 1px solid #333;
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+			width: 90%;
+			max-width: 600px;
+			max-height: 90vh;
+			overflow-y: auto;
+			transform: scale(0.9);
+			opacity: 0;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+		
+		.edit-album-modal.active {
+			transform: scale(1);
+			opacity: 1;
+		}
+		
+		.edit-album-modal-header {
+			padding: 2rem;
+			border-bottom: 1px solid #333;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		
+		.edit-album-modal-title {
+			font-size: 1.5rem;
+			font-weight: 700;
+			color: #fff;
+			margin: 0;
+			background: linear-gradient(90deg, #bb86fc, #03dac6);
+			background-clip: text;
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+		
+		.edit-album-modal-close {
+			background: none;
+			border: none;
+			color: #888;
+			font-size: 2rem;
+			cursor: pointer;
+			padding: 0.5rem;
+			border-radius: 50%;
+			transition: all 0.2s ease;
+		}
+		
+		.edit-album-modal-close:hover {
+			background: #333;
+			color: #fff;
+		}
+		
+		.edit-album-form {
+			padding: 2rem;
+		}
+		
+		.album-info {
+			background: #222;
+			border-radius: 12px;
+			padding: 1rem;
+			margin-bottom: 1.5rem;
+			border: 2px solid #333;
+		}
+		
+		.album-info-image {
+			width: 100%;
+			object-fit: cover;
+			border-radius: 8px;
+			margin-bottom: 1rem;
+		}
+		
+		.album-info-title {
+			font-size: 1.2rem;
+			font-weight: 600;
+			color: #fff;
+			margin-bottom: 0.5rem;
+		}
+		
+		.album-info-url {
+			color: #bb86fc;
+			font-size: 0.9rem;
+			word-break: break-all;
+		}
+
+		/* Mobile adjustments */
+		@media (max-width: 700px) {
+			.filter-fab {
+				bottom: 1.5rem;
+				right: 1.5rem;
+				width: 56px;
+				height: 56px;
+			}
+			
+			.filter-fab-icon {
+				font-size: 1.3rem;
+			}
+			
+			.add-album-fab {
+				bottom: 1.5rem;
+				right: 4rem;
+				width: 56px;
+				height: 56px;
+			}
+			
+			.add-album-fab-icon {
+				font-size: 1.3rem;
+			}
+			
+			.edit-album-fab {
+				bottom: 1.5rem;
+				right: 6.5rem;
+				width: 56px;
+				height: 56px;
+			}
+			
+			.edit-album-fab-icon {
+				font-size: 1.3rem;
+			}
+			
+			.filter-popup {
+				bottom: 5rem;
+				right: 1.5rem;
+				left: 1.5rem;
+				width: auto;
+				max-width: none;
+			}
+			
+			.filter-popup-content {
+				padding: 1rem;
+			}
+			
+			.filter-popup-header {
+				padding: 1rem;
+			}
+			
+			.add-album-modal {
+				width: 95%;
+				margin: 1rem;
+			}
+			
+			.add-album-modal-header,
+			.add-album-form {
+				padding: 1.5rem;
+			}
+			
+			.crew-selector {
+				grid-template-columns: 1fr;
+			}
+		}
+	</style>
+</head>
+
+<body>
+	<nav>
+		<a href="/crew">Crew</a>
+		<a href="/albums" class="active">Albums</a>
+		<a href="/knowledge">Knowledge</a>
+		<a href="/memes">Memes</a>
+	</nav>
+	<main class="page-fade">
+		<div id="albums-container" class="albums-grid">
+			<!-- Album cards will be injected here by JavaScript -->
+		</div>
+		
+		<!-- Floating Action Buttons -->
+		<button class="filter-fab" id="filter-fab">
+			<span class="filter-fab-icon">🔍</span>
+		</button>
+		
+		<button class="add-album-fab" id="add-album-fab">
+			<span class="add-album-fab-icon">➕</span>
+		</button>
+		
+		<button class="edit-album-fab" id="edit-album-fab">
+			<span class="edit-album-fab-icon">✏️</span>
+		</button>
+		
+		<!-- Edit Mode Overlay -->
+		<div class="edit-mode-overlay" id="edit-mode-overlay"></div>
+		<div class="edit-mode-message" id="edit-mode-message">
+			✏️ Click on an album to edit its crew members
+		</div>
+		
+		<!-- Filter Popup Overlay -->
+		<div class="filter-popup-overlay" id="filter-popup-overlay"></div>
+		
+		<!-- Filter Popup -->
+		<div class="filter-popup" id="filter-popup">
+			<div class="filter-popup-header">
+				<h2 class="filter-popup-title">Filter by People</h2>
+				<button class="filter-popup-close" id="filter-popup-close">×</button>
+			</div>
+			<div class="filter-popup-content">
+				<div id="people-filters" class="people-filters">
+					<!-- People checkboxes will be populated here -->
+				</div>
+				<div id="filter-status" class="filter-status" style="display: none;">
+					<!-- Status message will appear here -->
+				</div>
+			</div>
+			<div class="filter-popup-footer">
+				<button class="filter-btn" id="clear-all-btn">🗑️ Clear All</button>
+			</div>
+		</div>
+		
+		<!-- Add Album Modal -->
+		<div class="add-album-modal-overlay" id="add-album-modal-overlay">
+			<div class="add-album-modal" id="add-album-modal">
+				<div class="add-album-modal-header">
+					<h2 class="add-album-modal-title">Add New Album</h2>
+					<button class="add-album-modal-close" id="add-album-modal-close">×</button>
+				</div>
+				<form class="add-album-form" id="add-album-form">
+					<div class="form-group">
+						<label class="form-label" for="album-url">Google Photos Album URL</label>
+						<input 
+							type="url" 
+							id="album-url" 
+							class="form-input" 
+							placeholder="https://photos.app.goo.gl/..."
+							required
+						>
+						<div id="url-error" class="form-error" style="display: none;"></div>
+						<div id="url-success" class="form-success" style="display: none;"></div>
+					</div>
+					
+					<div id="album-preview" class="album-preview" style="display: none;">
+						<!-- Album preview will be populated here -->
+					</div>
+					
+					<div class="form-group">
+						<label class="form-label">Select Crew Members</label>
+						<div id="crew-selector" class="crew-selector">
+							<!-- Crew options will be populated here -->
+						</div>
+					</div>
+					
+					<div class="form-group">
+						<label class="form-label">Add New Person (Optional)</label>
+						<div class="new-person-form" id="new-person-form" style="display: none;">
+							<div class="new-person-input">
+								<input 
+									type="text" 
+									id="new-person-name" 
+									class="form-input" 
+									placeholder="Full name"
+								>
+							</div>
+							
+							<div class="image-upload-container">
+								<label class="form-label">Profile Image</label>
+								<div class="image-upload-area" id="image-upload-area">
+									<input type="file" id="image-upload-input" class="upload-file-input" accept="image/*">
+									<div id="upload-content">
+										<div class="upload-text">
+											📷 Click or drag to upload profile image<br>
+											<small>(JPG, PNG, max 5MB)</small>
+										</div>
+									</div>
+								</div>
+							</div>
+							
+							<div class="skills-input-container">
+								<label class="form-label">Skills</label>
+								<div class="skills-badges-container" id="skills-badges-container">
+									<!-- Available skills badges will appear here -->
+								</div>
+							</div>
+							
+							<div style="display: flex; gap: 0.5rem;">
+								<button type="button" class="add-person-btn" id="add-person-btn">Add Person</button>
+								<button type="button" class="add-person-btn" id="cancel-person-btn" style="background: #666;">Cancel</button>
+							</div>
+						</div>
+						
+						<button type="button" class="add-person-btn" id="show-new-person-btn">+ Add New Person</button>
+						
+						<div id="new-people-list" style="margin-top: 1rem;">
+							<!-- New people will be listed here -->
+						</div>
+					</div>
+					
+					<button type="submit" class="submit-btn" id="submit-album-btn" disabled>
+						Add Album
+					</button>
+					
+					<div id="submission-status" style="margin-top: 1rem; text-align: center;">
+						<!-- Submission status will appear here -->
+					</div>
+				</form>
+			</div>
+		</div>
+		
+		<!-- Edit Album Modal -->
+		<div class="edit-album-modal-overlay" id="edit-album-modal-overlay">
+			<div class="edit-album-modal" id="edit-album-modal">
+				<div class="edit-album-modal-header">
+					<h2 class="edit-album-modal-title">Edit Album Crew</h2>
+					<button class="edit-album-modal-close" id="edit-album-modal-close">×</button>
+				</div>
+				<form class="edit-album-form" id="edit-album-form">
+					<div class="album-info" id="edit-album-info">
+						<!-- Album info will be populated here -->
+					</div>
+					
+					<div class="form-group">
+						<label class="form-label">Select Crew Members</label>
+						<div id="edit-crew-selector" class="crew-selector">
+							<!-- Crew options will be populated here -->
+						</div>
+					</div>
+					
+					<div class="form-group">
+						<label class="form-label">Add New Person (Optional)</label>
+						<div class="new-person-form" id="edit-new-person-form" style="display: none;">
+							<div class="new-person-input">
+								<input 
+									type="text" 
+									id="edit-new-person-name" 
+									class="form-input" 
+									placeholder="Full name"
+								>
+							</div>
+							<div class="image-upload-container">
+								<label class="form-label">Profile Image</label>
+								<div class="image-upload-area" id="edit-image-upload-area">
+									<input type="file" id="edit-image-upload-input" class="upload-file-input" accept="image/*">
+									<div id="edit-upload-content">
+										<div class="upload-text">
+											📷 Click or drag to upload profile image<br>
+											<small>(JPG, PNG, max 5MB)</small>
+										</div>
+									</div>
+								</div>
+							</div>
+							<div class="skills-input-container">
+								<label class="form-label">Skills</label>
+								<div class="skills-badges-container" id="edit-album-skills-badges-container">
+									<!-- Available skills badges will appear here -->
+								</div>
+							</div>
+							<div style="display: flex; gap: 0.5rem;">
+								<button type="button" class="add-person-btn" id="edit-add-person-btn">Add Person</button>
+								<button type="button" class="add-person-btn" id="edit-cancel-person-btn" style="background: #666;">Cancel</button>
+							</div>
+						</div>
+						<button type="button" class="add-person-btn" id="edit-show-new-person-btn">+ Add New Person</button>
+						<div id="edit-new-people-list" style="margin-top: 1rem;"></div>
+					</div>
+					
+					<div style="gap: 1rem;">
+						<button type="submit" class="submit-btn" id="edit-submit-btn" style="flex: 1;">
+						Update Crew
+					</button>
+						<button type="button" class="submit-btn" id="delete-album-btn" style="
+							background: linear-gradient(135deg, #cf6679 0%, #b71c1c 100%);
+							color: white;
+							padding: 0.75rem 1rem;
+							font-size: 0.9rem;
+						">
+							🗑️ Delete
+						</button>
+					</div>
+					
+					<div id="edit-submission-status" style="margin-top: 1rem; text-align: center;">
+						<!-- Submission status will appear here -->
+					</div>
+				</form>
+			</div>
+		</div>
+	</main>
+	
+	<!-- Image Cropping Modal -->
+	<div class="crop-modal-overlay" id="crop-modal-overlay">
+		<div class="crop-modal" id="crop-modal">
+			<div class="crop-modal-header">
+				<h2 class="crop-modal-title">Crop Profile Image</h2>
+				<button class="crop-modal-close" id="crop-modal-close">×</button>
+			</div>
+			<div class="crop-modal-body">
+				<div class="crop-container">
+					<img id="crop-image" class="crop-image" alt="Image to crop">
+				</div>
+			</div>
+			<div class="crop-modal-footer">
+				<button type="button" class="crop-btn crop-btn-cancel" id="crop-cancel-btn">Cancel</button>
+				<button type="button" class="crop-btn crop-btn-confirm" id="crop-confirm-btn">Crop & Use</button>
+			</div>
+		</div>
+	</div>
+	
+	<!-- Cropper.js JavaScript -->
+	<script src="/static/js/cropper.min.js"></script>
+	<script src="static/js/albums.js"></script>
+	<script src="/static/js/notifications.js"></script>
+	<script src="/static/js/auth.js"></script>
+
+	<!-- Privacy Link -->
+	<a href="/privacy" class="privacy-link" title="Privacy Policy">
+		<span class="privacy-link-icon">🔒</span>
+		<span class="privacy-link-text">Privacy</span>
+	</a>
+
+	<script>
+		// Privacy link scroll detection
+		function handlePrivacyLinkVisibility() {
+			const privacyLink = document.querySelector('.privacy-link');
+			const scrollHeight = document.documentElement.scrollHeight;
+			const scrollTop = document.documentElement.scrollTop;
+			const clientHeight = document.documentElement.clientHeight;
+			
+			// Show when scrolled to within 100px of bottom
+			if (scrollTop + clientHeight >= scrollHeight - 100) {
+				privacyLink.classList.add('visible');
+			} else {
+				privacyLink.classList.remove('visible');
+			}
+		}
+
+		// Throttled scroll listener
+		let ticking = false;
+		function onScroll() {
+			if (!ticking) {
+				requestAnimationFrame(() => {
+					handlePrivacyLinkVisibility();
+					ticking = false;
+				});
+				ticking = true;
+			}
+		}
+
+		window.addEventListener('scroll', onScroll);
+		window.addEventListener('resize', handlePrivacyLinkVisibility);
+		
+		// Check initial state
+		document.addEventListener('DOMContentLoaded', () => {
+			setTimeout(handlePrivacyLinkVisibility, 100);
+		});
+	</script>
+</body>
+
+</html>

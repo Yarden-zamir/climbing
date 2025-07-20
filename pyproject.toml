@@ -17,5 +17,7 @@ dependencies = [
     "itsdangerous>=2.1.2",
     "redis>=5.0.0",
     "pyjwt>=2.8.0",
+    "webpush>=0.2.0",
+    "aiohttp>=3.8.0",
 ]
 requires-python = ">=3.13"
