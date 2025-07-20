@@ -1513,6 +1513,114 @@ class RedisDataStore:
         subscription_key = f"push_subscription:{subscription_id}"
         self.redis.set(subscription_key, json.dumps(subscription))
 
+    async def replace_push_subscription(
+        self, old_subscription_data: Dict[str, Any], 
+        new_subscription_data: Dict[str, Any],
+        device_info: Dict[str, Any]
+    ) -> Optional[str]:
+        """
+        Replace an expired/changed push subscription with a new one.
+        Preserves device associations, user preferences, and other metadata.
+        
+        Args:
+            old_subscription_data: The expired subscription data (for identification)
+            new_subscription_data: The new subscription data from browser
+            device_info: Device information from browser
+            
+        Returns:
+            New subscription ID if successful, None if old subscription not found
+        """
+        if not old_subscription_data or not new_subscription_data:
+            raise ValidationError("Both old and new subscription data are required")
+
+        # Find the device that had the old subscription by endpoint
+        old_endpoint = old_subscription_data.get("endpoint")
+        if not old_endpoint:
+            raise ValidationError("Old subscription must have an endpoint")
+
+        # Find the existing subscription by searching all subscriptions
+        old_subscription = None
+        old_subscription_id = None
+        old_device_id = None
+        
+        # Search through all subscriptions to find the matching one
+        all_subscription_ids = list(self.redis.smembers("all_subscriptions"))
+        for subscription_id in all_subscription_ids:
+            subscription = await self.get_push_subscription(subscription_id)
+            if subscription and subscription.get("endpoint") == old_endpoint:
+                old_subscription = subscription
+                old_subscription_id = subscription_id
+                old_device_id = subscription.get("device_id")
+                break
+
+        if not old_subscription or not old_device_id:
+            logger.warning(f"Could not find existing subscription with endpoint {old_endpoint[:50]}...")
+            return None
+
+        # Preserve important metadata from old subscription
+        user_id = old_subscription.get("user_id", "anonymous")
+        notification_preferences = old_subscription.get("notification_preferences", "{}")
+        created_at = old_subscription.get("created_at")
+
+        # Validate new subscription data structure
+        new_endpoint = new_subscription_data.get("endpoint")
+        new_keys = new_subscription_data.get("keys", {})
+
+        if not new_endpoint:
+            raise ValidationError("New subscription must have an endpoint")
+
+        if not new_keys.get("p256dh") or not new_keys.get("auth"):
+            raise ValidationError("New subscription must have p256dh and auth keys")
+
+        # Generate new subscription ID
+        new_subscription_identifier = f"{old_device_id}:{new_endpoint}:{new_keys.get('p256dh', '')}:{new_keys.get('auth', '')}"
+        new_subscription_id = hashlib.md5(new_subscription_identifier.encode()).hexdigest()
+
+        # Create new subscription data, preserving metadata
+        new_subscription_with_metadata = {
+            **new_subscription_data,
+            "subscription_id": new_subscription_id,
+            "device_id": old_device_id,  # Keep same device ID
+            "user_id": user_id,  # Preserve user association
+            "created_at": created_at,  # Keep original creation time
+            "replaced_at": datetime.now().isoformat(),  # Mark when it was replaced
+            "last_used": None,
+            "browser_name": device_info.get("browserName", old_subscription.get("browser_name", "unknown")),
+            "platform": device_info.get("platform", old_subscription.get("platform", "unknown")),
+            "user_agent": device_info.get("userAgent", old_subscription.get("user_agent", ""))[:200],
+            "notification_preferences": notification_preferences  # Preserve preferences
+        }
+
+        # Use pipeline for atomic operations
+        pipe = self.redis.pipeline()
+
+        # Store the new subscription
+        pipe.set(f"push_subscription:{new_subscription_id}", json.dumps(new_subscription_with_metadata))
+
+        # Update device subscription (replace old with new)
+        pipe.set(f"device:{old_device_id}:subscription", json.dumps(new_subscription_with_metadata))
+
+        # Add new subscription to global index
+        pipe.sadd("all_subscriptions", new_subscription_id)
+
+        # Update reverse lookup: subscription -> device
+        pipe.set(f"subscription:{new_subscription_id}:device", old_device_id)
+
+        # Clean up old subscription
+        pipe.delete(f"push_subscription:{old_subscription_id}")
+        pipe.delete(f"subscription:{old_subscription_id}:device")
+        pipe.srem("all_subscriptions", old_subscription_id)
+
+        # Execute all operations
+        pipe.execute()
+
+        logger.info(
+            f"Replaced push subscription for device {old_device_id[:15]}... "
+            f"old: {old_subscription_id[:8]}... -> new: {new_subscription_id[:8]}..."
+        )
+        
+        return new_subscription_id
+
     async def cleanup_expired_subscriptions(self) -> int:
         """
         Clean up expired push subscriptions.

@@ -114,6 +114,16 @@ self.addEventListener('notificationclick', (event) => {
     );
 });
 
+// Push subscription change event - handle automatic subscription replacements
+self.addEventListener('pushsubscriptionchange', (event) => {
+    console.log('Service Worker: Push subscription changed');
+    
+    // Handle subscription replacement
+    event.waitUntil(
+        handlePushSubscriptionChange(event)
+    );
+});
+
 // Background sync (for offline actions)
 self.addEventListener('sync', (event) => {
     console.log('Service Worker: Background sync triggered:', event.tag);
@@ -223,6 +233,215 @@ async function handleBackgroundSync() {
     } catch (error) {
         console.error('Service Worker: Background sync failed:', error);
     }
+}
+
+/**
+ * Handle push subscription change - replace expired/changed subscription
+ */
+async function handlePushSubscriptionChange(event) {
+    try {
+        console.log('Service Worker: Handling push subscription change');
+        
+        const oldSubscription = event.oldSubscription;
+        if (!oldSubscription) {
+            console.warn('Service Worker: No old subscription provided');
+            return;
+        }
+        
+        // Get a new subscription using the same options as the old one
+        const newSubscription = await self.registration.pushManager.subscribe(
+            oldSubscription.options || {
+                userVisibleOnly: true,
+                applicationServerKey: oldSubscription.options?.applicationServerKey
+            }
+        );
+        
+        if (!newSubscription) {
+            console.error('Service Worker: Failed to get new push subscription');
+            return;
+        }
+        
+        // Prepare subscription data for the API
+        const oldSubscriptionData = {
+            endpoint: oldSubscription.endpoint,
+            keys: {
+                p256dh: arrayBufferToBase64(oldSubscription.getKey('p256dh')),
+                auth: arrayBufferToBase64(oldSubscription.getKey('auth'))
+            },
+            expirationTime: oldSubscription.expirationTime
+        };
+        
+        const newSubscriptionData = {
+            endpoint: newSubscription.endpoint,
+            keys: {
+                p256dh: arrayBufferToBase64(newSubscription.getKey('p256dh')),
+                auth: arrayBufferToBase64(newSubscription.getKey('auth'))
+            },
+            expirationTime: newSubscription.expirationTime
+        };
+        
+        // Get device info (simplified version for service worker)
+        const deviceInfo = await getDeviceInfo();
+        
+        // Send replacement request to server
+        const response = await fetch('/api/notifications/replace-subscription', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                oldSubscription: oldSubscriptionData,
+                newSubscription: newSubscriptionData,
+                deviceInfo: deviceInfo
+            })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            console.log('Service Worker: Successfully replaced push subscription:', result.new_subscription_id);
+            
+            // Notify clients about the subscription change
+            const clients = await self.clients.matchAll();
+            clients.forEach(client => {
+                client.postMessage({
+                    type: 'PUSH_SUBSCRIPTION_REPLACED',
+                    oldSubscription: oldSubscriptionData,
+                    newSubscription: newSubscriptionData,
+                    newSubscriptionId: result.new_subscription_id,
+                    timestamp: Date.now()
+                });
+            });
+        } else {
+            console.error('Service Worker: Failed to replace push subscription:', response.status, response.statusText);
+        }
+        
+    } catch (error) {
+        console.error('Service Worker: Error handling push subscription change:', error);
+    }
+}
+
+/**
+ * Convert ArrayBuffer to base64 string
+ */
+function arrayBufferToBase64(buffer) {
+    if (!buffer) return '';
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+/**
+ * Get simplified device info for service worker context
+ */
+async function getDeviceInfo() {
+    // In service worker context, we have limited access to device info
+    // We'll create a simplified version
+    return {
+        deviceId: await getOrCreateDeviceId(),
+        browserName: getBrowserName(),
+        platform: navigator.platform || 'unknown',
+        userAgent: navigator.userAgent,
+        lastActive: new Date().toISOString()
+    };
+}
+
+/**
+ * Get or create a persistent device ID
+ */
+async function getOrCreateDeviceId() {
+    try {
+        // Try to get existing device ID from storage
+        const existingId = await getStoredValue('deviceId');
+        if (existingId) {
+            return existingId;
+        }
+        
+        // Generate new device ID
+        const newDeviceId = generateDeviceId();
+        await storeValue('deviceId', newDeviceId);
+        return newDeviceId;
+    } catch (error) {
+        console.error('Service Worker: Error managing device ID:', error);
+        return generateDeviceId(); // Fallback to ephemeral ID
+    }
+}
+
+/**
+ * Generate a unique device ID
+ */
+function generateDeviceId() {
+    return 'device_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+}
+
+/**
+ * Get browser name from user agent
+ */
+function getBrowserName() {
+    const userAgent = navigator.userAgent;
+    if (userAgent.includes('Chrome')) return 'Chrome';
+    if (userAgent.includes('Firefox')) return 'Firefox';
+    if (userAgent.includes('Safari')) return 'Safari';
+    if (userAgent.includes('Edge')) return 'Edge';
+    return 'Unknown';
+}
+
+/**
+ * Store a value in IndexedDB (service worker compatible)
+ */
+async function storeValue(key, value) {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open('serviceWorkerStorage', 1);
+        
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+            const db = request.result;
+            const transaction = db.transaction(['keyValue'], 'readwrite');
+            const store = transaction.objectStore('keyValue');
+            const putRequest = store.put({ key, value });
+            
+            putRequest.onerror = () => reject(putRequest.error);
+            putRequest.onsuccess = () => resolve();
+        };
+        
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains('keyValue')) {
+                db.createObjectStore('keyValue', { keyPath: 'key' });
+            }
+        };
+    });
+}
+
+/**
+ * Get a value from IndexedDB (service worker compatible)
+ */
+async function getStoredValue(key) {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open('serviceWorkerStorage', 1);
+        
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+            const db = request.result;
+            const transaction = db.transaction(['keyValue'], 'readonly');
+            const store = transaction.objectStore('keyValue');
+            const getRequest = store.get(key);
+            
+            getRequest.onerror = () => reject(getRequest.error);
+            getRequest.onsuccess = () => {
+                resolve(getRequest.result ? getRequest.result.value : null);
+            };
+        };
+        
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains('keyValue')) {
+                db.createObjectStore('keyValue', { keyPath: 'key' });
+            }
+        };
+    });
 }
 
 // Handle messages from the main thread

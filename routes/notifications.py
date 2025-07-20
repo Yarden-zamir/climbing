@@ -47,6 +47,13 @@ class SubscriptionRequest(BaseModel):
     deviceInfo: DeviceInfo
 
 
+class SubscriptionReplacementRequest(BaseModel):
+    """Request to replace an expired subscription with a new one"""
+    oldSubscription: PushSubscriptionData
+    newSubscription: PushSubscriptionData
+    deviceInfo: DeviceInfo
+
+
 class NotificationPreferences(BaseModel):
     """Notification preferences for a device"""
     album_created: bool = True
@@ -159,6 +166,77 @@ async def subscribe_to_notifications(
     except Exception as e:
         logger.error(f"Error subscribing to notifications: {e}")
         raise HTTPException(status_code=500, detail="Failed to subscribe to notifications")
+
+
+@router.post("/replace-subscription")
+async def replace_push_subscription(
+    request_data: SubscriptionReplacementRequest,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user_hybrid)
+):
+    """Replace an expired/changed push subscription with a new one"""
+    redis_store = get_redis_store()
+
+    if not redis_store:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        # Convert old subscription to dict
+        old_subscription_data = {
+            "endpoint": request_data.oldSubscription.endpoint,
+            "keys": {
+                "p256dh": request_data.oldSubscription.keys.p256dh,
+                "auth": request_data.oldSubscription.keys.auth
+            },
+            "expirationTime": request_data.oldSubscription.expirationTime
+        }
+
+        # Convert new subscription to dict
+        new_subscription_data = {
+            "endpoint": request_data.newSubscription.endpoint,
+            "keys": {
+                "p256dh": request_data.newSubscription.keys.p256dh,
+                "auth": request_data.newSubscription.keys.auth
+            },
+            "expirationTime": request_data.newSubscription.expirationTime
+        }
+
+        # Convert device info to dict
+        device_info = {
+            "deviceId": request_data.deviceInfo.deviceId,
+            "browserName": request_data.deviceInfo.browserName,
+            "platform": request_data.deviceInfo.platform,
+            "userAgent": request_data.deviceInfo.userAgent,
+            "lastActive": request_data.deviceInfo.lastActive
+        }
+
+        # Replace subscription in Redis
+        new_subscription_id = await redis_store.replace_push_subscription(
+            old_subscription_data, 
+            new_subscription_data, 
+            device_info
+        )
+
+        if not new_subscription_id:
+            raise HTTPException(
+                status_code=404, 
+                detail="Original subscription not found - unable to replace"
+            )
+
+        user_info = f"user {user.get('email')}" if user else "anonymous user"
+        logger.info(f"Replaced push subscription for {user_info}: {new_subscription_id[:8]}...")
+
+        return JSONResponse({
+            "success": True,
+            "new_subscription_id": new_subscription_id,
+            "message": f"Successfully replaced push subscription ({request_data.deviceInfo.browserName})"
+        })
+
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error replacing push subscription: {e}")
+        raise HTTPException(status_code=500, detail="Failed to replace push subscription")
 
 
 @router.get("/subscriptions")
