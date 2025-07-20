@@ -4,3 +4,4 @@
 *.rdb
 .env
 climbing.egg-info/
+*.pem
