@@ -1168,27 +1168,24 @@ class RedisDataStore:
 
     # === PUSH NOTIFICATIONS ===
 
-    async def store_push_subscription(self, user_id: str, subscription_data: Dict[str, Any]) -> str:
+    async def store_push_subscription(
+            self, device_id: str, user_id: Optional[str],
+            subscription_data: Dict[str, Any],
+            device_info: Dict[str, Any]) -> str:
         """
-        Store a push notification subscription for a user.
+        Store a push notification subscription for a device.
         
         Args:
-            user_id: The user's unique identifier
+            device_id: The persistent device identifier
+            user_id: The user's unique identifier (if logged in) or None
             subscription_data: The subscription object from browser's pushManager.subscribe()
-                Expected format: {
-                    "endpoint": "https://...",
-                    "keys": {
-                        "p256dh": "...",
-                        "auth": "..."
-                    },
-                    "expirationTime": null or timestamp
-                }
+            device_info: Device information (browser, platform, etc.)
         
         Returns:
             subscription_id: Unique identifier for this subscription
         """
-        if not user_id or not subscription_data:
-            raise ValidationError("User ID and subscription data are required")
+        if not device_id or not subscription_data:
+            raise ValidationError("Device ID and subscription data are required")
 
         # Validate subscription data structure
         if not isinstance(subscription_data, dict):
@@ -1203,17 +1200,31 @@ class RedisDataStore:
         if not keys.get("p256dh") or not keys.get("auth"):
             raise ValidationError("Subscription must have p256dh and auth keys")
 
-        # Generate a unique subscription ID based on endpoint and keys
-        subscription_identifier = f"{endpoint}:{keys.get('p256dh', '')}:{keys.get('auth', '')}"
+        # Generate a unique subscription ID based on device and endpoint
+        subscription_identifier = f"{device_id}:{endpoint}:{keys.get('p256dh', '')}:{keys.get('auth', '')}"
         subscription_id = hashlib.md5(subscription_identifier.encode()).hexdigest()
 
-        # Store subscription data
+        # Default notification preferences for new devices
+        default_preferences = {
+            "album_created": True,
+            "crew_member_added": True,
+            "meme_uploaded": True,
+            "system_announcements": True
+        }
+
+        # Store subscription data with device info
         subscription_key = f"push_subscription:{subscription_id}"
         subscription_with_metadata = {
             **subscription_data,
-            "user_id": user_id,
+            "subscription_id": subscription_id,
+            "device_id": device_id,
+            "user_id": user_id or "anonymous",
             "created_at": datetime.now().isoformat(),
-            "last_used": None
+            "last_used": None,
+            "browser_name": device_info.get("browserName", "unknown"),
+            "platform": device_info.get("platform", "unknown"),
+            "user_agent": device_info.get("userAgent", "")[:200],  # Truncate
+            "notification_preferences": json.dumps(default_preferences)
         }
 
         # Use pipeline for atomic operations
@@ -1222,17 +1233,158 @@ class RedisDataStore:
         # Store the subscription
         pipe.set(subscription_key, json.dumps(subscription_with_metadata))
 
-        # Add to user's subscription index
-        pipe.sadd(f"user_subscriptions:{user_id}", subscription_id)
+        # Store device subscription (one subscription per device)
+        pipe.set(f"device:{device_id}:subscription", json.dumps(subscription_with_metadata))
 
         # Add to global subscription index
         pipe.sadd("all_subscriptions", subscription_id)
 
+        # Associate with user if logged in
+        if user_id:
+            pipe.sadd(f"user:{user_id}:devices", device_id)
+            pipe.set(f"device:{device_id}:user", user_id)
+
+        # Reverse lookup: subscription -> device
+        pipe.set(f"subscription:{subscription_id}:device", device_id)
+
         # Execute all operations
         pipe.execute()
 
-        logger.info(f"Stored push subscription {subscription_id} for user {user_id}")
+        logger.info(
+            f"Stored push subscription {subscription_id} for device {device_id[:15]}... user {user_id or 'anonymous'}")
         return subscription_id
+
+    async def get_device_push_subscription(self, device_id: str) -> Optional[Dict[str, Any]]:
+        """Get the push subscription for a specific device"""
+        if not device_id:
+            return None
+
+        subscription_data = self.redis.get(f"device:{device_id}:subscription")
+        if not subscription_data:
+            return None
+
+        try:
+            return json.loads(subscription_data)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse device subscription data for {device_id}")
+            return None
+
+    async def get_user_device_subscriptions(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all device push subscriptions for a user"""
+        if not user_id:
+            return []
+
+        # Get all device IDs for the user
+        device_ids = list(self.redis.smembers(f"user:{user_id}:devices"))
+        if not device_ids:
+            return []
+
+        # Get subscription for each device
+        subscriptions = []
+        for device_id in device_ids:
+            subscription = await self.get_device_push_subscription(device_id)
+            if subscription:
+                subscriptions.append(subscription)
+
+        return subscriptions
+
+    async def get_all_device_push_subscriptions(self) -> List[Dict[str, Any]]:
+        """Get all device push subscriptions"""
+        subscription_ids = list(self.redis.smembers("all_subscriptions"))
+        if not subscription_ids:
+            return []
+
+        subscriptions = []
+        for subscription_id in subscription_ids:
+            subscription = await self.get_push_subscription(subscription_id)
+            if subscription:
+                subscriptions.append(subscription)
+
+        return subscriptions
+
+    async def delete_device_push_subscription(self, device_id: str) -> bool:
+        """Delete a device's push subscription"""
+        if not device_id:
+            return False
+
+        # Get the subscription to find the subscription_id
+        subscription = await self.get_device_push_subscription(device_id)
+        if not subscription:
+            return False
+
+        subscription_id = subscription.get("subscription_id")
+        user_id = subscription.get("user_id")
+
+        # Use pipeline for atomic operations
+        pipe = self.redis.pipeline()
+
+        # Remove subscription
+        pipe.delete(f"push_subscription:{subscription_id}")
+        pipe.delete(f"device:{device_id}:subscription")
+        pipe.delete(f"subscription:{subscription_id}:device")
+
+        # Remove from global index
+        pipe.srem("all_subscriptions", subscription_id)
+
+        # Remove device from user's devices if user exists
+        if user_id and user_id != "anonymous":
+            pipe.srem(f"user:{user_id}:devices", device_id)
+            pipe.delete(f"device:{device_id}:user")
+
+        # Execute all operations
+        pipe.execute()
+
+        logger.info(f"Deleted push subscription for device {device_id[:15]}...")
+        return True
+
+    async def update_device_notification_preferences(self, device_id: str, preferences: Dict[str, bool]) -> bool:
+        """Update notification preferences for a specific device"""
+        if not device_id or not preferences:
+            return False
+
+        # Get the current subscription to update
+        subscription = await self.get_device_push_subscription(device_id)
+        if not subscription:
+            return False
+
+        subscription_id = subscription.get("subscription_id")
+        if not subscription_id:
+            return False
+
+        # Update the subscription data with new preferences
+        subscription["notification_preferences"] = json.dumps(preferences)
+
+        pipe = self.redis.pipeline()
+
+        # Store as JSON string (compatible with existing format)
+        pipe.set(f"push_subscription:{subscription_id}", json.dumps(subscription))
+        pipe.set(f"device:{device_id}:subscription", json.dumps(subscription))
+
+        pipe.execute()
+
+        logger.info(f"Updated notification preferences for device {device_id[:15]}...")
+        return True
+
+    async def get_device_notification_preferences(self, device_id: str) -> Dict[str, bool]:
+        """Get notification preferences for a specific device"""
+        if not device_id:
+            return {}
+
+        subscription = await self.get_device_push_subscription(device_id)
+        if not subscription:
+            return {}
+
+        preferences_json = subscription.get("notification_preferences", "{}")
+        try:
+            return json.loads(preferences_json)
+        except json.JSONDecodeError:
+            # Return default preferences if parsing fails
+            return {
+                "album_created": True,
+                "crew_member_added": True,
+                "meme_uploaded": True,
+                "system_announcements": True
+            }
 
     async def get_push_subscription(self, subscription_id: str) -> Optional[Dict[str, Any]]:
         """Get a push subscription by ID"""
@@ -1251,8 +1403,30 @@ class RedisDataStore:
             logger.error(f"Failed to parse subscription data for {subscription_id}")
             return None
 
+    async def get_session_push_subscriptions(self, session_id: str) -> List[Dict[str, Any]]:
+        """Get all push subscriptions for a browser session"""
+        if not session_id:
+            return []
+
+        # Get all subscription IDs for the session
+        subscription_ids = list(self.redis.smembers(f"session_subscriptions:{session_id}"))
+
+        if not subscription_ids:
+            return []
+
+        # Get all subscription data
+        subscriptions = []
+        for subscription_id in subscription_ids:
+            subscription = await self.get_push_subscription(subscription_id)
+            if subscription:
+                # Add the subscription_id to the subscription data
+                subscription["subscription_id"] = subscription_id
+                subscriptions.append(subscription)
+
+        return subscriptions
+
     async def get_user_push_subscriptions(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get all push subscriptions for a user"""
+        """Get all push subscriptions for a user (across all their sessions)"""
         if not user_id:
             return []
 
@@ -1278,11 +1452,12 @@ class RedisDataStore:
         if not subscription_id:
             return False
 
-        # Get subscription to find user_id
+        # Get subscription to find session_id and user_id
         subscription = await self.get_push_subscription(subscription_id)
         if not subscription:
             return False
 
+        session_id = subscription.get("session_id")
         user_id = subscription.get("user_id")
 
         # Use pipeline for atomic operations
@@ -1290,6 +1465,10 @@ class RedisDataStore:
 
         # Delete the subscription
         pipe.delete(f"push_subscription:{subscription_id}")
+
+        # Remove from session's subscription index
+        if session_id:
+            pipe.srem(f"session_subscriptions:{session_id}", subscription_id)
 
         # Remove from user's subscription index
         if user_id:
@@ -1348,15 +1527,37 @@ class RedisDataStore:
             expiration_time = subscription.get("expirationTime")
             if expiration_time and expiration_time < datetime.now().timestamp() * 1000:
                 # Subscription has expired
-                subscription_id = hashlib.md5(
-                    f"{subscription['endpoint']}:{subscription['keys']['p256dh']}:{subscription['keys']['auth']}".encode()
-                ).hexdigest()
-
-                if await self.delete_push_subscription(subscription_id):
+                subscription_id = subscription.get("subscription_id")
+                if subscription_id and await self.delete_push_subscription(subscription_id):
                     cleaned_count += 1
 
         if cleaned_count > 0:
             logger.info(f"Cleaned up {cleaned_count} expired push subscriptions")
+
+        return cleaned_count
+
+    async def cleanup_session_subscriptions(self, session_id: str) -> int:
+        """
+        Clean up all subscriptions for a specific session (e.g., on logout).
+        
+        Args:
+            session_id: The session ID to clean up
+            
+        Returns:
+            Number of subscriptions cleaned up
+        """
+        if not session_id:
+            return 0
+
+        subscription_ids = list(self.redis.smembers(f"session_subscriptions:{session_id}"))
+        cleaned_count = 0
+
+        for subscription_id in subscription_ids:
+            if await self.delete_push_subscription(subscription_id):
+                cleaned_count += 1
+
+        if cleaned_count > 0:
+            logger.info(f"Cleaned up {cleaned_count} push subscriptions for session {session_id[:8]}...")
 
         return cleaned_count
 

@@ -10,6 +10,7 @@ class NotificationsManager {
         this.isSupported = this.checkSupport();
         this.vapidPublicKey = null;
         this.isEnabled = false;
+        this.deviceId = this.getOrCreateDeviceId();
         this.init();
     }
 
@@ -17,6 +18,50 @@ class NotificationsManager {
         return ('serviceWorker' in navigator && 
                 'PushManager' in window && 
                 'Notification' in window);
+    }
+
+    /**
+     * Get or create a persistent device ID for this browser
+     * This survives across sessions, logouts, etc.
+     */
+    getOrCreateDeviceId() {
+        let deviceId = localStorage.getItem('climbing_device_id');
+        if (!deviceId) {
+            deviceId = 'device_' + crypto.randomUUID();
+            localStorage.setItem('climbing_device_id', deviceId);
+            console.log('🔧 Generated new device ID:', deviceId);
+        } else {
+            console.log('📱 Using existing device ID:', deviceId.substring(0, 15) + '...');
+        }
+        return deviceId;
+    }
+
+    /**
+     * Get device information for server storage
+     */
+    getDeviceInfo() {
+        const userAgent = navigator.userAgent;
+        let browserName = 'Unknown';
+        
+        if (userAgent.includes('Chrome/') && !userAgent.includes('Edg/')) {
+            const match = userAgent.match(/Chrome\/(\d+)/);
+            browserName = `Chrome ${match ? match[1] : 'unknown'}`;
+        } else if (userAgent.includes('Firefox/')) {
+            const match = userAgent.match(/Firefox\/(\d+)/);
+            browserName = `Firefox ${match ? match[1] : 'unknown'}`;
+        } else if (userAgent.includes('Safari/') && !userAgent.includes('Chrome/')) {
+            browserName = 'Safari';
+        } else if (userAgent.includes('Edg/')) {
+            browserName = 'Edge';
+        }
+
+        return {
+            deviceId: this.deviceId,
+            browserName: browserName,
+            platform: navigator.platform,
+            userAgent: userAgent.substring(0, 200), // Truncate for storage
+            lastActive: new Date().toISOString()
+        };
     }
 
     async init() {
@@ -97,9 +142,38 @@ class NotificationsManager {
             
             console.log('Subscription status:', this.isEnabled ? 'enabled' : 'disabled');
             
+            if (this.isEnabled) {
+                // Also check server-side status with device ID
+                await this.checkServerSubscriptionStatus();
+            }
+            
         } catch (error) {
             console.error('Failed to check subscription status:', error);
         }
+    }
+
+    async checkServerSubscriptionStatus() {
+        try {
+            const response = await fetch('/api/notifications/subscriptions', {
+                headers: {
+                    'X-Device-ID': this.deviceId
+                },
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                if (result.subscription) {
+                    console.log('📱 Server subscription status:', result.subscription);
+                } else {
+                    console.log('📱 No server subscription found for this device');
+                }
+                return result;
+            }
+        } catch (error) {
+            console.error('Error checking server subscription status:', error);
+        }
+        return null;
     }
 
     async requestPermission() {
@@ -198,13 +272,23 @@ class NotificationsManager {
             expirationTime: subscription.expirationTime
         };
 
+        // Include device information for device-based subscriptions
+        const deviceInfo = this.getDeviceInfo();
+        
+        const requestData = {
+            subscription: subscriptionData,
+            deviceInfo: deviceInfo
+        };
+
+        console.log('📱 Sending subscription with device info:', deviceInfo);
+
         const response = await fetch('/api/notifications/subscribe', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             credentials: 'include',
-            body: JSON.stringify(subscriptionData)
+            body: JSON.stringify(requestData)
         });
 
         if (!response.ok) {
@@ -311,3 +395,139 @@ window.notificationsManager = new NotificationsManager();
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = NotificationsManager;
 } 
+
+// Utility functions for debugging Chrome push notification issues
+window.debugNotifications = {
+    async checkBrowserSupport() {
+        const results = {
+            serviceWorker: 'serviceWorker' in navigator,
+            pushManager: 'PushManager' in window,
+            notifications: 'Notification' in window,
+            permissions: Notification.permission,
+            browser: this.getBrowserInfo()
+        };
+        
+        console.log('🔍 Browser Support Check:', results);
+        return results;
+    },
+    
+    getBrowserInfo() {
+        const ua = navigator.userAgent;
+        if (ua.includes('Chrome/') && !ua.includes('Edg/')) {
+            const match = ua.match(/Chrome\/(\d+)/);
+            return `Chrome ${match ? match[1] : 'unknown'}`;
+        } else if (ua.includes('Firefox/')) {
+            const match = ua.match(/Firefox\/(\d+)/);
+            return `Firefox ${match ? match[1] : 'unknown'}`;
+        } else if (ua.includes('Safari/') && !ua.includes('Chrome/')) {
+            return 'Safari';
+        } else if (ua.includes('Edg/')) {
+            return 'Edge';
+        }
+        return 'Unknown';
+    },
+    
+    async checkSubscriptionHealth() {
+        try {
+            const response = await fetch('/api/notifications/health', {
+                credentials: 'include'
+            });
+            
+            if (response.ok) {
+                const health = await response.json();
+                console.log('🏥 Subscription Health:', health);
+                return health;
+            } else {
+                console.error('❌ Failed to check subscription health:', response.status);
+                return null;
+            }
+        } catch (error) {
+            console.error('❌ Error checking subscription health:', error);
+            return null;
+        }
+    },
+
+    async checkDeviceSubscriptions() {
+        try {
+            const response = await fetch('/api/notifications/devices', {
+                credentials: 'include'
+            });
+            
+            if (response.ok) {
+                const devices = await response.json();
+                console.log('📱 User Devices:', devices);
+                return devices;
+            } else {
+                console.error('❌ Failed to check user devices:', response.status);
+                return null;
+            }
+        } catch (error) {
+            console.error('❌ Error checking user devices:', error);
+            return null;
+        }
+    },
+    
+    async validateAllSubscriptions() {
+        try {
+            const response = await fetch('/api/notifications/validate-subscriptions', {
+                method: 'POST',
+                credentials: 'include'
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('✅ Subscription validation started:', result);
+                return result;
+            } else {
+                console.error('❌ Failed to validate subscriptions:', response.status);
+                return null;
+            }
+        } catch (error) {
+            console.error('❌ Error validating subscriptions:', error);
+            return null;
+        }
+    },
+    
+    async fullDiagnostic() {
+        console.log('🧗‍♂️ Starting Climbing App Push Notification Diagnostic...');
+        
+        const browserSupport = await this.checkBrowserSupport();
+        const subscriptionHealth = await this.checkSubscriptionHealth();
+        
+        const diagnostic = {
+            timestamp: new Date().toISOString(),
+            browserSupport,
+            subscriptionHealth,
+            recommendations: []
+        };
+        
+        // Add recommendations based on findings
+        if (!browserSupport.serviceWorker) {
+            diagnostic.recommendations.push('Your browser does not support Service Workers - notifications require a modern browser');
+        }
+        
+        if (!browserSupport.pushManager) {
+            diagnostic.recommendations.push('Your browser does not support Push API - please update your browser');
+        }
+        
+        if (browserSupport.permissions === 'denied') {
+            diagnostic.recommendations.push('Notifications are blocked. Please enable them in your browser settings');
+        }
+        
+        if (browserSupport.browser.includes('Chrome') && subscriptionHealth?.current_session_subscriptions === 0) {
+            diagnostic.recommendations.push('Chrome detected but no active subscriptions. Try subscribing again or check if notifications are enabled');
+        }
+        
+        if (subscriptionHealth?.browser_breakdown?.['Chrome/Chromium']?.old > 0) {
+            diagnostic.recommendations.push('You have old Chrome subscriptions that may be causing 410 errors. Consider running validateAllSubscriptions() to clean them up');
+        }
+        
+        console.log('📊 Full Diagnostic Results:', diagnostic);
+        return diagnostic;
+    }
+};
+
+// Add helper text for users experiencing Chrome 410 errors
+console.log('🚨 Experiencing Chrome notification issues?');
+console.log('Run: await debugNotifications.fullDiagnostic()');
+console.log('Or: await debugNotifications.validateAllSubscriptions()'); 

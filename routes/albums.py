@@ -173,6 +173,7 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
             raise HTTPException(status_code=400, detail="Album already exists")
 
         # Validate crew members exist or create new ones
+        new_created_climbers = []
         for crew_name in (submission.crew or []):
             # Check if this person is in new_people
             new_person = next((p for p in (submission.new_people or []) if p.name == crew_name), None)
@@ -185,6 +186,7 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
                         skills=new_person.skills,
                         achievements=new_person.achievements
                     )
+                    new_created_climbers.append(new_person)
 
                     # Handle image if provided
                     if new_person.temp_image_path:
@@ -229,13 +231,35 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
                     "title": metadata.get('title', 'New Album'),
                     "url": submission.url,
                     "crew": submission.crew,
-                    "creator": user.get("name", "Someone")
+                    "creator": user.get("name", "Someone"),
+                    "image_url": metadata.get('imageUrl')  # Include album cover for notification icon
                 },
                 redis_store=redis_store,
                 target_users=None  # Notify all users
             )
         except Exception as e:
-            logger.warning(f": {e}")
+            logger.warning(f"Failed to send album notification: {e}")
+
+        # Send notification for each new crew member added during album creation
+        for new_person in new_created_climbers:
+            try:
+                # Generate image URL for notification
+                image_url = f"/redis-image/climber/{new_person.name}/face"
+
+                await send_notification_for_event(
+                    event_type="crew_member_added",
+                    event_data={
+                        "name": new_person.name,
+                        "creator": user.get("name", "Someone"),
+                        "skills": new_person.skills,
+                        "location": new_person.location,
+                        "image_url": image_url
+                    },
+                    redis_store=redis_store,
+                    target_users=None  # Notify all users
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send crew member notification for {new_person.name}: {e}")
 
         return JSONResponse({
             "success": True,

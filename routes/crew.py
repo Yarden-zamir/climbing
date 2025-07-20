@@ -159,13 +159,17 @@ async def submit_crew_member(
 
         # Send notification for new crew member
         try:
+            # Generate image URL for notification
+            image_url = f"/redis-image/climber/{validated_name}/face"
+
             await send_notification_for_event(
                 event_type="crew_member_added",
                 event_data={
                     "name": validated_name,
                     "creator": user.get("name", "Someone"),
                     "skills": validated_skills,
-                    "location": validated_location
+                    "location": validated_location,
+                    "image_url": image_url  # Include image URL for the notification
                 },
                 redis_store=redis_store,
                 target_users=None  # Notify all users
