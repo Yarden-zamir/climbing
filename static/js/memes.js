@@ -164,42 +164,84 @@ class MemesManager {
 				card.addEventListener('contextmenu', handleContextMenu, true);
 				img.addEventListener('contextmenu', handleContextMenu, true);
 				
-				// Long-press for mobile
+				// Long-press for mobile with improved scroll detection
 				let longPressTimer;
 				let isLongPress = false;
+				let touchStartPos = { x: 0, y: 0 };
+				let hasMoved = false;
+				const MOVE_THRESHOLD = 10; // pixels
+				const LONG_PRESS_DURATION = 600; // increased to 600ms
 				
 				const handleTouchStart = (e) => {
 					isLongPress = false;
+					hasMoved = false;
+					const touch = e.touches[0];
+					touchStartPos = { x: touch.clientX, y: touch.clientY };
+					
 					longPressTimer = setTimeout(() => {
-						isLongPress = true;
-						if (meme) {
-							// Get touch position for context menu
-							const touch = e.touches[0];
-							this.showContextMenu(meme, touch.clientX, touch.clientY);
+						// Only trigger long press if user hasn't moved significantly
+						if (!hasMoved && meme) {
+							isLongPress = true;
+							// Provide haptic feedback if available
+							if (navigator.vibrate) {
+								navigator.vibrate(50);
+							}
+							this.showContextMenu(meme, touchStartPos.x, touchStartPos.y);
 						}
-					}, 500); // 500ms for long press
-				};
-				
-				const handleTouchEnd = (e) => {
-					clearTimeout(longPressTimer);
-					if (isLongPress) {
-						e.preventDefault();
-						e.stopPropagation();
-					}
+					}, LONG_PRESS_DURATION);
 				};
 				
 				const handleTouchMove = (e) => {
-					clearTimeout(longPressTimer);
+					if (longPressTimer) {
+						const touch = e.touches[0];
+						const deltaX = Math.abs(touch.clientX - touchStartPos.x);
+						const deltaY = Math.abs(touch.clientY - touchStartPos.y);
+						
+						// If user has moved beyond threshold, cancel long press
+						if (deltaX > MOVE_THRESHOLD || deltaY > MOVE_THRESHOLD) {
+							hasMoved = true;
+							clearTimeout(longPressTimer);
+							longPressTimer = null;
+						}
+					}
 				};
 				
-				card.addEventListener('touchstart', handleTouchStart);
-				img.addEventListener('touchstart', handleTouchStart);
+				const handleTouchEnd = (e) => {
+					if (longPressTimer) {
+						clearTimeout(longPressTimer);
+						longPressTimer = null;
+					}
+					
+					if (isLongPress) {
+						e.preventDefault();
+						e.stopPropagation();
+						e.stopImmediatePropagation();
+						isLongPress = false;
+						return false;
+					}
+				};
 				
-				card.addEventListener('touchend', handleTouchEnd);
-				img.addEventListener('touchend', handleTouchEnd);
+				const handleTouchCancel = (e) => {
+					if (longPressTimer) {
+						clearTimeout(longPressTimer);
+						longPressTimer = null;
+					}
+					isLongPress = false;
+					hasMoved = false;
+				};
 				
-				card.addEventListener('touchmove', handleTouchMove);
-				img.addEventListener('touchmove', handleTouchMove);
+				// Use passive listeners where possible for better scroll performance
+				card.addEventListener('touchstart', handleTouchStart, { passive: false });
+				img.addEventListener('touchstart', handleTouchStart, { passive: false });
+				
+				card.addEventListener('touchmove', handleTouchMove, { passive: true });
+				img.addEventListener('touchmove', handleTouchMove, { passive: true });
+				
+				card.addEventListener('touchend', handleTouchEnd, { passive: false });
+				img.addEventListener('touchend', handleTouchEnd, { passive: false });
+				
+				card.addEventListener('touchcancel', handleTouchCancel, { passive: true });
+				img.addEventListener('touchcancel', handleTouchCancel, { passive: true });
 			}
 		});
 	}
