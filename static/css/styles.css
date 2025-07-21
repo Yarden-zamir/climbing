@@ -4308,3 +4308,611 @@ input:checked + .slider:before {
     background: #a06be5;
     color: #fff;
 }
+
+/* ==================== ENHANCED ADMIN NOTIFICATIONS UI ==================== */
+
+/* Enhanced Notification Form Container */
+.notification-form-container {
+    background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+    border: 1px solid rgba(187, 134, 252, 0.2);
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.notification-form-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(187, 134, 252, 0.1), transparent);
+    transition: left 0.6s ease;
+}
+
+.notification-form-container:hover::before {
+    left: 100%;
+}
+
+.notification-form-container:hover {
+    border-color: rgba(187, 134, 252, 0.4);
+    box-shadow: 0 8px 32px rgba(187, 134, 252, 0.2);
+    transform: translateY(-2px);
+}
+
+/* Enhanced Form Group Styling */
+.system-notification-form .form-group {
+    position: relative;
+    margin-bottom: 2rem;
+}
+
+.system-notification-form .form-group label {
+    font-weight: 600;
+    color: #bb86fc;
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: color 0.3s ease;
+}
+
+.system-notification-form .form-group label::before {
+    content: '';
+    width: 4px;
+    height: 16px;
+    background: linear-gradient(135deg, #bb86fc, #03dac6);
+    border-radius: 2px;
+    transition: all 0.3s ease;
+}
+
+/* Enhanced Form Inputs */
+.system-notification-form .form-group input,
+.system-notification-form .form-group textarea,
+.system-notification-form .form-group select {
+    width: 100%;
+    padding: 1rem 1.25rem;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #e0e0e0;
+    font-size: 1rem;
+    font-family: inherit;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.system-notification-form .form-group input:focus,
+.system-notification-form .form-group textarea:focus,
+.system-notification-form .form-group select:focus {
+    outline: none;
+    border-color: #bb86fc;
+    background: rgba(187, 134, 252, 0.1);
+    box-shadow: 0 0 0 4px rgba(187, 134, 252, 0.2);
+    transform: translateY(-1px);
+}
+
+.system-notification-form .form-group input:hover,
+.system-notification-form .form-group textarea:hover,
+.system-notification-form .form-group select:hover {
+    border-color: rgba(187, 134, 252, 0.3);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* Character Counter for Text Areas */
+.form-group textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.form-group.char-counter::after {
+    content: attr(data-count);
+    position: absolute;
+    bottom: 8px;
+    right: 12px;
+    font-size: 0.8rem;
+    color: #888;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 2px 6px;
+    border-radius: 4px;
+    pointer-events: none;
+    transition: color 0.3s ease;
+}
+
+.form-group.char-counter.warning::after {
+    color: #ff9800;
+    background: rgba(255, 152, 0, 0.2);
+}
+
+/* Enhanced Help Text */
+.form-help {
+    font-size: 0.875rem;
+    color: rgba(187, 134, 252, 0.7);
+    margin-top: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: color 0.3s ease;
+}
+
+.form-help::before {
+    content: '💡';
+    font-size: 0.8rem;
+}
+
+/* Enhanced Action Buttons */
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.form-actions .action-btn {
+    position: relative;
+    padding: 0.875rem 1.75rem;
+    border: none;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    overflow: hidden;
+    min-height: 48px;
+}
+
+.form-actions .action-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s ease;
+}
+
+.form-actions .action-btn:hover::before {
+    left: 100%;
+}
+
+/* Primary Button (Send Notification) */
+.form-actions .btn-primary {
+    background: linear-gradient(135deg, #bb86fc 0%, #9c27b0 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 15px rgba(187, 134, 252, 0.3);
+}
+
+.form-actions .btn-primary:hover {
+    background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%);
+    box-shadow: 0 6px 20px rgba(187, 134, 252, 0.4);
+    transform: translateY(-2px);
+}
+
+.form-actions .btn-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 10px rgba(187, 134, 252, 0.3);
+}
+
+/* Secondary Button (Debug) */
+.form-actions .btn-secondary {
+    background: linear-gradient(135deg, #03dac6 0%, #018786 100%);
+    color: #1a1a1a;
+    box-shadow: 0 4px 15px rgba(3, 218, 198, 0.3);
+}
+
+.form-actions .btn-secondary:hover {
+    background: linear-gradient(135deg, #018786 0%, #004d40 100%);
+    color: #ffffff;
+    box-shadow: 0 6px 20px rgba(3, 218, 198, 0.4);
+    transform: translateY(-2px);
+}
+
+/* Warning Button (macOS Troubleshoot) */
+.form-actions .btn-warning {
+    background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+    color: #1a1a1a;
+    box-shadow: 0 4px 15px rgba(255, 152, 0, 0.3);
+}
+
+.form-actions .btn-warning:hover {
+    background: linear-gradient(135deg, #f57c00 0%, #e65100 100%);
+    color: #ffffff;
+    box-shadow: 0 6px 20px rgba(255, 152, 0, 0.4);
+    transform: translateY(-2px);
+}
+
+/* Loading State for Buttons */
+.action-btn.loading {
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+.action-btn.loading::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border: 2px solid transparent;
+    border-top: 2px solid currentColor;
+    border-radius: 50%;
+    animation: button-loading-spin 1s linear infinite;
+    margin-left: 0.5rem;
+}
+
+@keyframes button-loading-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Enhanced User Notification Modal */
+.user-notification-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(5px);
+}
+
+.user-notification-modal.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.user-notification-modal-content {
+    background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+    border-radius: 20px;
+    padding: 0;
+    max-width: 900px;
+    max-height: 85vh;
+    overflow-y: auto;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(187, 134, 252, 0.3);
+    transform: scale(0.9) translateY(20px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.user-notification-modal.show .user-notification-modal-content {
+    transform: scale(1) translateY(0);
+}
+
+/* Modal Header Enhancement */
+.user-notification-modal .modal-header {
+    padding: 2rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(135deg, rgba(187, 134, 252, 0.1) 0%, rgba(3, 218, 198, 0.1) 100%);
+    border-radius: 20px 20px 0 0;
+}
+
+.user-notification-modal .modal-header h3 {
+    margin: 0;
+    color: #ffffff;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.user-notification-modal .modal-header button {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: #ffffff;
+    font-size: 1.5rem;
+    cursor: pointer;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+}
+
+.user-notification-modal .modal-header button:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+}
+
+/* Enhanced Notification Devices Table */
+.notification-devices-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.notification-devices-table th {
+    background: linear-gradient(135deg, #2d2d2d 0%, #3d3d3d 100%);
+    color: #bb86fc;
+    padding: 1rem 0.75rem;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.9rem;
+    border-bottom: 2px solid rgba(187, 134, 252, 0.2);
+}
+
+.notification-devices-table td {
+    padding: 1rem 0.75rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    transition: background-color 0.3s ease;
+}
+
+.notification-devices-table tr:hover td {
+    background: rgba(187, 134, 252, 0.05);
+}
+
+/* Enhanced Device Info Display */
+.device-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    text-align: left !important;
+}
+
+.device-info .device-name {
+    font-weight: 600;
+    color: #ffffff;
+    font-size: 0.95rem;
+}
+
+.device-info .device-platform {
+    font-size: 0.8rem;
+    color: #888;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.device-icon {
+    font-size: 1.2rem;
+    margin-right: 0.5rem;
+}
+
+/* Enhanced Toggle Switches */
+.notification-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.notification-toggle input[type="checkbox"] {
+    appearance: none;
+    width: 50px;
+    height: 26px;
+    background: #444;
+    border-radius: 15px;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 2px solid transparent;
+}
+
+.notification-toggle input[type="checkbox"]:checked {
+    background: linear-gradient(135deg, #bb86fc, #9c27b0);
+    border-color: #bb86fc;
+}
+
+.notification-toggle input[type="checkbox"]:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 10px rgba(187, 134, 252, 0.3);
+}
+
+.notification-toggle input[type="checkbox"]::before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    background: #ffffff;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.notification-toggle input[type="checkbox"]:checked::before {
+    transform: translateX(24px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Success/Error Toast Animations */
+.notification-toast {
+    position: fixed;
+    top: 90px;
+    right: 2rem;
+    z-index: 1100;
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    color: white;
+    font-weight: 500;
+    max-width: 400px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.notification-toast.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.notification-toast.success {
+    background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+    border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.notification-toast.error {
+    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+    border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+.notification-toast.warning {
+    background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+    border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+/* Form Validation States */
+.form-group.error input,
+.form-group.error textarea,
+.form-group.error select {
+    border-color: #f44336;
+    background: rgba(244, 67, 54, 0.1);
+    animation: input-shake 0.5s ease-in-out;
+}
+
+.form-group.error label::before {
+    background: #f44336;
+}
+
+.form-group.success input,
+.form-group.success textarea,
+.form-group.success select {
+    border-color: #4caf50;
+    background: rgba(76, 175, 80, 0.1);
+}
+
+.form-group.success label::before {
+    background: #4caf50;
+}
+
+@keyframes input-shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+/* Responsive Enhancements */
+@media (max-width: 768px) {
+    .notification-form-container {
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-actions {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .form-actions .action-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .user-notification-modal-content {
+        width: 95%;
+        margin: 2rem auto;
+    }
+
+    .notification-devices-table {
+        font-size: 0.85rem;
+    }
+
+    .notification-devices-table th,
+    .notification-devices-table td {
+        padding: 0.75rem 0.5rem;
+    }
+
+    .notification-toast {
+        right: 1rem;
+        left: 1rem;
+        max-width: none;
+    }
+}
+
+@media (max-width: 480px) {
+    .notification-form-container {
+        padding: 1rem;
+        border-radius: 12px;
+    }
+
+    .system-notification-form .form-group input,
+    .system-notification-form .form-group textarea,
+    .system-notification-form .form-group select {
+        padding: 0.875rem 1rem;
+        font-size: 0.95rem;
+    }
+
+    .form-actions .action-btn {
+        padding: 0.75rem 1.5rem;
+        font-size: 0.95rem;
+    }
+
+    .user-notification-modal .modal-header {
+        padding: 1.5rem;
+    }
+
+    .user-notification-modal .modal-header h3 {
+        font-size: 1.25rem;
+    }
+}
+
+/* Focus Accessibility Enhancements */
+.action-btn:focus-visible,
+.form-group input:focus-visible,
+.form-group textarea:focus-visible,
+.form-group select:focus-visible {
+    outline: 2px solid #bb86fc;
+    outline-offset: 2px;
+}
+
+.notification-toggle input[type="checkbox"]:focus-visible {
+    outline: 2px solid #bb86fc;
+    outline-offset: 4px;
+}
+
+/* Dark Mode Optimizations */
+@media (prefers-color-scheme: dark) {
+    .notification-form-container {
+        background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
+    }
+    
+    .user-notification-modal-content {
+        background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
+    }
+}
+
+/* Performance Optimizations */
+.notification-form-container,
+.user-notification-modal-content,
+.action-btn,
+.notification-toggle input[type="checkbox"] {
+    will-change: transform;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+}
+
+/* Micro-interactions for Better UX */
+.form-group input:focus + .form-help,
+.form-group textarea:focus + .form-help,
+.form-group select:focus + .form-help {
+    color: #bb86fc;
+    transform: translateX(2px);
+}
+
+.system-notification-form .form-group:focus-within label::before {
+    height: 20px;
+    box-shadow: 0 0 10px rgba(187, 134, 252, 0.5);
+}

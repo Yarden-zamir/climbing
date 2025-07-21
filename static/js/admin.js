@@ -1000,8 +1000,271 @@ class AdminPanel {
 
     // === NOTIFICATION MANAGEMENT ===
 
+    setupNotificationsTab() {
+        // Setup system notification form
+        const form = document.getElementById('system-notification-form');
+        const targetSelect = document.getElementById('notification-target');
+        const specificUsersGroup = document.getElementById('specific-users-group');
+        const specificUsersSelect = document.getElementById('specific-users');
+
+        // Populate specific users dropdown
+        specificUsersSelect.innerHTML = this.users.map(user => 
+            `<option value="${user.id}">${user.name} (${user.email})</option>`
+        ).join('');
+
+        // Show/hide specific users dropdown based on target selection
+        targetSelect.addEventListener('change', () => {
+            specificUsersGroup.style.display = targetSelect.value === 'specific' ? 'block' : 'none';
+        });
+
+        // Add character counter for text areas
+        const bodyTextarea = document.getElementById('notification-body');
+        if (bodyTextarea) {
+            this.addCharacterCounter(bodyTextarea, 200);
+        }
+
+        const titleInput = document.getElementById('notification-title');
+        if (titleInput) {
+            this.addCharacterCounter(titleInput, 50);
+        }
+
+        // Add form validation
+        this.setupFormValidation(form);
+
+        // Handle form submission
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.sendSystemNotification();
+        });
+    }
+
+    addCharacterCounter(element, maxLength) {
+        const formGroup = element.closest('.form-group');
+        if (!formGroup) return;
+
+        formGroup.classList.add('char-counter');
+        
+        const updateCounter = () => {
+            const count = element.value.length;
+            formGroup.setAttribute('data-count', `${count}/${maxLength}`);
+            
+            // Update styling based on character count
+            if (count > maxLength * 0.9) {
+                formGroup.classList.add('warning');
+            } else {
+                formGroup.classList.remove('warning');
+            }
+            
+            if (count > maxLength) {
+                formGroup.classList.add('error');
+            } else {
+                formGroup.classList.remove('error');
+            }
+        };
+
+        element.addEventListener('input', updateCounter);
+        element.addEventListener('keyup', updateCounter);
+        updateCounter(); // Initial count
+    }
+
+    setupFormValidation(form) {
+        const inputs = form.querySelectorAll('input, textarea, select');
+        
+        inputs.forEach(input => {
+            // Add real-time validation
+            input.addEventListener('blur', () => this.validateField(input));
+            input.addEventListener('input', () => {
+                if (input.closest('.form-group').classList.contains('error')) {
+                    this.validateField(input);
+                }
+            });
+        });
+    }
+
+    validateField(field) {
+        const formGroup = field.closest('.form-group');
+        const isRequired = field.hasAttribute('required');
+        const isEmpty = !field.value.trim();
+        
+        // Clear previous validation states
+        formGroup.classList.remove('error', 'success');
+        
+        if (isRequired && isEmpty) {
+            formGroup.classList.add('error');
+            return false;
+        }
+        
+        // Check specific field validations
+        if (field.type === 'url' && field.value && !this.isValidUrl(field.value)) {
+            formGroup.classList.add('error');
+            return false;
+        }
+        
+        if (field.id === 'notification-title' && field.value.length > 50) {
+            formGroup.classList.add('error');
+            return false;
+        }
+        
+        if (field.id === 'notification-body' && field.value.length > 200) {
+            formGroup.classList.add('error');
+            return false;
+        }
+        
+        if (field.value) {
+            formGroup.classList.add('success');
+        }
+        
+        return true;
+    }
+
+    isValidUrl(string) {
+        try {
+            new URL(string);
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    async sendSystemNotification() {
+        const form = document.getElementById('system-notification-form');
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const formData = new FormData(form);
+        
+        // Validate form before submission
+        const isValid = this.validateForm(form);
+        if (!isValid) {
+            this.showNotificationToast('Please fix the form errors before submitting', 'error');
+            return;
+        }
+        
+        // Show loading state
+        this.setButtonLoading(submitBtn, true);
+        
+        const title = formData.get('title');
+        const body = formData.get('body');
+        const url = formData.get('url');
+        const target = formData.get('target');
+        
+        let targetUsers = null;
+        
+        // Determine target users based on selection
+        if (target === 'specific') {
+            const specificUsersSelect = document.getElementById('specific-users');
+            targetUsers = Array.from(specificUsersSelect.selectedOptions).map(option => option.value);
+            
+            if (targetUsers.length === 0) {
+                this.showNotificationToast('Please select at least one user for specific targeting.', 'error');
+                this.setButtonLoading(submitBtn, false);
+                return;
+            }
+        } else if (target === 'admins') {
+            targetUsers = this.users.filter(user => user.role === 'admin').map(user => user.id);
+        } else if (target === 'users') {
+            targetUsers = this.users.filter(user => user.role === 'user').map(user => user.id);
+        }
+        // target === 'all' means targetUsers stays null
+
+        const notificationData = {
+            title: title,
+            body: body,
+            url: url || null,
+            target_users: targetUsers
+        };
+
+        try {
+            const response = await fetch('/api/admin/notifications/system', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(notificationData)
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.detail || 'Failed to send notification');
+            }
+
+            this.showNotificationToast(`✅ ${result.message}`, 'success');
+            
+            // Clear and reset the form
+            form.reset();
+            document.getElementById('specific-users-group').style.display = 'none';
+            this.clearFormValidation(form);
+
+            console.log('System notification sent:', result);
+
+        } catch (error) {
+            console.error('Error sending system notification:', error);
+            this.showNotificationToast(`Failed to send notification: ${error.message}`, 'error');
+        } finally {
+            this.setButtonLoading(submitBtn, false);
+        }
+    }
+
+    validateForm(form) {
+        const inputs = form.querySelectorAll('input[required], textarea[required], select[required]');
+        let isValid = true;
+        
+        inputs.forEach(input => {
+            if (!this.validateField(input)) {
+                isValid = false;
+            }
+        });
+        
+        return isValid;
+    }
+
+    clearFormValidation(form) {
+        const formGroups = form.querySelectorAll('.form-group');
+        formGroups.forEach(group => {
+            group.classList.remove('error', 'success', 'warning');
+        });
+    }
+
+    setButtonLoading(button, isLoading) {
+        if (isLoading) {
+            button.classList.add('loading');
+            button.disabled = true;
+            button.dataset.originalText = button.textContent;
+            button.textContent = 'Sending...';
+        } else {
+            button.classList.remove('loading');
+            button.disabled = false;
+            if (button.dataset.originalText) {
+                button.textContent = button.dataset.originalText;
+                delete button.dataset.originalText;
+            }
+        }
+    }
+
+    showNotificationToast(message, type = 'info') {
+        // Remove existing toasts
+        document.querySelectorAll('.notification-toast').forEach(toast => toast.remove());
+        
+        const toast = document.createElement('div');
+        toast.className = `notification-toast ${type}`;
+        toast.textContent = message;
+        
+        document.body.appendChild(toast);
+        
+        // Show toast with animation
+        setTimeout(() => toast.classList.add('show'), 100);
+        
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 400);
+        }, 5000);
+    }
+
     async openUserNotificationSettings(userId, userName) {
         try {
+            // Show loading state
+            this.showNotificationToast('Loading notification settings...', 'info');
+            
             const response = await fetch(`/api/admin/users/${userId}/notifications`);
             if (!response.ok) throw new Error('Failed to load user notifications');
             
@@ -1009,11 +1272,14 @@ class AdminPanel {
             this.showUserNotificationModal(data.user, data.devices);
         } catch (error) {
             console.error('Error loading user notifications:', error);
-            this.showError('Failed to load user notification settings.');
+            this.showNotificationToast('Failed to load user notification settings.', 'error');
         }
     }
 
     showUserNotificationModal(user, devices) {
+        // Remove any existing modal
+        document.querySelectorAll('.user-notification-modal').forEach(modal => modal.remove());
+        
         const devicesHtml = devices.length > 0 ? `
             <table class="notification-devices-table">
                 <thead>
@@ -1031,11 +1297,11 @@ class AdminPanel {
                         <tr>
                             <td>
                                 <div class="device-info">
-                                    <span class="device-icon">${this.getDeviceIcon(device.platform)}</span>
-                                    <div>
-                                        <div style="font-weight: 500;">${device.browser_name}</div>
-                                        <div style="font-size: 0.8rem; color: #7f8c8d;">${device.platform}</div>
+                                    <div class="device-name">
+                                        <span class="device-icon">${this.getDeviceIcon(device.platform)}</span>
+                                        ${device.browser_name}
                                     </div>
+                                    <div class="device-platform">${device.platform}</div>
                                 </div>
                             </td>
                             <td>
@@ -1082,25 +1348,35 @@ class AdminPanel {
         const modalHtml = `
             <div class="user-notification-modal" onclick="this.remove()">
                 <div class="user-notification-modal-content" onclick="event.stopPropagation()">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div class="modal-header">
                         <h3>Notification Settings for ${user.name}</h3>
-                        <button onclick="this.closest('.user-notification-modal').remove()" 
-                                style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                        <button onclick="this.closest('.user-notification-modal').remove()">&times;</button>
                     </div>
-                    <p style="color: #7f8c8d; margin-bottom: 1.5rem;">
-                        Manage notification preferences for each of ${user.name}'s devices. 
-                        Changes take effect immediately.
-                    </p>
-                    ${devicesHtml}
+                    <div style="padding: 2rem;">
+                        <p style="color: #888; margin-bottom: 1.5rem;">
+                            Manage notification preferences for each of ${user.name}'s devices. 
+                            Changes take effect immediately.
+                        </p>
+                        ${devicesHtml}
+                    </div>
                 </div>
             </div>
         `;
 
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // Show modal with animation
+        const modal = document.querySelector('.user-notification-modal');
+        setTimeout(() => modal.classList.add('show'), 100);
     }
 
     async updateUserNotificationPreference(userId, deviceId, notificationType, isEnabled) {
         try {
+            // Show immediate visual feedback
+            const checkbox = event.target;
+            const toggle = checkbox.closest('.notification-toggle');
+            toggle.style.opacity = '0.7';
+            
             // Get current preferences for this device
             const response = await fetch(`/api/admin/users/${userId}/notifications`);
             if (!response.ok) throw new Error('Failed to fetch current preferences');
@@ -1131,11 +1407,18 @@ class AdminPanel {
                 throw new Error('Failed to update preferences');
             }
 
+            // Show success feedback
+            toggle.style.opacity = '1';
+            toggle.style.transform = 'scale(1.05)';
+            setTimeout(() => {
+                toggle.style.transform = 'scale(1)';
+            }, 200);
+
             console.log(`✅ Admin updated ${notificationType} preference for user ${userId}`);
 
         } catch (error) {
             console.error('Error updating user notification preference:', error);
-            this.showError('Failed to update notification preference');
+            this.showNotificationToast('Failed to update notification preference', 'error');
             
             // Revert checkbox state on error
             const modal = document.querySelector('.user-notification-modal');
@@ -1145,15 +1428,27 @@ class AdminPanel {
                     checkbox.checked = !isEnabled;
                 }
             }
+            
+            // Reset visual feedback
+            const toggle = event.target.closest('.notification-toggle');
+            if (toggle) {
+                toggle.style.opacity = '1';
+                toggle.style.transform = 'scale(1)';
+            }
         }
     }
 
     async debugNotifications() {
         console.log('🔍 Starting notification debugging...');
         
+        // Show loading state
+        const debugBtn = document.querySelector('.btn-secondary');
+        this.setButtonLoading(debugBtn, true);
+        
         if (!window.notificationsManager) {
             console.error('❌ NotificationsManager not available');
-            this.showError('NotificationsManager not available');
+            this.showNotificationToast('NotificationsManager not available', 'error');
+            this.setButtonLoading(debugBtn, false);
             return;
         }
 
@@ -1177,9 +1472,9 @@ class AdminPanel {
             const testPassed = await window.notificationsManager.testNotificationDisplay();
             
             if (testPassed) {
-                this.showSuccess('✅ Test notification sent - check if you see it!');
+                this.showNotificationToast('✅ Test notification sent - check if you see it!', 'success');
             } else {
-                this.showError('❌ Test notification failed - check console for details');
+                this.showNotificationToast('❌ Test notification failed - check console for details', 'error');
             }
 
             // Display summary
@@ -1197,7 +1492,34 @@ class AdminPanel {
             
         } catch (error) {
             console.error('❌ Debug failed:', error);
-            this.showError('Debug failed: ' + error.message);
+            this.showNotificationToast('Debug failed: ' + error.message, 'error');
+        } finally {
+            this.setButtonLoading(debugBtn, false);
+        }
+    }
+
+    async troubleshootMacOS() {
+        console.log('🍎 Starting macOS notification troubleshooting...');
+        
+        // Show loading state
+        const troubleshootBtn = document.querySelector('.btn-warning');
+        this.setButtonLoading(troubleshootBtn, true);
+        
+        if (!window.notificationsManager) {
+            console.error('❌ NotificationsManager not available');
+            this.showNotificationToast('NotificationsManager not available', 'error');
+            this.setButtonLoading(troubleshootBtn, false);
+            return;
+        }
+
+        try {
+            await window.notificationsManager.troubleshootMacOSNotifications();
+            this.showNotificationToast('🍎 macOS troubleshooting complete - check console for detailed instructions!', 'success');
+        } catch (error) {
+            console.error('❌ Troubleshooting failed:', error);
+            this.showNotificationToast('Troubleshooting failed: ' + error.message, 'error');
+        } finally {
+            this.setButtonLoading(troubleshootBtn, false);
         }
     }
 
@@ -1209,111 +1531,6 @@ class AdminPanel {
         if (platformLower.includes('ios') || platformLower.includes('iphone')) return '📱';
         if (platformLower.includes('linux')) return '🐧';
         return '📱';
-    }
-
-    setupNotificationsTab() {
-        // Setup system notification form
-        const form = document.getElementById('system-notification-form');
-        const targetSelect = document.getElementById('notification-target');
-        const specificUsersGroup = document.getElementById('specific-users-group');
-        const specificUsersSelect = document.getElementById('specific-users');
-
-        // Populate specific users dropdown
-        specificUsersSelect.innerHTML = this.users.map(user => 
-            `<option value="${user.id}">${user.name} (${user.email})</option>`
-        ).join('');
-
-        // Show/hide specific users dropdown based on target selection
-        targetSelect.addEventListener('change', () => {
-            specificUsersGroup.style.display = targetSelect.value === 'specific' ? 'block' : 'none';
-        });
-
-        // Handle form submission
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.sendSystemNotification();
-        });
-    }
-
-    async sendSystemNotification() {
-        const form = document.getElementById('system-notification-form');
-        const formData = new FormData(form);
-        
-        const title = formData.get('title');
-        const body = formData.get('body');
-        const url = formData.get('url');
-        const target = formData.get('target');
-        
-        let targetUsers = null;
-        
-        // Determine target users based on selection
-        if (target === 'specific') {
-            const specificUsersSelect = document.getElementById('specific-users');
-            targetUsers = Array.from(specificUsersSelect.selectedOptions).map(option => option.value);
-            
-            if (targetUsers.length === 0) {
-                this.showError('Please select at least one user for specific targeting.');
-                return;
-            }
-        } else if (target === 'admins') {
-            targetUsers = this.users.filter(user => user.role === 'admin').map(user => user.id);
-        } else if (target === 'users') {
-            targetUsers = this.users.filter(user => user.role === 'user').map(user => user.id);
-        }
-        // target === 'all' means targetUsers stays null
-
-        const notificationData = {
-            title: title,
-            body: body,
-            url: url || null,
-            target_users: targetUsers
-        };
-
-        try {
-            const response = await fetch('/api/admin/notifications/system', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(notificationData)
-            });
-
-            const result = await response.json();
-
-            if (!response.ok) {
-                throw new Error(result.detail || 'Failed to send notification');
-            }
-
-            this.showSuccess(`✅ ${result.message}`);
-            
-            // Clear the form
-            form.reset();
-            document.getElementById('specific-users-group').style.display = 'none';
-
-            console.log('System notification sent:', result);
-
-        } catch (error) {
-            console.error('Error sending system notification:', error);
-            this.showError(`Failed to send notification: ${error.message}`);
-        }
-    }
-
-    async troubleshootMacOS() {
-        console.log('🍎 Starting macOS notification troubleshooting...');
-        
-        if (!window.notificationsManager) {
-            console.error('❌ NotificationsManager not available');
-            this.showError('NotificationsManager not available');
-            return;
-        }
-
-        try {
-            await window.notificationsManager.troubleshootMacOSNotifications();
-            this.showSuccess('🍎 macOS troubleshooting complete - check console for detailed instructions!');
-        } catch (error) {
-            console.error('❌ Troubleshooting failed:', error);
-            this.showError('Troubleshooting failed: ' + error.message);
-        }
     }
 }
 
