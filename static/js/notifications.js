@@ -65,24 +65,50 @@ class NotificationsManager {
     }
 
     async init() {
-        if (!this.isSupported) {
-            console.warn('Push notifications not supported in this browser');
-            return;
-        }
-
         try {
+            if (!this.isSupported) {
+                console.log('Push notifications not supported');
+                return;
+            }
+
             // Register service worker
-            await this.registerServiceWorker();
-            
-            // Get VAPID public key
+            this.registration = await navigator.serviceWorker.register('/sw.js');
+            console.log('Service Worker registered successfully');
+
+            // Wait for service worker to be ready
+            await navigator.serviceWorker.ready;
+
+            // Get VAPID public key from server
             await this.getVapidPublicKey();
-            
-            // Check current subscription status
+
+            // Check existing subscription state
             await this.checkSubscriptionStatus();
-            
-            console.log('Notifications manager initialized');
+
+            // Listen for service worker messages
+            this.setupServiceWorkerListener();
+
+            console.log('NotificationsManager initialized successfully');
+
         } catch (error) {
-            console.error('Failed to initialize notifications manager:', error);
+            console.error('Failed to initialize NotificationsManager:', error);
+        }
+    }
+
+    setupServiceWorkerListener() {
+        if (navigator.serviceWorker) {
+            navigator.serviceWorker.addEventListener('message', (event) => {
+                console.log('📨 Message from Service Worker:', event.data);
+                
+                if (event.data.type === 'PUSH_RECEIVED') {
+                    console.log('🔔 Push notification received by service worker:', event.data);
+                } else if (event.data.type === 'NOTIFICATION_SHOWN') {
+                    console.log('✅ Notification successfully shown:', event.data);
+                } else if (event.data.type === 'NOTIFICATION_ERROR') {
+                    console.error('❌ Notification error:', event.data);
+                }
+            });
+            
+            console.log('📡 Service worker message listener set up');
         }
     }
 
@@ -134,46 +160,47 @@ class NotificationsManager {
     }
 
     async checkSubscriptionStatus() {
-        if (!this.registration) return;
-
-        try {
-            this.subscription = await this.registration.pushManager.getSubscription();
-            this.isEnabled = !!this.subscription;
-            
-            console.log('Subscription status:', this.isEnabled ? 'enabled' : 'disabled');
-            
-            if (this.isEnabled) {
-                // Also check server-side status with device ID
-                await this.checkServerSubscriptionStatus();
-            }
-            
-        } catch (error) {
-            console.error('Failed to check subscription status:', error);
+        if (!this.isSupported || !this.registration) {
+            return false;
         }
-    }
 
-    async checkServerSubscriptionStatus() {
         try {
-            const response = await fetch('/api/notifications/subscriptions', {
-                headers: {
-                    'X-Device-ID': this.deviceId
-                },
-                credentials: 'include'
-            });
+            // Check if we have an active subscription
+            const subscription = await this.registration.pushManager.getSubscription();
+            
+            if (subscription) {
+                // Verify the subscription is still valid by checking with server
+                const response = await fetch('/api/notifications/subscriptions', {
+                    headers: {
+                        'X-Device-ID': this.deviceId
+                    },
+                    credentials: 'include'
+                });
 
-            if (response.ok) {
-                const result = await response.json();
-                if (result.subscription) {
-                    console.log('📱 Server subscription status:', result.subscription);
-                } else {
-                    console.log('📱 No server subscription found for this device');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.subscription) {
+                        this.subscription = subscription;
+                        this.isEnabled = true;
+                        console.log('Valid subscription found:', data.subscription.subscription_id);
+                        return true;
+                    }
                 }
-                return result;
+
+                // Subscription not found on server, clean up local subscription
+                console.log('Local subscription not found on server, cleaning up...');
+                await subscription.unsubscribe();
+                this.subscription = null;
+                this.isEnabled = false;
             }
+
         } catch (error) {
-            console.error('Error checking server subscription status:', error);
+            console.error('Error checking subscription state:', error);
+            this.subscription = null;
+            this.isEnabled = false;
         }
-        return null;
+
+        return false;
     }
 
     async requestPermission() {
@@ -199,6 +226,8 @@ class NotificationsManager {
         }
     }
 
+
+
     async enableNotifications() {
         if (!this.isSupported) {
             throw new Error('Push notifications not supported');
@@ -209,6 +238,13 @@ class NotificationsManager {
         }
 
         try {
+            // Check if we already have a valid subscription
+            const hasValidSubscription = await this.checkSubscriptionStatus();
+            if (hasValidSubscription) {
+                console.log('Already subscribed to notifications');
+                return true;
+            }
+
             // Request permission first
             await this.requestPermission();
 
@@ -247,7 +283,7 @@ class NotificationsManager {
             await this.subscription.unsubscribe();
             console.log('Unsubscribed from push notifications');
 
-            // Remove subscription from server
+            // Remove subscription from server with proper device ID
             await this.removeSubscriptionFromServer();
 
             this.subscription = null;
@@ -286,6 +322,7 @@ class NotificationsManager {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-Device-ID': this.deviceId // Add device ID header
             },
             credentials: 'include',
             body: JSON.stringify(requestData)
@@ -302,19 +339,37 @@ class NotificationsManager {
     }
 
     async removeSubscriptionFromServer() {
-        // For simplicity, we'll get the subscription ID from the server
         try {
-            const response = await fetch('/api/notifications/subscriptions', {
+            console.log('🗑️ Removing subscription from server for device:', this.deviceId);
+
+            const response = await fetch(`/api/notifications/devices/${this.deviceId}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-Device-ID': this.deviceId
+                },
                 credentials: 'include'
             });
 
-            if (response.ok) {
-                const data = await response.json();
-                // This is a simplified approach - in a real app you'd track subscription IDs
-                console.log('Would remove subscription from server');
+            if (!response.ok) {
+                // If it's a 404, the subscription might already be gone
+                if (response.status === 404) {
+                    console.log('Subscription already removed or not found');
+                    return true;
+                }
+                
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `Server error: ${response.status}`);
             }
+
+            const result = await response.json();
+            console.log('✅ Subscription removed from server:', result.message);
+            return true;
+
         } catch (error) {
-            console.warn('Failed to remove subscription from server:', error);
+            console.error('❌ Failed to remove subscription from server:', error);
+            // Don't throw here - we still want to consider local unsubscribe successful
+            // The server-side cleanup can happen via validation/cleanup mechanisms
+            return false;
         }
     }
 
@@ -347,6 +402,236 @@ class NotificationsManager {
         const result = await response.json();
         console.log('Test notification sent:', result);
         return result;
+    }
+
+    // === DEBUGGING METHODS ===
+
+    async getNotificationDiagnostics() {
+        const diagnostics = {
+            supported: this.isSupported,
+            permission: Notification.permission,
+            serviceWorkerReady: !!this.registration,
+            vapidKeyLoaded: !!this.vapidPublicKey,
+            subscriptionActive: !!this.subscription,
+            enabled: this.isEnabled,
+            deviceId: this.deviceId
+        };
+
+        if (this.registration) {
+            diagnostics.serviceWorkerState = this.registration.active?.state;
+            diagnostics.serviceWorkerScope = this.registration.scope;
+        }
+
+        if (this.subscription) {
+            diagnostics.subscriptionEndpoint = this.subscription.endpoint;
+            diagnostics.subscriptionKeys = {
+                p256dh: !!this.subscription.getKey('p256dh'),
+                auth: !!this.subscription.getKey('auth')
+            };
+        }
+
+        console.log('📋 Notification Diagnostics:', diagnostics);
+        return diagnostics;
+    }
+
+    async testNotificationDisplay() {
+        try {
+            console.log('🧪 Testing notification display...');
+            
+            // Check permission
+            if (Notification.permission !== 'granted') {
+                console.error('❌ No notification permission');
+                return false;
+            }
+
+            // Test service worker registration
+            if (!this.registration) {
+                console.error('❌ No service worker registration');
+                return false;
+            }
+
+            // Test basic notification
+            const testNotification = await this.registration.showNotification('🧪 Test Notification', {
+                body: 'This is a test notification from the climbing app',
+                icon: '/static/favicon/android-chrome-192x192.png',
+                badge: '/static/favicon/favicon-32x32.png',
+                tag: 'test-notification',
+                requireInteraction: false,
+                data: { test: true },
+                silent: false,
+                renotify: true,
+                vibrate: [200, 100, 200]
+            });
+
+            console.log('✅ Test notification should be visible');
+            
+            // Auto-close after 5 seconds
+            setTimeout(async () => {
+                const notifications = await this.registration.getNotifications({ tag: 'test-notification' });
+                notifications.forEach(n => n.close());
+                console.log('🗑️ Test notification auto-closed');
+            }, 5000);
+
+            return true;
+
+        } catch (error) {
+            console.error('❌ Test notification failed:', error);
+            return false;
+        }
+    }
+
+    async logServiceWorkerState() {
+        if (!navigator.serviceWorker) {
+            console.log('❌ Service Worker not supported');
+            return;
+        }
+
+        console.log('📡 Service Worker State:');
+        console.log('  - Registration:', !!this.registration);
+        console.log('  - Controller:', !!navigator.serviceWorker.controller);
+        
+        if (this.registration) {
+            console.log('  - Active:', !!this.registration.active);
+            console.log('  - Installing:', !!this.registration.installing);
+            console.log('  - Waiting:', !!this.registration.waiting);
+            console.log('  - Scope:', this.registration.scope);
+        }
+
+        // List all active notifications
+        if (this.registration) {
+            try {
+                const notifications = await this.registration.getNotifications();
+                console.log('  - Active notifications count:', notifications.length);
+                if (notifications.length > 0) {
+                    notifications.forEach((notif, i) => {
+                        console.log(`    ${i + 1}. "${notif.title}" - tag: ${notif.tag}`);
+                    });
+                }
+            } catch (error) {
+                console.log('  - Error getting notifications:', error.message);
+            }
+        }
+    }
+
+    async clearAllNotifications() {
+        try {
+            if (!this.registration) {
+                console.log('No service worker registration');
+                return 0;
+            }
+
+            const notifications = await this.registration.getNotifications();
+            console.log(`🗑️ Found ${notifications.length} active notifications to clear`);
+            
+            notifications.forEach((notification, index) => {
+                console.log(`  ${index + 1}. "${notification.title}" (tag: ${notification.tag})`);
+                notification.close();
+            });
+
+            console.log('✅ All notifications cleared');
+            return notifications.length;
+
+        } catch (error) {
+            console.error('❌ Failed to clear notifications:', error);
+            return 0;
+        }
+    }
+
+    async checkIfBrowserFocused() {
+        const isFocused = !document.hidden;
+        const visibilityState = document.visibilityState;
+        
+        console.log(`🔍 Browser focus state:`, {
+            focused: isFocused,
+            visibilityState: visibilityState,
+            hasFocus: document.hasFocus()
+        });
+
+        return isFocused;
+    }
+
+    async troubleshootMacOSNotifications() {
+        console.log('🍎 macOS Notification Troubleshooting Guide:');
+        console.log('');
+        
+        // Check browser focus
+        const isFocused = !document.hidden;
+        console.log(`1. Browser Tab Focus: ${isFocused ? '🔍 FOCUSED' : '👀 NOT FOCUSED'}`);
+        if (isFocused) {
+            console.log('   ⚠️  Chrome often hides notifications when the tab is focused!');
+            console.log('   💡 Try switching to another tab/app and then send a notification');
+        }
+        
+        // Check if we're in localhost
+        const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        console.log(`2. Running on localhost: ${isLocalhost ? '✅ YES' : '❌ NO'}`);
+        if (isLocalhost) {
+            console.log('   ⚠️  Some macOS versions have issues with localhost notifications');
+        }
+        
+        // Check notification permission
+        console.log(`3. Notification Permission: ${Notification.permission}`);
+        
+        // Test multiple notification approaches
+        console.log('');
+        console.log('🧪 Testing different notification approaches...');
+        
+        try {
+            // Test 1: Basic notification
+            console.log('Test 1: Basic notification...');
+            await this.registration.showNotification('Test 1: Basic', {
+                body: 'Simple notification test',
+                tag: 'test-basic-' + Date.now()
+            });
+            
+            // Test 2: With requireInteraction false
+            console.log('Test 2: Non-persistent notification...');
+            await this.registration.showNotification('Test 2: Non-Persistent', {
+                body: 'This should not require interaction',
+                requireInteraction: false,
+                tag: 'test-non-persistent-' + Date.now()
+            });
+            
+            // Test 3: With requireInteraction true
+            console.log('Test 3: Persistent notification...');
+            await this.registration.showNotification('Test 3: Persistent', {
+                body: 'This should stay visible until clicked',
+                requireInteraction: true,
+                tag: 'test-persistent-' + Date.now()
+            });
+            
+            // Test 4: Silent notification (should not show)
+            console.log('Test 4: Silent notification (should NOT show)...');
+            await this.registration.showNotification('Test 4: Silent', {
+                body: 'This should be silent',
+                silent: true,
+                tag: 'test-silent-' + Date.now()
+            });
+            
+        } catch (error) {
+            console.error('❌ Notification tests failed:', error);
+        }
+        
+        console.log('');
+        console.log('📋 macOS System Settings to Check:');
+        console.log('1. System Preferences → Notifications & Focus');
+        console.log('2. Find "Google Chrome" in the left list');
+        console.log('3. Make sure:');
+        console.log('   - ✅ Allow Notifications is ON');
+        console.log('   - ✅ Show previews: Always');
+        console.log('   - ✅ Notification style: Alerts (not Banners)');
+        console.log('   - ✅ Show in Notification Center is checked');
+        console.log('');
+        console.log('🎯 Chrome Settings to Check:');
+        console.log('1. chrome://settings/content/notifications');
+        console.log('2. Make sure localhost:8001 is in ALLOWED list');
+        console.log('');
+        console.log('💡 Focus Test:');
+        console.log('1. Switch to another app (like Finder)');
+        console.log('2. Send an admin notification');
+        console.log('3. See if notification appears');
+        
+        return true;
     }
 
     // Utility methods

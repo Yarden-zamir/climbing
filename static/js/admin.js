@@ -147,6 +147,8 @@ class AdminPanel {
             this.loadAchievements();
         } else if (section === 'skills') {
             this.loadSkills();
+        } else if (section === 'notifications') {
+            this.setupNotificationsTab();
         }
     }
 
@@ -188,7 +190,7 @@ class AdminPanel {
         if (this.users.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="empty-state">
+                    <td colspan="7" class="empty-state">
                         <div class="icon">👥</div>
                         <p>No users found</p>
                     </td>
@@ -218,10 +220,16 @@ class AdminPanel {
                 <td>${user.owned_crew_members}</td>
                 <td>${this.formatDate(user.created_at)}</td>
                 <td>
-                    <button class="action-btn btn-primary" 
-                            onclick="adminPanel.openRoleModal('${user.id}', '${user.role}')">
-                        Change Role
-                    </button>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button class="action-btn btn-primary" 
+                                onclick="adminPanel.openRoleModal('${user.id}', '${user.role}')">
+                            Change Role
+                        </button>
+                        <button class="action-btn btn-secondary" 
+                                onclick="adminPanel.openUserNotificationSettings('${user.id}', '${user.name}')">
+                            🔔 Notifications
+                        </button>
+                    </div>
                 </td>
             </tr>
         `).join('');
@@ -987,6 +995,324 @@ class AdminPanel {
         } catch (error) {
             console.error('Error removing owner:', error);
             this.showError(`Failed to remove owner: ${error.message}`);
+        }
+    }
+
+    // === NOTIFICATION MANAGEMENT ===
+
+    async openUserNotificationSettings(userId, userName) {
+        try {
+            const response = await fetch(`/api/admin/users/${userId}/notifications`);
+            if (!response.ok) throw new Error('Failed to load user notifications');
+            
+            const data = await response.json();
+            this.showUserNotificationModal(data.user, data.devices);
+        } catch (error) {
+            console.error('Error loading user notifications:', error);
+            this.showError('Failed to load user notification settings.');
+        }
+    }
+
+    showUserNotificationModal(user, devices) {
+        const devicesHtml = devices.length > 0 ? `
+            <table class="notification-devices-table">
+                <thead>
+                    <tr>
+                        <th>Device</th>
+                        <th>Album Created</th>
+                        <th>Crew Added</th>
+                        <th>Meme Uploaded</th>
+                        <th>System Announcements</th>
+                        <th>Last Used</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${devices.map(device => `
+                        <tr>
+                            <td>
+                                <div class="device-info">
+                                    <span class="device-icon">${this.getDeviceIcon(device.platform)}</span>
+                                    <div>
+                                        <div style="font-weight: 500;">${device.browser_name}</div>
+                                        <div style="font-size: 0.8rem; color: #7f8c8d;">${device.platform}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="notification-toggle">
+                                    <input type="checkbox" 
+                                           ${device.notification_preferences.album_created ? 'checked' : ''}
+                                           onchange="adminPanel.updateUserNotificationPreference('${user.id}', '${device.device_id}', 'album_created', this.checked)">
+                                </div>
+                            </td>
+                            <td>
+                                <div class="notification-toggle">
+                                    <input type="checkbox" 
+                                           ${device.notification_preferences.crew_member_added ? 'checked' : ''}
+                                           onchange="adminPanel.updateUserNotificationPreference('${user.id}', '${device.device_id}', 'crew_member_added', this.checked)">
+                                </div>
+                            </td>
+                            <td>
+                                <div class="notification-toggle">
+                                    <input type="checkbox" 
+                                           ${device.notification_preferences.meme_uploaded ? 'checked' : ''}
+                                           onchange="adminPanel.updateUserNotificationPreference('${user.id}', '${device.device_id}', 'meme_uploaded', this.checked)">
+                                </div>
+                            </td>
+                            <td>
+                                <div class="notification-toggle">
+                                    <input type="checkbox" 
+                                           ${device.notification_preferences.system_announcements ? 'checked' : ''}
+                                           onchange="adminPanel.updateUserNotificationPreference('${user.id}', '${device.device_id}', 'system_announcements', this.checked)">
+                                </div>
+                            </td>
+                            <td>${this.formatDate(device.last_used || device.created_at)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        ` : `
+            <div class="empty-state" style="padding: 2rem; text-align: center;">
+                <div class="icon">📱</div>
+                <p>No notification devices found for this user</p>
+                <p style="color: #7f8c8d; font-size: 0.9rem;">The user hasn't enabled notifications on any devices yet.</p>
+            </div>
+        `;
+
+        const modalHtml = `
+            <div class="user-notification-modal" onclick="this.remove()">
+                <div class="user-notification-modal-content" onclick="event.stopPropagation()">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h3>Notification Settings for ${user.name}</h3>
+                        <button onclick="this.closest('.user-notification-modal').remove()" 
+                                style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+                    <p style="color: #7f8c8d; margin-bottom: 1.5rem;">
+                        Manage notification preferences for each of ${user.name}'s devices. 
+                        Changes take effect immediately.
+                    </p>
+                    ${devicesHtml}
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    async updateUserNotificationPreference(userId, deviceId, notificationType, isEnabled) {
+        try {
+            // Get current preferences for this device
+            const response = await fetch(`/api/admin/users/${userId}/notifications`);
+            if (!response.ok) throw new Error('Failed to fetch current preferences');
+            
+            const data = await response.json();
+            const device = data.devices.find(d => d.device_id === deviceId);
+            
+            if (!device) {
+                throw new Error('Device not found');
+            }
+
+            // Update the specific preference
+            const updatedPreferences = {
+                ...device.notification_preferences,
+                [notificationType]: isEnabled
+            };
+
+            // Send updated preferences to server
+            const updateResponse = await fetch(`/api/admin/users/${userId}/notifications/${deviceId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(updatedPreferences)
+            });
+
+            if (!updateResponse.ok) {
+                throw new Error('Failed to update preferences');
+            }
+
+            console.log(`✅ Admin updated ${notificationType} preference for user ${userId}`);
+
+        } catch (error) {
+            console.error('Error updating user notification preference:', error);
+            this.showError('Failed to update notification preference');
+            
+            // Revert checkbox state on error
+            const modal = document.querySelector('.user-notification-modal');
+            if (modal) {
+                const checkbox = modal.querySelector(`input[onchange*="${notificationType}"]`);
+                if (checkbox) {
+                    checkbox.checked = !isEnabled;
+                }
+            }
+        }
+    }
+
+    async debugNotifications() {
+        console.log('🔍 Starting notification debugging...');
+        
+        if (!window.notificationsManager) {
+            console.error('❌ NotificationsManager not available');
+            this.showError('NotificationsManager not available');
+            return;
+        }
+
+        try {
+            // Get diagnostics
+            const diagnostics = await window.notificationsManager.getNotificationDiagnostics();
+            
+            // Log service worker state
+            await window.notificationsManager.logServiceWorkerState();
+
+            // Check browser focus state
+            await window.notificationsManager.checkIfBrowserFocused();
+            
+            // Clear any existing notifications that might be stuck
+            const clearedCount = await window.notificationsManager.clearAllNotifications();
+            if (clearedCount > 0) {
+                console.log(`🗑️ Cleared ${clearedCount} existing notifications`);
+            }
+            
+            // Test notification display
+            const testPassed = await window.notificationsManager.testNotificationDisplay();
+            
+            if (testPassed) {
+                this.showSuccess('✅ Test notification sent - check if you see it!');
+            } else {
+                this.showError('❌ Test notification failed - check console for details');
+            }
+
+            // Display summary
+            const summary = [
+                `Supported: ${diagnostics.supported}`,
+                `Permission: ${diagnostics.permission}`,
+                `Service Worker: ${diagnostics.serviceWorkerReady}`,
+                `VAPID Key: ${diagnostics.vapidKeyLoaded}`,
+                `Subscription: ${diagnostics.subscriptionActive}`,
+                `Enabled: ${diagnostics.enabled}`,
+                `Cleared old notifications: ${clearedCount}`
+            ].join('\n');
+
+            console.log('📋 Diagnostics Summary:\n' + summary);
+            
+        } catch (error) {
+            console.error('❌ Debug failed:', error);
+            this.showError('Debug failed: ' + error.message);
+        }
+    }
+
+    getDeviceIcon(platform) {
+        const platformLower = platform.toLowerCase();
+        if (platformLower.includes('windows')) return '🖥️';
+        if (platformLower.includes('mac')) return '💻';
+        if (platformLower.includes('android')) return '📱';
+        if (platformLower.includes('ios') || platformLower.includes('iphone')) return '📱';
+        if (platformLower.includes('linux')) return '🐧';
+        return '📱';
+    }
+
+    setupNotificationsTab() {
+        // Setup system notification form
+        const form = document.getElementById('system-notification-form');
+        const targetSelect = document.getElementById('notification-target');
+        const specificUsersGroup = document.getElementById('specific-users-group');
+        const specificUsersSelect = document.getElementById('specific-users');
+
+        // Populate specific users dropdown
+        specificUsersSelect.innerHTML = this.users.map(user => 
+            `<option value="${user.id}">${user.name} (${user.email})</option>`
+        ).join('');
+
+        // Show/hide specific users dropdown based on target selection
+        targetSelect.addEventListener('change', () => {
+            specificUsersGroup.style.display = targetSelect.value === 'specific' ? 'block' : 'none';
+        });
+
+        // Handle form submission
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.sendSystemNotification();
+        });
+    }
+
+    async sendSystemNotification() {
+        const form = document.getElementById('system-notification-form');
+        const formData = new FormData(form);
+        
+        const title = formData.get('title');
+        const body = formData.get('body');
+        const url = formData.get('url');
+        const target = formData.get('target');
+        
+        let targetUsers = null;
+        
+        // Determine target users based on selection
+        if (target === 'specific') {
+            const specificUsersSelect = document.getElementById('specific-users');
+            targetUsers = Array.from(specificUsersSelect.selectedOptions).map(option => option.value);
+            
+            if (targetUsers.length === 0) {
+                this.showError('Please select at least one user for specific targeting.');
+                return;
+            }
+        } else if (target === 'admins') {
+            targetUsers = this.users.filter(user => user.role === 'admin').map(user => user.id);
+        } else if (target === 'users') {
+            targetUsers = this.users.filter(user => user.role === 'user').map(user => user.id);
+        }
+        // target === 'all' means targetUsers stays null
+
+        const notificationData = {
+            title: title,
+            body: body,
+            url: url || null,
+            target_users: targetUsers
+        };
+
+        try {
+            const response = await fetch('/api/admin/notifications/system', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(notificationData)
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.detail || 'Failed to send notification');
+            }
+
+            this.showSuccess(`✅ ${result.message}`);
+            
+            // Clear the form
+            form.reset();
+            document.getElementById('specific-users-group').style.display = 'none';
+
+            console.log('System notification sent:', result);
+
+        } catch (error) {
+            console.error('Error sending system notification:', error);
+            this.showError(`Failed to send notification: ${error.message}`);
+        }
+    }
+
+    async troubleshootMacOS() {
+        console.log('🍎 Starting macOS notification troubleshooting...');
+        
+        if (!window.notificationsManager) {
+            console.error('❌ NotificationsManager not available');
+            this.showError('NotificationsManager not available');
+            return;
+        }
+
+        try {
+            await window.notificationsManager.troubleshootMacOSNotifications();
+            this.showSuccess('🍎 macOS troubleshooting complete - check console for detailed instructions!');
+        } catch (error) {
+            console.error('❌ Troubleshooting failed:', error);
+            this.showError('Troubleshooting failed: ' + error.message);
         }
     }
 }

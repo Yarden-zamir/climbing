@@ -1,13 +1,17 @@
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Form
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+import json
+from datetime import datetime
 
 from auth import get_current_user
 from dependencies import get_redis_store, get_permissions_manager, get_jwt_manager
 from permissions import ResourceType, UserRole
 from utils.export_utils import export_redis_database
 from utils.background_tasks import perform_album_metadata_refresh
+from routes.notifications import send_push_notification_to_subscriptions
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -594,4 +598,246 @@ async def export_redis_database_admin(user: dict = Depends(get_current_user)):
 
     except Exception as e:
         logger.error(f"Error exporting database: {e}")
-        raise HTTPException(status_code=500, detail="Failed to export database") 
+        raise HTTPException(status_code=500, detail="Failed to export database")
+
+# Add these new models and endpoints before the existing endpoints
+
+
+class SystemNotificationRequest(BaseModel):
+    """Request to send system notification"""
+    title: str
+    body: str
+    target_users: Optional[List[str]] = None  # If None, send to all users
+    icon: Optional[str] = None
+    url: Optional[str] = None
+
+
+class UserNotificationPreferences(BaseModel):
+    """User notification preferences update"""
+    album_created: bool = True
+    crew_member_added: bool = True
+    meme_uploaded: bool = True
+    system_announcements: bool = True
+
+
+@router.get("/users/{user_id}/notifications")
+async def get_user_notifications(user_id: str, user: dict = Depends(get_current_user)):
+    """Get notification settings for a specific user (admin only)"""
+    current_user_id = user.get("id")
+    if not current_user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    permissions_manager = get_permissions_manager()
+    redis_store = get_redis_store()
+
+    if permissions_manager is None:
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+    if not redis_store:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(current_user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        # Get target user info
+        target_user = await permissions_manager.get_user(user_id)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Get user's notification devices
+        device_subscriptions = await redis_store.get_user_device_subscriptions(user_id)
+
+        # Format device data for admin view
+        devices = []
+        for sub in device_subscriptions:
+            preferences_json = sub.get("notification_preferences", "{}")
+            try:
+                preferences = json.loads(preferences_json) if preferences_json else {}
+            except json.JSONDecodeError:
+                preferences = {
+                    "album_created": True,
+                    "crew_member_added": True,
+                    "meme_uploaded": True,
+                    "system_announcements": True
+                }
+
+            device = {
+                "device_id": sub.get("device_id"),
+                "browser_name": sub.get("browser_name", "unknown"),
+                "platform": sub.get("platform", "unknown"),
+                "created_at": sub.get("created_at"),
+                "last_used": sub.get("last_used"),
+                "notification_preferences": preferences
+            }
+            devices.append(device)
+
+        return JSONResponse({
+            "user": {
+                "id": target_user["id"],
+                "name": target_user["name"],
+                "email": target_user["email"]
+            },
+            "devices": devices
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting user notifications: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get user notifications")
+
+
+@router.put("/users/{user_id}/notifications/{device_id}")
+async def update_user_device_notifications(
+    user_id: str,
+    device_id: str,
+    preferences: UserNotificationPreferences,
+    user: dict = Depends(get_current_user)
+):
+    """Update notification preferences for a user's device (admin only)"""
+    current_user_id = user.get("id")
+    if not current_user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    permissions_manager = get_permissions_manager()
+    redis_store = get_redis_store()
+
+    if permissions_manager is None:
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+    if not redis_store:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(current_user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        # Verify the device belongs to the target user
+        subscription = await redis_store.get_device_push_subscription(device_id)
+        if not subscription:
+            raise HTTPException(status_code=404, detail="Device not found")
+
+        if subscription.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Device does not belong to target user")
+
+        # Update preferences
+        preferences_dict = preferences.dict()
+        success = await redis_store.update_device_notification_preferences(device_id, preferences_dict)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update preferences")
+
+        logger.info(
+            f"Admin {user.get('email')} updated notification preferences for user {user_id} device {device_id[:15]}...")
+
+        return JSONResponse({
+            "success": True,
+            "message": "Notification preferences updated successfully",
+            "preferences": preferences_dict
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user device notifications: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update user device notifications")
+
+
+@router.post("/notifications/system")
+async def send_system_notification(
+    notification: SystemNotificationRequest,
+    user: dict = Depends(get_current_user)
+):
+    """Send system notification to all users or specific users (admin only)"""
+    current_user_id = user.get("id")
+    if not current_user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    permissions_manager = get_permissions_manager()
+    redis_store = get_redis_store()
+
+    if permissions_manager is None:
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+    if not redis_store:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(current_user_id, "manage_users")
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        # Get target subscriptions
+        if notification.target_users:
+            # Send to specific users
+            all_subscriptions = []
+            for target_user_id in notification.target_users:
+                user_device_subs = await redis_store.get_user_device_subscriptions(target_user_id)
+                all_subscriptions.extend(user_device_subs)
+            target_description = f"{len(notification.target_users)} specific users"
+        else:
+            # Send to all users
+            all_subscriptions = await redis_store.get_all_device_push_subscriptions()
+            target_description = "all users"
+
+        if not all_subscriptions:
+            return JSONResponse({
+                "success": False,
+                "message": f"No device subscriptions found for {target_description}",
+                "devices_notified": 0
+            })
+
+        # Filter for system_announcements preference
+        filtered_subscriptions = []
+        for subscription in all_subscriptions:
+            preferences_json = subscription.get("notification_preferences", "{}")
+            try:
+                preferences = json.loads(preferences_json) if preferences_json else {}
+                if preferences.get("system_announcements", True):
+                    filtered_subscriptions.append(subscription)
+            except json.JSONDecodeError:
+                # If preferences can't be parsed, send notification (fail-safe)
+                filtered_subscriptions.append(subscription)
+
+        # Create notification payload
+        notification_payload = {
+            "title": notification.title,
+            "body": notification.body,
+            "icon": notification.icon or "/static/favicon/android-chrome-192x192.png",
+            "badge": "/static/favicon/favicon-32x32.png",
+            "tag": f"system_announcement_{int(datetime.now().timestamp())}",  # Unique tag
+            "requireInteraction": False,  # Changed from True to match working album notifications
+            "data": {
+                "url": notification.url or "/",
+                "type": "system_announcement"
+            }
+        }
+
+        # Send notifications (this will run in the background)
+        await send_push_notification_to_subscriptions(
+            filtered_subscriptions,
+            notification_payload,
+            redis_store
+        )
+
+        logger.info(
+            f"Admin {user.get('email')} sent system notification '{notification.title}' to {len(filtered_subscriptions)} devices ({target_description})")
+
+        return JSONResponse({
+            "success": True,
+            "message": f"System notification sent to {len(filtered_subscriptions)} device(s)",
+            "devices_notified": len(filtered_subscriptions),
+            "total_devices": len(all_subscriptions),
+            "filtered_by_preferences": len(all_subscriptions) - len(filtered_subscriptions)
+        })
+
+    except Exception as e:
+        logger.error(f"Error sending system notification: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send system notification")

@@ -51,8 +51,14 @@ self.addEventListener('activate', (event) => {
 
 // Push event - handle incoming push notifications
 self.addEventListener('push', (event) => {
-    console.log('Service Worker: Push event received');
+    console.log('🚨 Service Worker: Push event received!');
+    console.log('Service Worker: Event details:', {
+        hasData: !!event.data,
+        dataType: event.data ? typeof event.data : 'no data',
+        timestamp: new Date().toISOString()
+    });
     
+    // Try multiple ways to read the data
     let notificationData = {
         title: 'Climbing App',
         body: 'You have a new notification',
@@ -67,29 +73,133 @@ self.addEventListener('push', (event) => {
     
     // Parse push data if available
     if (event.data) {
+        console.log('Service Worker: Raw event.data object:', event.data);
+        
+        // Try different parsing methods
         try {
             const pushData = event.data.json();
+            console.log('Service Worker: ✅ Successfully parsed as JSON:', pushData);
             notificationData = {
                 ...notificationData,
                 ...pushData
             };
-            console.log('Service Worker: Parsed push data:', pushData);
-        } catch (error) {
-            console.error('Service Worker: Failed to parse push data:', error);
-            // Try as text fallback
+        } catch (jsonError) {
+            console.error('Service Worker: ❌ Failed to parse as JSON:', jsonError);
+            
+            // Try as text
             try {
-                notificationData.body = event.data.text() || notificationData.body;
+                const textData = event.data.text();
+                console.log('Service Worker: Text data received:', textData);
+                if (textData) {
+                    // Try to parse the text as JSON
+                    try {
+                        const parsedText = JSON.parse(textData);
+                        console.log('Service Worker: ✅ Text parsed as JSON:', parsedText);
+                        notificationData = {
+                            ...notificationData,
+                            ...parsedText
+                        };
+                    } catch (textJsonError) {
+                        console.log('Service Worker: Text is not JSON, using as body');
+                        notificationData.body = textData;
+                    }
+                }
             } catch (textError) {
-                console.error('Service Worker: Failed to parse push data as text:', textError);
+                console.error('Service Worker: ❌ Failed to parse as text:', textError);
+            }
+            
+            // Try arrayBuffer as last resort
+            try {
+                const arrayBuffer = event.data.arrayBuffer();
+                const decoder = new TextDecoder();
+                const decodedText = decoder.decode(arrayBuffer);
+                console.log('Service Worker: ArrayBuffer decoded text:', decodedText);
+                if (decodedText) {
+                    try {
+                        const parsedBuffer = JSON.parse(decodedText);
+                        console.log('Service Worker: ✅ ArrayBuffer parsed as JSON:', parsedBuffer);
+                        notificationData = {
+                            ...notificationData,
+                            ...parsedBuffer
+                        };
+                    } catch (bufferJsonError) {
+                        console.log('Service Worker: ArrayBuffer text is not JSON');
+                        notificationData.body = decodedText;
+                    }
+                }
+            } catch (bufferError) {
+                console.error('Service Worker: ❌ Failed to parse as ArrayBuffer:', bufferError);
             }
         }
+    } else {
+        console.warn('Service Worker: ⚠️ No push data received - this might be the issue!');
     }
     
-    // Show notification
+    console.log('Service Worker: Final notification data to display:', notificationData);
+    
+    // Show notification with detailed error handling
     event.waitUntil(
-        showNotification(notificationData)
+        showNotificationWithLogging(notificationData)
     );
 });
+
+async function showNotificationWithLogging(notificationData) {
+    console.log('Service Worker: 📢 showNotificationWithLogging called with:', notificationData);
+    
+    // Notify clients that we received a push
+    try {
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => {
+            client.postMessage({
+                type: 'PUSH_RECEIVED',
+                data: notificationData,
+                timestamp: Date.now()
+            });
+        });
+    } catch (clientError) {
+        console.error('Service Worker: Failed to notify clients:', clientError);
+    }
+    
+    try {
+        const result = await showNotification(notificationData);
+        console.log('Service Worker: ✅ showNotification completed successfully');
+        
+        // Notify clients of success
+        try {
+            const clients = await self.clients.matchAll();
+            clients.forEach(client => {
+                client.postMessage({
+                    type: 'NOTIFICATION_SHOWN',
+                    data: notificationData,
+                    timestamp: Date.now()
+                });
+            });
+        } catch (clientError) {
+            console.error('Service Worker: Failed to notify clients of success:', clientError);
+        }
+        
+        return result;
+    } catch (error) {
+        console.error('Service Worker: ❌ showNotification failed:', error);
+        
+        // Notify clients of error
+        try {
+            const clients = await self.clients.matchAll();
+            clients.forEach(client => {
+                client.postMessage({
+                    type: 'NOTIFICATION_ERROR',
+                    error: error.message,
+                    data: notificationData,
+                    timestamp: Date.now()
+                });
+            });
+        } catch (clientError) {
+            console.error('Service Worker: Failed to notify clients of error:', clientError);
+        }
+        
+        throw error;
+    }
+}
 
 // Notification click event - handle user interactions
 self.addEventListener('notificationclick', (event) => {
@@ -138,22 +248,36 @@ self.addEventListener('sync', (event) => {
  */
 async function showNotification(notificationData) {
     try {
+        console.log('Service Worker: Attempting to show notification with data:', notificationData);
+        
         // Check if we have permission
         if (Notification.permission !== 'granted') {
-            console.warn('Service Worker: No notification permission');
+            console.error('Service Worker: No notification permission - current permission:', Notification.permission);
             return;
+        }
+        
+        // Validate required fields
+        if (!notificationData.title) {
+            console.warn('Service Worker: No title provided, using default');
+            notificationData.title = 'Climbing App';
+        }
+        
+        if (!notificationData.body) {
+            console.warn('Service Worker: No body provided, using default');
+            notificationData.body = 'You have a new notification';
         }
         
         // Prepare notification options
         const options = {
             body: notificationData.body,
-            icon: notificationData.icon,
-            badge: notificationData.badge,
+            icon: notificationData.icon || '/static/favicon/android-chrome-192x192.png',
+            badge: notificationData.badge || '/static/favicon/favicon-32x32.png',
             tag: notificationData.tag || NOTIFICATION_TAG,
             requireInteraction: notificationData.requireInteraction || false,
             data: notificationData.data || {},
-            silent: false,
-            renotify: true
+            silent: notificationData.silent || false,
+            renotify: true,
+            vibrate: [200, 100, 200] // Add vibration for mobile
         };
         
         // Add actions if provided
@@ -166,12 +290,34 @@ async function showNotification(notificationData) {
             options.image = notificationData.image;
         }
         
+        console.log('Service Worker: Notification options:', options);
+        
         // Show the notification
         await self.registration.showNotification(notificationData.title, options);
         console.log('Service Worker: Notification shown successfully');
         
+        // Also log to help with debugging
+        console.log('Service Worker: Active clients count:', (await self.clients.matchAll()).length);
+        
     } catch (error) {
         console.error('Service Worker: Failed to show notification:', error);
+        console.error('Service Worker: Error details:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
+        
+        // Try to show a basic fallback notification
+        try {
+            await self.registration.showNotification('Climbing App', {
+                body: 'New notification (fallback)',
+                icon: '/static/favicon/android-chrome-192x192.png',
+                tag: 'fallback'
+            });
+            console.log('Service Worker: Fallback notification shown');
+        } catch (fallbackError) {
+            console.error('Service Worker: Even fallback notification failed:', fallbackError);
+        }
     }
 }
 

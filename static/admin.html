@@ -76,6 +76,139 @@
             margin-top: 2rem;
         }
 
+        /* New notification styles */
+        .notifications-section {
+            max-width: 800px;
+        }
+
+        .notification-form-container {
+            background: #f8f9fa;
+            border: 1px solid #ecf0f1;
+            border-radius: 8px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .system-notification-form {
+            display: grid;
+            gap: 1.5rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-group label {
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            padding: 0.75rem;
+            border: 1px solid #bdc3c7;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .form-group select[multiple] {
+            min-height: 120px;
+        }
+
+        .form-help {
+            font-size: 0.85rem;
+            color: #7f8c8d;
+            margin: 0;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .user-notification-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .user-notification-modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            width: 90%;
+        }
+
+        .notification-devices-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        .notification-devices-table th,
+        .notification-devices-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ecf0f1;
+        }
+
+        .notification-devices-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .notification-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .notification-toggle input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .device-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .device-icon {
+            font-size: 1.2rem;
+        }
+
+        .section-description {
+            color: #7f8c8d;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+
         .action-card {
             background: white;
             padding: 2rem;
@@ -443,6 +576,7 @@
             <button class="admin-nav-btn" data-section="resources">Resources</button>
             <button class="admin-nav-btn" data-section="achievements">Achievements</button>
             <button class="admin-nav-btn" data-section="skills">Skills</button>
+            <button class="admin-nav-btn" data-section="notifications">Notifications</button>
             <button class="admin-nav-btn" data-section="migration">Migration</button>
         </div>
 
@@ -604,6 +738,65 @@
                             <p>Loading skills...</p>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications Section -->
+        <div id="notifications" class="admin-section">
+            <div class="notifications-section">
+                <div class="table-header">
+                    <h3>System Notifications</h3>
+                    <p class="section-description">Send notifications to all users or manage user notification settings</p>
+                </div>
+                
+                <!-- Send System Notification -->
+                <div class="notification-form-container">
+                    <h4>Send System Notification</h4>
+                    <form id="system-notification-form" class="system-notification-form">
+                        <div class="form-group">
+                            <label for="notification-title">Title:</label>
+                            <input type="text" id="notification-title" name="title" required maxlength="50" 
+                                   placeholder="e.g., System Maintenance Tonight">
+                        </div>
+                        <div class="form-group">
+                            <label for="notification-body">Message:</label>
+                            <textarea id="notification-body" name="body" required maxlength="200" rows="3" 
+                                      placeholder="e.g., The system will be down for maintenance from 11 PM to 1 AM."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="notification-url">Link (optional):</label>
+                            <input type="url" id="notification-url" name="url" 
+                                   placeholder="e.g., /announcements">
+                        </div>
+                        <div class="form-group">
+                            <label for="notification-target">Send to:</label>
+                            <select id="notification-target" name="target">
+                                <option value="all">All Users</option>
+                                <option value="admins">Admins Only</option>
+                                <option value="users">Regular Users Only</option>
+                                <option value="specific">Specific Users</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="specific-users-group" style="display: none;">
+                            <label for="specific-users">Select Users:</label>
+                            <select id="specific-users" name="specific_users" multiple>
+                                <!-- Will be populated by JavaScript -->
+                            </select>
+                            <p class="form-help">Hold Ctrl/Cmd to select multiple users</p>
+                        </div>
+                                                 <div class="form-actions">
+                             <button type="submit" class="action-btn btn-primary">
+                                 📢 Send Notification
+                             </button>
+                             <button type="button" class="action-btn btn-secondary" onclick="adminPanel.debugNotifications()">
+                                 🔍 Debug Notifications
+                             </button>
+                             <button type="button" class="action-btn btn-warning" onclick="adminPanel.troubleshootMacOS()">
+                                 🍎 macOS Troubleshoot
+                             </button>
+                         </div>
+                    </form>
                 </div>
             </div>
         </div>

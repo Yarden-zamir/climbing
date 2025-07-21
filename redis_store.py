@@ -1174,6 +1174,7 @@ class RedisDataStore:
             device_info: Dict[str, Any]) -> str:
         """
         Store a push notification subscription for a device.
+        This will replace any existing subscription for the same device.
         
         Args:
             device_id: The persistent device identifier
@@ -1200,6 +1201,12 @@ class RedisDataStore:
         if not keys.get("p256dh") or not keys.get("auth"):
             raise ValidationError("Subscription must have p256dh and auth keys")
 
+        # Check for existing subscription on this device and clean it up
+        existing_subscription = await self.get_device_push_subscription(device_id)
+        if existing_subscription:
+            logger.info(f"Replacing existing subscription for device {device_id[:15]}...")
+            await self.delete_device_push_subscription(device_id)
+
         # Generate a unique subscription ID based on device and endpoint
         subscription_identifier = f"{device_id}:{endpoint}:{keys.get('p256dh', '')}:{keys.get('auth', '')}"
         subscription_id = hashlib.md5(subscription_identifier.encode()).hexdigest()
@@ -1211,6 +1218,15 @@ class RedisDataStore:
             "meme_uploaded": True,
             "system_announcements": True
         }
+
+        # Preserve existing preferences if replacing subscription
+        if existing_subscription:
+            try:
+                existing_prefs = json.loads(existing_subscription.get("notification_preferences", "{}"))
+                if existing_prefs:
+                    default_preferences = existing_prefs
+            except json.JSONDecodeError:
+                pass  # Use default preferences
 
         # Store subscription data with device info
         subscription_key = f"push_subscription:{subscription_id}"
@@ -1240,7 +1256,7 @@ class RedisDataStore:
         pipe.sadd("all_subscriptions", subscription_id)
 
         # Associate with user if logged in
-        if user_id:
+        if user_id and user_id != "anonymous":
             pipe.sadd(f"user:{user_id}:devices", device_id)
             pipe.set(f"device:{device_id}:user", user_id)
 
@@ -1303,13 +1319,14 @@ class RedisDataStore:
         return subscriptions
 
     async def delete_device_push_subscription(self, device_id: str) -> bool:
-        """Delete a device's push subscription"""
+        """Delete a device's push subscription and clean up ALL references"""
         if not device_id:
             return False
 
         # Get the subscription to find the subscription_id
         subscription = await self.get_device_push_subscription(device_id)
         if not subscription:
+            logger.warning(f"No subscription found for device {device_id[:15]}...")
             return False
 
         subscription_id = subscription.get("subscription_id")
@@ -1318,13 +1335,14 @@ class RedisDataStore:
         # Use pipeline for atomic operations
         pipe = self.redis.pipeline()
 
-        # Remove subscription
-        pipe.delete(f"push_subscription:{subscription_id}")
-        pipe.delete(f"device:{device_id}:subscription")
-        pipe.delete(f"subscription:{subscription_id}:device")
+        # Remove subscription data
+        if subscription_id:
+            pipe.delete(f"push_subscription:{subscription_id}")
+            pipe.delete(f"subscription:{subscription_id}:device")
+            pipe.srem("all_subscriptions", subscription_id)
 
-        # Remove from global index
-        pipe.srem("all_subscriptions", subscription_id)
+        # Remove device subscription
+        pipe.delete(f"device:{device_id}:subscription")
 
         # Remove device from user's devices if user exists
         if user_id and user_id != "anonymous":
@@ -1332,10 +1350,15 @@ class RedisDataStore:
             pipe.delete(f"device:{device_id}:user")
 
         # Execute all operations
-        pipe.execute()
+        results = pipe.execute()
 
-        logger.info(f"Deleted push subscription for device {device_id[:15]}...")
-        return True
+        success = any(result > 0 for result in results if isinstance(result, int))
+        if success:
+            logger.info(f"Successfully deleted push subscription for device {device_id[:15]}...")
+        else:
+            logger.warning(f"No subscription data was found to delete for device {device_id[:15]}...")
+
+        return True  # Return True even if already cleaned up
 
     async def update_device_notification_preferences(self, device_id: str, preferences: Dict[str, bool]) -> bool:
         """Update notification preferences for a specific device"""
@@ -1448,16 +1471,17 @@ class RedisDataStore:
         return subscriptions
 
     async def delete_push_subscription(self, subscription_id: str) -> bool:
-        """Delete a push subscription"""
+        """Delete a push subscription by ID and clean up ALL references"""
         if not subscription_id:
             return False
 
-        # Get subscription to find session_id and user_id
+        # Get subscription to find device_id and user_id
         subscription = await self.get_push_subscription(subscription_id)
         if not subscription:
+            logger.warning(f"No subscription found for ID {subscription_id}")
             return False
 
-        session_id = subscription.get("session_id")
+        device_id = subscription.get("device_id")
         user_id = subscription.get("user_id")
 
         # Use pipeline for atomic operations
@@ -1466,16 +1490,20 @@ class RedisDataStore:
         # Delete the subscription
         pipe.delete(f"push_subscription:{subscription_id}")
 
-        # Remove from session's subscription index
-        if session_id:
-            pipe.srem(f"session_subscriptions:{session_id}", subscription_id)
-
-        # Remove from user's subscription index
-        if user_id:
-            pipe.srem(f"user_subscriptions:{user_id}", subscription_id)
-
         # Remove from global subscription index
         pipe.srem("all_subscriptions", subscription_id)
+
+        # Remove reverse lookup
+        pipe.delete(f"subscription:{subscription_id}:device")
+
+        # Clean up device-related data if device_id exists
+        if device_id:
+            pipe.delete(f"device:{device_id}:subscription")
+
+            # Remove device from user's devices if user exists
+            if user_id and user_id != "anonymous":
+                pipe.srem(f"user:{user_id}:devices", device_id)
+                pipe.delete(f"device:{device_id}:user")
 
         # Execute all operations
         results = pipe.execute()
@@ -1483,8 +1511,10 @@ class RedisDataStore:
         success = results[0] > 0  # First operation (delete) should return 1 if successful
         if success:
             logger.info(f"Deleted push subscription {subscription_id}")
+        else:
+            logger.warning(f"Subscription {subscription_id} was already deleted")
 
-        return success
+        return True  # Return True even if already deleted
 
     async def get_all_push_subscriptions(self) -> List[Dict[str, Any]]:
         """Get all push subscriptions in the system"""

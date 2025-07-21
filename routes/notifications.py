@@ -1,6 +1,8 @@
 import json
 import logging
 import base64
+import asyncio
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -109,11 +111,26 @@ async def subscribe_to_notifications(
     if not redis_store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
+    # Validate VAPID configuration
+    if not settings.validate_vapid_config():
+        raise HTTPException(status_code=503, detail="Push notifications not configured")
+
     # User can be None for anonymous subscriptions
     user_id = user.get("id") if user else None
     device_id = request_data.deviceInfo.deviceId
 
+    # Validate device ID
+    if not device_id or len(device_id) < 10:
+        raise HTTPException(status_code=400, detail="Valid device ID required")
+
     try:
+        # Validate subscription data
+        if not request_data.subscription.endpoint:
+            raise HTTPException(status_code=400, detail="Subscription endpoint required")
+
+        if not request_data.subscription.keys.p256dh or not request_data.subscription.keys.auth:
+            raise HTTPException(status_code=400, detail="Subscription keys (p256dh, auth) required")
+
         # Convert subscription to dict for Redis storage
         subscription_data = {
             "endpoint": request_data.subscription.endpoint,
@@ -127,20 +144,29 @@ async def subscribe_to_notifications(
         # Convert device info to dict
         device_info = {
             "deviceId": device_id,
-            "browserName": request_data.deviceInfo.browserName,
-            "platform": request_data.deviceInfo.platform,
-            "userAgent": request_data.deviceInfo.userAgent,
-            "lastActive": request_data.deviceInfo.lastActive
+            "browserName": request_data.deviceInfo.browserName or "unknown",
+            "platform": request_data.deviceInfo.platform or "unknown",
+            "userAgent": request_data.deviceInfo.userAgent or "",
+            "lastActive": request_data.deviceInfo.lastActive or datetime.now().isoformat()
         }
 
-        # Create WebPushSubscription for welcome notification
-        webpush_subscription = WebPushSubscription(
-            endpoint=AnyHttpUrl(request_data.subscription.endpoint),
-            keys=WebPushKeys(
-                p256dh=request_data.subscription.keys.p256dh,
-                auth=request_data.subscription.keys.auth
+        # Test the subscription before storing by sending a validation notification
+        try:
+            webpush_subscription = WebPushSubscription(
+                endpoint=AnyHttpUrl(request_data.subscription.endpoint),
+                keys=WebPushKeys(
+                    p256dh=request_data.subscription.keys.p256dh,
+                    auth=request_data.subscription.keys.auth
+                )
             )
-        )
+
+            # Quick validation test (don't block on this)
+            background_tasks.add_task(
+                test_subscription_validity,
+                webpush_subscription
+            )
+        except Exception as e:
+            logger.warning(f"Could not validate subscription during subscribe: {e}")
 
         # Store subscription in Redis with device ID
         subscription_id = await redis_store.store_push_subscription(device_id, user_id, subscription_data, device_info)
@@ -166,6 +192,39 @@ async def subscribe_to_notifications(
     except Exception as e:
         logger.error(f"Error subscribing to notifications: {e}")
         raise HTTPException(status_code=500, detail="Failed to subscribe to notifications")
+
+
+async def test_subscription_validity(subscription: WebPushSubscription):
+    """Test if a subscription is valid by sending a silent notification"""
+    try:
+        wp = settings.get_webpush_instance()
+
+        test_payload = {
+            "title": "Test",
+            "body": "Subscription validation",
+            "silent": True,
+            "tag": "validation"
+        }
+
+        message = wp.get(
+            message=json.dumps(test_payload),
+            subscription=subscription
+        )
+
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                url=str(subscription.endpoint),
+                data=message.encrypted,
+                headers={k: str(v) for k, v in message.headers.items()},
+            ) as response:
+                if response.status not in [200, 201]:
+                    logger.warning(f"Subscription validation failed with status {response.status}")
+                else:
+                    logger.debug("Subscription validation successful")
+
+    except Exception as e:
+        logger.warning(f"Subscription validation test failed: {e}")
 
 
 @router.post("/replace-subscription")
@@ -841,20 +900,37 @@ async def send_push_notification_to_subscriptions(
         logger.error("Cannot send push notification: VAPID keys not configured")
         return
 
+    if not subscriptions:
+        logger.warning("No subscriptions provided for notification sending")
+        return
+
     try:
         wp = settings.get_webpush_instance()
         successful_sends = 0
         failed_sends = 0
+        cleaned_subscriptions = 0
 
-        async with aiohttp.ClientSession() as session:
+        # Set timeout for HTTP requests
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             for subscription in subscriptions:
                 try:
+                    # Validate subscription data
+                    endpoint = subscription.get("endpoint")
+                    keys = subscription.get("keys", {})
+
+                    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+                        logger.warning(
+                            f"Invalid subscription data, skipping: {subscription.get('subscription_id', 'unknown')}")
+                        failed_sends += 1
+                        continue
+
                     # Convert to WebPushSubscription
                     webpush_subscription = WebPushSubscription(
-                        endpoint=AnyHttpUrl(subscription["endpoint"]),
+                        endpoint=AnyHttpUrl(endpoint),
                         keys=WebPushKeys(
-                            p256dh=subscription["keys"]["p256dh"],
-                            auth=subscription["keys"]["auth"]
+                            p256dh=keys["p256dh"],
+                            auth=keys["auth"]
                         )
                     )
 
@@ -864,70 +940,97 @@ async def send_push_notification_to_subscriptions(
                         subscription=webpush_subscription
                     )
 
-                    # Send the notification
-                    async with session.post(
-                        url=str(webpush_subscription.endpoint),
-                        data=message.encrypted,
-                        headers={k: str(v) for k, v in message.headers.items()},
-                    ) as response:
-                        if response.status == 200 or response.status == 201:
-                            successful_sends += 1
+                    # Send the notification with retries
+                    success = False
+                    for attempt in range(2):  # Try twice
+                        try:
+                            async with session.post(
+                                url=str(webpush_subscription.endpoint),
+                                data=message.encrypted,
+                                headers={k: str(v) for k, v in message.headers.items()},
+                            ) as response:
+                                if response.status in [200, 201]:
+                                    successful_sends += 1
+                                    success = True
 
-                            # Update last used timestamp
-                            subscription_id = subscription.get("subscription_id")
-                            if subscription_id:
-                                await redis_store.update_subscription_last_used(subscription_id)
+                                    # Update last used timestamp
+                                    subscription_id = subscription.get("subscription_id")
+                                    if subscription_id:
+                                        await redis_store.update_subscription_last_used(subscription_id)
 
-                            logger.debug(f"Push notification sent successfully to {subscription['endpoint'][:50]}...")
-                        else:
+                                    logger.debug(f"Push notification sent successfully to {endpoint[:50]}...")
+                                    break
+
+                                elif response.status in [404, 410]:
+                                    # Subscription is invalid - clean it up
+                                    subscription_id = subscription.get("subscription_id")
+                                    device_id = subscription.get("device_id")
+                                    endpoint_domain = endpoint.split("/")[2] if "/" in endpoint else "unknown"
+
+                                    logger.info(
+                                        f"Invalid subscription ({response.status}) for {endpoint_domain}, cleaning up...")
+
+                                    if subscription_id:
+                                        await redis_store.delete_push_subscription(subscription_id)
+                                        cleaned_subscriptions += 1
+                                        logger.info(f"Cleaned up invalid subscription: {subscription_id}")
+                                    elif device_id:
+                                        await redis_store.delete_device_push_subscription(device_id)
+                                        cleaned_subscriptions += 1
+                                        logger.info(f"Cleaned up invalid device subscription: {device_id[:15]}...")
+
+                                    failed_sends += 1
+                                    break
+
+                                elif response.status == 413:
+                                    logger.warning(f"Push notification payload too large (413) for {endpoint[:50]}...")
+                                    failed_sends += 1
+                                    break
+
+                                elif response.status == 429:
+                                    logger.warning(
+                                        f"Push notification rate limited (429) for {endpoint[:50]}..., retrying...")
+                                    if attempt == 0:  # Only retry once for rate limiting
+                                        await asyncio.sleep(1)  # Wait 1 second before retry
+                                        continue
+                                    failed_sends += 1
+                                    break
+
+                                else:
+                                    endpoint_domain = endpoint.split("/")[2] if "/" in endpoint else "unknown"
+                                    logger.warning(
+                                        f"Push notification failed with status {response.status} for {endpoint_domain}")
+                                    if attempt == 0:
+                                        await asyncio.sleep(0.5)  # Brief retry for other errors
+                                        continue
+                                    failed_sends += 1
+                                    break
+
+                        except aiohttp.ClientError as e:
+                            logger.warning(f"HTTP error sending notification (attempt {attempt + 1}): {e}")
+                            if attempt == 0:
+                                await asyncio.sleep(0.5)
+                                continue
                             failed_sends += 1
-                            endpoint_domain = subscription["endpoint"].split(
-                                "/")[2] if subscription.get("endpoint") else "unknown"
+                            break
 
-                            # Handle different error codes with specific logging
-                            if response.status == 410:
-                                # Subscription is no longer valid
-                                subscription_id = subscription.get("subscription_id")
-                                session_id = subscription.get("session_id", "unknown")[:8]
-                                logger.warning(
-                                    f"Push subscription expired (410) for {endpoint_domain} (session: {session_id}...)")
+                        except Exception as e:
+                            logger.error(f"Unexpected error sending notification (attempt {attempt + 1}): {e}")
+                            failed_sends += 1
+                            break
 
-                                if subscription_id:
-                                    await redis_store.delete_push_subscription(subscription_id)
-                                    logger.info(f"Cleaned up expired subscription: {subscription_id}")
-
-                            elif response.status == 404:
-                                # Endpoint not found
-                                subscription_id = subscription.get("subscription_id")
-                                session_id = subscription.get("session_id", "unknown")[:8]
-                                logger.warning(
-                                    f"Push endpoint not found (404) for {endpoint_domain} (session: {session_id}...)")
-
-                                if subscription_id:
-                                    await redis_store.delete_push_subscription(subscription_id)
-                                    logger.info(f"Cleaned up invalid subscription: {subscription_id}")
-
-                            elif response.status == 413:
-                                # Payload too large
-                                logger.warning(f"Push notification payload too large (413) for {endpoint_domain}")
-
-                            elif response.status == 429:
-                                # Rate limited
-                                logger.warning(f"Push notification rate limited (429) for {endpoint_domain}")
-
-                            else:
-                                # Other error
-                                logger.warning(
-                                    f"Push notification failed with status {response.status} for {endpoint_domain}")
+                    if not success and attempt == 1:
+                        failed_sends += 1
 
                 except Exception as e:
                     failed_sends += 1
-                    logger.error(f"Unexpected error sending push notification: {e}")
+                    logger.error(f"Error processing subscription: {e}")
 
-        logger.info(f"Push notification batch complete: {successful_sends} successful, {failed_sends} failed")
+        logger.info(
+            f"Notification batch complete: {successful_sends} sent, {failed_sends} failed, {cleaned_subscriptions} cleaned up")
 
     except Exception as e:
-        logger.error(f"Error in send_push_notification_to_subscriptions: {e}")
+        logger.error(f"Critical error in send_push_notification_to_subscriptions: {e}")
 
 
 # Utility function to send notifications for specific events
