@@ -8,6 +8,8 @@ from datetime import datetime
 import base64
 import hashlib
 import os
+from PIL import Image
+import io
 
 from auth import get_current_user
 from dependencies import get_redis_store, get_permissions_manager, get_jwt_manager
@@ -16,13 +18,12 @@ from utils.export_utils import export_redis_database
 from utils.background_tasks import perform_album_metadata_refresh
 from routes.notifications import send_push_notification_to_subscriptions
 from config import settings
+from validation import validate_image_file
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-# Create notification images directory
-NOTIFICATION_IMAGES_DIR = "notification_images"
-os.makedirs(NOTIFICATION_IMAGES_DIR, exist_ok=True)
+# Notification images are now stored in Redis with optimization
 
 
 @router.get("/stats")
@@ -791,7 +792,11 @@ async def upload_notification_image(
     image: UploadFile = File(...),
     user: dict = Depends(get_current_user)
 ):
-    """Upload an image for use in notifications"""
+    """Upload an optimized image for use in notifications (stored in Redis)"""
+    redis_store = get_redis_store()
+
+    if not redis_store:
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Validate user is admin
     if not user.get("role") == "admin":
@@ -801,50 +806,154 @@ async def upload_notification_image(
     if not image.content_type or not image.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
 
-    # Check file size (5MB limit)
-    MAX_SIZE = 5 * 1024 * 1024  # 5MB
+    # Check file size (5MB limit for upload)
+    MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5MB
     content = await image.read()
-    if len(content) > MAX_SIZE:
+    if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=400, detail="Image must be less than 5MB")
 
-    # Generate unique filename
-    file_hash = hashlib.md5(content + str(datetime.now().timestamp()).encode()).hexdigest()
-    file_extension = 'png'  # default extension
-    if image.filename and '.' in image.filename:
-        file_extension = image.filename.split('.')[-1]
-    filename = f"{file_hash}.{file_extension}"
-    filepath = os.path.join(NOTIFICATION_IMAGES_DIR, filename)
+    # Validate image file
+    validate_image_file(image.content_type, len(content))
 
-    # Save file
-    with open(filepath, 'wb') as f:
-        f.write(content)
+    try:
+        # Optimize image for notifications (resize and compress)
+        optimized_data = optimize_notification_image(content)
 
-    # Return URL
-    image_url = f"/api/admin/notifications/images/{filename}"
+        # Generate unique identifier
+        image_hash = hashlib.md5(content + str(datetime.now().timestamp()).encode()).hexdigest()
+        identifier = f"notification_{image_hash}"
 
-    logger.info(f"Admin {user.get('email')} uploaded notification image: {filename}")
+        # Store in Redis with TTL (30 days for notification images)
+        image_path = await redis_store.store_image("notification", identifier, optimized_data)
 
-    return JSONResponse({
-        "success": True,
-        "image_url": image_url,
-        "filename": filename,
-        "size": len(content)
-    })
+        # Set TTL for notification images (30 days)
+        redis_store.binary_redis.expire(f"image:notification:{identifier}", 30 * 24 * 3600)
+
+        logger.info(
+            f"Admin {user.get('email')} uploaded notification image: {identifier} (original: {len(content)} bytes, optimized: {len(optimized_data)} bytes)")
+
+        return JSONResponse({
+            "success": True,
+            "image_url": image_path,
+            "identifier": identifier,
+            "original_size": len(content),
+            "optimized_size": len(optimized_data)
+        })
+
+    except Exception as e:
+        logger.error(f"Error uploading notification image: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload image")
 
 
-@router.get("/notifications/images/{filename}")
-async def serve_notification_image(filename: str):
-    """Serve uploaded notification images"""
-    filepath = os.path.join(NOTIFICATION_IMAGES_DIR, filename)
+def optimize_notification_image(image_data: bytes, max_size: int = 50 * 1024) -> bytes:
+    """
+    Optimize image for notifications by resizing and compressing
+    Target: < 50KB for better notification performance
+    """
+    try:
+        # Open image
+        img = Image.open(io.BytesIO(image_data))
 
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="Image not found")
+        # Convert to RGB if necessary (for JPEG output)
+        if img.mode in ('RGBA', 'LA', 'P'):
+            # For transparent images, use a white background
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+            img = background
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
 
-    # Security check - ensure filename doesn't contain path traversal
-    if '..' in filename or '/' in filename or '\\' in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
+        # Start with reasonable size for notifications (max 512x512)
+        max_dimension = 512
+        if img.width > max_dimension or img.height > max_dimension:
+            img.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
 
-    return FileResponse(filepath)
+        # Try different quality settings to get under target size
+        quality_levels = [85, 75, 65, 55, 45, 35]
+
+        for quality in quality_levels:
+            output = io.BytesIO()
+            img.save(output, format='JPEG', quality=quality, optimize=True)
+            output_size = output.tell()
+
+            if output_size <= max_size:
+                output.seek(0)
+                return output.read()
+
+        # If still too large, try reducing dimensions further
+        max_dimension = 256
+        img.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+
+        for quality in [65, 55, 45, 35, 25]:
+            output = io.BytesIO()
+            img.save(output, format='JPEG', quality=quality, optimize=True)
+            output_size = output.tell()
+
+            if output_size <= max_size:
+                output.seek(0)
+                return output.read()
+
+        # Last resort: very small image
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=20, optimize=True)
+        output.seek(0)
+        return output.read()
+
+    except Exception as e:
+        logger.error(f"Error optimizing notification image: {e}")
+        # If optimization fails, return original data truncated
+        return image_data[:max_size]
+
+
+@router.get("/notifications/images")
+async def list_notification_images(user: dict = Depends(get_current_user)):
+    """List available notification images from Redis"""
+    redis_store = get_redis_store()
+
+    if not redis_store:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    # Validate user is admin
+    if not user.get("role") == "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        # Get all notification image keys from Redis
+        keys = redis_store.binary_redis.keys("image:notification:*")
+        images = []
+
+        for key in keys:
+            if isinstance(key, bytes):
+                key = key.decode('utf-8')
+
+            # Extract identifier from key (image:notification:identifier)
+            identifier = key.split(":", 2)[-1]
+            image_url = f"/redis-image/notification/{identifier}"
+
+            # Get TTL
+            ttl = redis_store.binary_redis.ttl(key)
+            ttl_days = ttl // (24 * 3600) if ttl > 0 else None
+
+            images.append({
+                "identifier": identifier,
+                "image_url": image_url,
+                "ttl_days": ttl_days
+            })
+
+        return JSONResponse({
+            "success": True,
+            "images": images,
+            "count": len(images)
+        })
+
+    except Exception as e:
+        logger.error(f"Error listing notification images: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list notification images")
+
+
+# Notification images are now served via /redis-image/notification/{identifier}
 
 
 @router.post("/notifications/system")
@@ -927,34 +1036,17 @@ async def send_system_notification(
             }
         }
 
-        # Handle custom icon - always use URLs, never base64
+        # Handle custom icon - Redis image paths or static URLs
         if notification.icon:
-            if notification.icon.startswith('data:'):
-                # Base64 data URL - this should not happen with the new upload system
-                logger.warning("Received base64 icon data - this should be uploaded via /upload-image endpoint")
-                # For now, fall back to default icon
-                notification_payload["icon"] = "/static/favicon/android-chrome-192x192.png"
-            else:
-                # URL-based icon (from upload endpoint)
-                notification_payload["icon"] = notification.icon
+            notification_payload["icon"] = notification.icon
 
-        # Handle custom image - always use URLs, never base64
+        # Handle custom image - Redis image paths or static URLs
         if notification.image:
-            if notification.image.startswith('data:'):
-                # Base64 data URL - this should not happen with the new upload system
-                logger.warning("Received base64 image data - this should be uploaded via /upload-image endpoint")
-                # Skip the image to keep payload small
-            else:
-                # URL-based image (from upload endpoint)
-                notification_payload["image"] = notification.image
+            notification_payload["image"] = notification.image
 
-        # Handle custom badge
+        # Handle custom badge - Redis image paths or static URLs
         if notification.badge:
-            if notification.badge.startswith('data:'):
-                logger.warning("Received base64 badge data - using default badge")
-                notification_payload["badge"] = "/static/favicon/favicon-32x32.png"
-            else:
-                notification_payload["badge"] = notification.badge
+            notification_payload["badge"] = notification.badge
 
         # Store advanced Web Notifications API features in data section for service worker
         advanced_features = {}

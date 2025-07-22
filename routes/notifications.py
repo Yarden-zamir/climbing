@@ -910,6 +910,34 @@ async def send_push_notification_to_subscriptions(
         failed_sends = 0
         cleaned_subscriptions = 0
 
+        # Validate and optimize payload before sending
+        optimized_payload = optimize_notification_payload(notification_data)
+        payload_json = json.dumps(optimized_payload)
+        payload_size = len(payload_json.encode('utf-8'))
+
+        logger.debug(f"Optimized FCM payload size: {payload_size} bytes")
+        
+        # FCM has a 4KB limit, warn if we're getting close
+        if payload_size > 3500:  # 3.5KB warning threshold
+            logger.warning(f"Large FCM payload ({payload_size} bytes) - may cause delivery issues")
+        
+        if payload_size > 4000:  # 4KB hard limit
+            logger.error(f"FCM payload too large ({payload_size} bytes) - truncating")
+            # Fallback to minimal payload
+            optimized_payload = {
+                "title": notification_data.get("title", "Notification"),
+                "body": notification_data.get("body", "")[:100],  # Truncate body
+                "icon": "/static/favicon/android-chrome-192x192.png",
+                "badge": "/static/favicon/favicon-32x32.png",
+                "tag": notification_data.get("tag", "notification"),
+                "data": {
+                    "url": notification_data.get("data", {}).get("url", "/"),
+                    "type": "truncated_notification"
+                }
+            }
+            payload_json = json.dumps(optimized_payload)
+            logger.info(f"Fallback payload size: {len(payload_json.encode('utf-8'))} bytes")
+
         # Set timeout for HTTP requests
         timeout = aiohttp.ClientTimeout(total=30, connect=10)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -933,14 +961,6 @@ async def send_push_notification_to_subscriptions(
                             auth=keys["auth"]
                         )
                     )
-
-                    # Log payload size and structure for debugging FCM issues
-                    payload_json = json.dumps(notification_data)
-                    payload_size = len(payload_json.encode('utf-8'))
-
-                    logger.debug(f"FCM payload size: {payload_size} bytes")
-                    if payload_size > 4000:  # FCM typically has 4KB limit
-                        logger.warning(f"Large FCM payload ({payload_size} bytes) may cause issues")
 
                     # Get encrypted message
                     message = wp.get(
@@ -1017,15 +1037,13 @@ async def send_push_notification_to_subscriptions(
                                     
                                     logger.warning(
                                         f"Push notification failed with status {response.status} for {endpoint_domain}")
-                                    logger.warning(
-                                        f"FCM Error Details - Status: {response.status}, "
-                                        f"Payload size: {payload_size} bytes, "
-                                        f"Response: {error_text[:200]}...")
                                     
-                                    # Log payload structure for debugging (limit size to avoid spam)
-                                    if logger.isEnabledFor(logging.DEBUG):
-                                        payload_preview = payload_json[:500] + "..." if len(payload_json) > 500 else payload_json
-                                        logger.debug(f"Failed payload preview: {payload_preview}")
+                                    # Only log detailed error info on first attempt to avoid spam
+                                    if attempt == 0:
+                                        logger.warning(
+                                            f"FCM Error Details - Status: {response.status}, "
+                                            f"Payload size: {payload_size} bytes, "
+                                            f"Response: {error_text[:200]}...")
                                     
                                     if attempt == 0:
                                         await asyncio.sleep(0.5)  # Brief retry for other errors
@@ -1058,6 +1076,38 @@ async def send_push_notification_to_subscriptions(
 
     except Exception as e:
         logger.error(f"Critical error in send_push_notification_to_subscriptions: {e}")
+
+
+def optimize_notification_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Optimize notification payload for FCM delivery
+    Remove or truncate large fields to stay under 4KB limit
+    """
+    optimized = payload.copy()
+    
+    # Truncate long text fields
+    if "title" in optimized and len(optimized["title"]) > 100:
+        optimized["title"] = optimized["title"][:97] + "..."
+        
+    if "body" in optimized and len(optimized["body"]) > 200:
+        optimized["body"] = optimized["body"][:197] + "..."
+    
+    # Remove large data fields if payload is getting too big
+    current_size = len(json.dumps(optimized).encode('utf-8'))
+    
+    if current_size > 3000:  # 3KB threshold for optimization
+        # Remove non-essential data
+        if "data" in optimized and "webNotificationFeatures" in optimized.get("data", {}):
+            # Keep only essential data
+            essential_data = {
+                "url": optimized["data"].get("url", "/"),
+                "type": optimized["data"].get("type", "notification"),
+                "timestamp": optimized["data"].get("timestamp")
+            }
+            optimized["data"] = essential_data
+            logger.debug("Removed advanced notification features to reduce payload size")
+    
+    return optimized
 
 
 # Utility function to send notifications for specific events
