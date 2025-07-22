@@ -934,9 +934,17 @@ async def send_push_notification_to_subscriptions(
                         )
                     )
 
+                    # Log payload size and structure for debugging FCM issues
+                    payload_json = json.dumps(notification_data)
+                    payload_size = len(payload_json.encode('utf-8'))
+
+                    logger.debug(f"FCM payload size: {payload_size} bytes")
+                    if payload_size > 4000:  # FCM typically has 4KB limit
+                        logger.warning(f"Large FCM payload ({payload_size} bytes) may cause issues")
+
                     # Get encrypted message
                     message = wp.get(
-                        message=json.dumps(notification_data),
+                        message=payload_json,
                         subscription=webpush_subscription
                     )
 
@@ -997,9 +1005,28 @@ async def send_push_notification_to_subscriptions(
                                     break
 
                                 else:
+                                    # Log detailed error information for debugging FCM issues
                                     endpoint_domain = endpoint.split("/")[2] if "/" in endpoint else "unknown"
+                                    
+                                    # Try to get error response details
+                                    error_text = ""
+                                    try:
+                                        error_text = await response.text()
+                                    except:
+                                        error_text = "Could not read error response"
+                                    
                                     logger.warning(
                                         f"Push notification failed with status {response.status} for {endpoint_domain}")
+                                    logger.warning(
+                                        f"FCM Error Details - Status: {response.status}, "
+                                        f"Payload size: {payload_size} bytes, "
+                                        f"Response: {error_text[:200]}...")
+                                    
+                                    # Log payload structure for debugging (limit size to avoid spam)
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        payload_preview = payload_json[:500] + "..." if len(payload_json) > 500 else payload_json
+                                        logger.debug(f"Failed payload preview: {payload_preview}")
+                                    
                                     if attempt == 0:
                                         await asyncio.sleep(0.5)  # Brief retry for other errors
                                         continue

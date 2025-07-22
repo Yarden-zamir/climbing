@@ -1,10 +1,13 @@
 import logging
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, Depends, Form
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Depends, Form, UploadFile, File
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 import json
 from datetime import datetime
+import base64
+import hashlib
+import os
 
 from auth import get_current_user
 from dependencies import get_redis_store, get_permissions_manager, get_jwt_manager
@@ -12,9 +15,14 @@ from permissions import ResourceType, UserRole
 from utils.export_utils import export_redis_database
 from utils.background_tasks import perform_album_metadata_refresh
 from routes.notifications import send_push_notification_to_subscriptions
+from config import settings
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+# Create notification images directory
+NOTIFICATION_IMAGES_DIR = "notification_images"
+os.makedirs(NOTIFICATION_IMAGES_DIR, exist_ok=True)
 
 
 @router.get("/stats")
@@ -603,13 +611,43 @@ async def export_redis_database_admin(user: dict = Depends(get_current_user)):
 # Add these new models and endpoints before the existing endpoints
 
 
+class NotificationAction(BaseModel):
+    """Notification action button"""
+    action: str
+    title: str
+    icon: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
 class SystemNotificationRequest(BaseModel):
-    """Request to send system notification"""
+    """Request to send system notification with full Web Notifications API support"""
     title: str
     body: str
     target_users: Optional[List[str]] = None  # If None, send to all users
+
+    # Visual content
     icon: Optional[str] = None
+    image: Optional[str] = None
+    badge: Optional[str] = None
+
+    # Behavior
+    tag: Optional[str] = None
     url: Optional[str] = None
+    require_interaction: Optional[bool] = False
+    silent: Optional[bool] = False
+    renotify: Optional[bool] = False
+
+    # Internationalization
+    lang: Optional[str] = None
+    dir: Optional[str] = None
+
+    # Timing
+    timestamp: Optional[int] = None
+
+    # Mobile features
+    vibrate: Optional[List[int]] = None
+
+    # Action buttons
+    actions: Optional[List[NotificationAction]] = None
 
 
 class UserNotificationPreferences(BaseModel):
@@ -748,77 +786,225 @@ async def update_user_device_notifications(
         raise HTTPException(status_code=500, detail="Failed to update user device notifications")
 
 
+@router.post("/notifications/upload-image")
+async def upload_notification_image(
+    image: UploadFile = File(...),
+    user: dict = Depends(get_current_user)
+):
+    """Upload an image for use in notifications"""
+
+    # Validate user is admin
+    if not user.get("role") == "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Validate image file
+    if not image.content_type or not image.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    # Check file size (5MB limit)
+    MAX_SIZE = 5 * 1024 * 1024  # 5MB
+    content = await image.read()
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=400, detail="Image must be less than 5MB")
+
+    # Generate unique filename
+    file_hash = hashlib.md5(content + str(datetime.now().timestamp()).encode()).hexdigest()
+    file_extension = 'png'  # default extension
+    if image.filename and '.' in image.filename:
+        file_extension = image.filename.split('.')[-1]
+    filename = f"{file_hash}.{file_extension}"
+    filepath = os.path.join(NOTIFICATION_IMAGES_DIR, filename)
+
+    # Save file
+    with open(filepath, 'wb') as f:
+        f.write(content)
+
+    # Return URL
+    image_url = f"/api/admin/notifications/images/{filename}"
+
+    logger.info(f"Admin {user.get('email')} uploaded notification image: {filename}")
+
+    return JSONResponse({
+        "success": True,
+        "image_url": image_url,
+        "filename": filename,
+        "size": len(content)
+    })
+
+
+@router.get("/notifications/images/{filename}")
+async def serve_notification_image(filename: str):
+    """Serve uploaded notification images"""
+    filepath = os.path.join(NOTIFICATION_IMAGES_DIR, filename)
+
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Security check - ensure filename doesn't contain path traversal
+    if '..' in filename or '/' in filename or '\\' in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    return FileResponse(filepath)
+
+
 @router.post("/notifications/system")
 async def send_system_notification(
     notification: SystemNotificationRequest,
     user: dict = Depends(get_current_user)
 ):
-    """Send system notification to all users or specific users (admin only)"""
-    current_user_id = user.get("id")
-    if not current_user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    permissions_manager = get_permissions_manager()
+    """Send system notification to users with FCM-compatible payload handling"""
     redis_store = get_redis_store()
 
-    if permissions_manager is None:
-        raise HTTPException(status_code=503, detail="Permissions system unavailable")
     if not redis_store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    # Check admin permissions
-    try:
-        await permissions_manager.require_permission(current_user_id, "manage_users")
-    except Exception as e:
-        logger.error(f"Permission check failed: {e}")
+    # Validate user is admin
+    if not user.get("role") == "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
+    # Validate VAPID configuration
+    if not settings.validate_vapid_config():
+        raise HTTPException(status_code=503, detail="Push notifications not configured")
+
     try:
-        # Get target subscriptions
-        if notification.target_users:
-            # Send to specific users
-            all_subscriptions = []
-            for target_user_id in notification.target_users:
-                user_device_subs = await redis_store.get_user_device_subscriptions(target_user_id)
-                all_subscriptions.extend(user_device_subs)
-            target_description = f"{len(notification.target_users)} specific users"
-        else:
-            # Send to all users
-            all_subscriptions = await redis_store.get_all_device_push_subscriptions()
-            target_description = "all users"
+        # Get all device subscriptions
+        all_subscriptions = await redis_store.get_all_device_push_subscriptions()
 
         if not all_subscriptions:
-            return JSONResponse({
-                "success": False,
-                "message": f"No device subscriptions found for {target_description}",
-                "devices_notified": 0
-            })
+            raise HTTPException(status_code=400, detail="No devices are subscribed to notifications")
 
-        # Filter for system_announcements preference
+        # Filter subscriptions based on target
         filtered_subscriptions = []
-        for subscription in all_subscriptions:
-            preferences_json = subscription.get("notification_preferences", "{}")
-            try:
-                preferences = json.loads(preferences_json) if preferences_json else {}
-                if preferences.get("system_announcements", True):
-                    filtered_subscriptions.append(subscription)
-            except json.JSONDecodeError:
-                # If preferences can't be parsed, send notification (fail-safe)
-                filtered_subscriptions.append(subscription)
+        target_description = "all users"
 
-        # Create notification payload
+        if notification.target_users is None:
+            # Send to all subscribed devices
+            for subscription in all_subscriptions:
+                # Check notification preferences
+                preferences_json = subscription.get("notification_preferences", "{}")
+                try:
+                    preferences = json.loads(preferences_json)
+                    if preferences.get("system_announcements", True):
+                        filtered_subscriptions.append(subscription)
+                except json.JSONDecodeError:
+                    # If preferences can't be parsed, send notification (fail-safe)
+                    filtered_subscriptions.append(subscription)
+        else:
+            # Send to specific users
+            target_description = f"{len(notification.target_users)} specific user(s)"
+            for subscription in all_subscriptions:
+                user_id = subscription.get("user_id")
+                if user_id in notification.target_users:
+                    # Check notification preferences
+                    preferences_json = subscription.get("notification_preferences", "{}")
+                    try:
+                        preferences = json.loads(preferences_json)
+                        if preferences.get("system_announcements", True):
+                            filtered_subscriptions.append(subscription)
+                    except json.JSONDecodeError:
+                        # If preferences can't be parsed, send notification (fail-safe)
+                        filtered_subscriptions.append(subscription)
+
+        if not filtered_subscriptions:
+            raise HTTPException(
+                status_code=400,
+                detail="No devices found for the target users or all users have disabled system notifications")
+
+        # Create FCM-compatible notification payload (KEEP IT SMALL!)
         notification_payload = {
             "title": notification.title,
             "body": notification.body,
-            "icon": notification.icon or "/static/favicon/android-chrome-192x192.png",
-            "badge": "/static/favicon/favicon-32x32.png",
-            "tag": f"system_announcement_{int(datetime.now().timestamp())}",  # Unique tag
-            "requireInteraction": False,  # Changed from True to match working album notifications
+            "icon": "/static/favicon/android-chrome-192x192.png",  # Always use server URL
+            "badge": "/static/favicon/favicon-32x32.png",  # Always use server URL
+            "tag": notification.tag or f"system_announcement_{int(datetime.now().timestamp())}",
+            "requireInteraction": notification.require_interaction or False,
+            "silent": notification.silent or False,
+            "renotify": notification.renotify or False,
             "data": {
                 "url": notification.url or "/",
-                "type": "system_announcement"
+                "type": "system_announcement",
+                "timestamp": notification.timestamp or int(datetime.now().timestamp() * 1000)
             }
         }
+
+        # Handle custom icon - always use URLs, never base64
+        if notification.icon:
+            if notification.icon.startswith('data:'):
+                # Base64 data URL - this should not happen with the new upload system
+                logger.warning("Received base64 icon data - this should be uploaded via /upload-image endpoint")
+                # For now, fall back to default icon
+                notification_payload["icon"] = "/static/favicon/android-chrome-192x192.png"
+            else:
+                # URL-based icon (from upload endpoint)
+                notification_payload["icon"] = notification.icon
+
+        # Handle custom image - always use URLs, never base64
+        if notification.image:
+            if notification.image.startswith('data:'):
+                # Base64 data URL - this should not happen with the new upload system
+                logger.warning("Received base64 image data - this should be uploaded via /upload-image endpoint")
+                # Skip the image to keep payload small
+            else:
+                # URL-based image (from upload endpoint)
+                notification_payload["image"] = notification.image
+
+        # Handle custom badge
+        if notification.badge:
+            if notification.badge.startswith('data:'):
+                logger.warning("Received base64 badge data - using default badge")
+                notification_payload["badge"] = "/static/favicon/favicon-32x32.png"
+            else:
+                notification_payload["badge"] = notification.badge
+
+        # Store advanced Web Notifications API features in data section for service worker
+        advanced_features = {}
+
+        # Internationalization
+        if notification.lang:
+            advanced_features["lang"] = notification.lang
+        if notification.dir:
+            advanced_features["dir"] = notification.dir
+
+        # Custom timestamp
+        if notification.timestamp:
+            advanced_features["timestamp"] = notification.timestamp
+
+        # Vibration pattern for mobile devices
+        if notification.vibrate and len(notification.vibrate) > 0:
+            advanced_features["vibrate"] = notification.vibrate
+
+        # Action buttons
+        if notification.actions and len(notification.actions) > 0:
+            actions = []
+            original_actions = []
+
+            for action in notification.actions[:2]:  # Limit to 2 actions per Web API spec
+                # Create action for service worker
+                action_data = {
+                    "action": action.action,
+                    "title": action.title
+                }
+
+                if action.icon:
+                    action_data["icon"] = action.icon
+
+                actions.append(action_data)
+
+                # Store complete action data for service worker access
+                original_action = {
+                    "action": action.action,
+                    "title": action.title,
+                    "icon": action.icon,
+                    "data": action.data
+                }
+                original_actions.append(original_action)
+
+            advanced_features["actions"] = actions
+            advanced_features["originalActions"] = original_actions
+
+        # Add all advanced features to data section (keeping payload small)
+        if advanced_features:
+            notification_payload["data"]["webNotificationFeatures"] = advanced_features
 
         # Send notifications (this will run in the background)
         await send_push_notification_to_subscriptions(
@@ -840,4 +1026,4 @@ async def send_system_notification(
 
     except Exception as e:
         logger.error(f"Error sending system notification: {e}")
-        raise HTTPException(status_code=500, detail="Failed to send system notification")
+        raise HTTPException(status_code=500, detail=f"Failed to send notification: {str(e)}")

@@ -1028,6 +1028,9 @@ class AdminPanel {
             this.addCharacterCounter(titleInput, 50);
         }
 
+        // Setup file upload functionality
+        this.setupFileUploads();
+
         // Add form validation
         this.setupFormValidation(form);
 
@@ -1141,44 +1144,57 @@ class AdminPanel {
         // Show loading state
         this.setButtonLoading(submitBtn, true);
         
-        const title = formData.get('title');
-        const body = formData.get('body');
-        const url = formData.get('url');
-        const target = formData.get('target');
-        
-        let targetUsers = null;
-        
-        // Determine target users based on selection
-        if (target === 'specific') {
-            const specificUsersSelect = document.getElementById('specific-users');
-            targetUsers = Array.from(specificUsersSelect.selectedOptions).map(option => option.value);
-            
-            if (targetUsers.length === 0) {
-                this.showNotificationToast('Please select at least one user for specific targeting.', 'error');
-                this.setButtonLoading(submitBtn, false);
-                return;
-            }
-        } else if (target === 'admins') {
-            targetUsers = this.users.filter(user => user.role === 'admin').map(user => user.id);
-        } else if (target === 'users') {
-            targetUsers = this.users.filter(user => user.role === 'user').map(user => user.id);
-        }
-        // target === 'all' means targetUsers stays null
-
-        const notificationData = {
-            title: title,
-            body: body,
-            url: url || null,
-            target_users: targetUsers
-        };
-
         try {
+            // Build comprehensive notification data
+            const notificationData = await this.buildNotificationData(form, false);
+            
+            // Determine target users
+            const target = formData.get('target');
+            let targetUsers = null;
+            
+            if (target === 'specific') {
+                const specificUsersSelect = document.getElementById('specific-users');
+                targetUsers = Array.from(specificUsersSelect.selectedOptions).map(option => option.value);
+                
+                if (targetUsers.length === 0) {
+                    this.showNotificationToast('Please select at least one user for specific targeting.', 'error');
+                    this.setButtonLoading(submitBtn, false);
+                    return;
+                }
+            } else if (target === 'admins') {
+                targetUsers = this.users.filter(user => user.role === 'admin').map(user => user.id);
+            } else if (target === 'users') {
+                targetUsers = this.users.filter(user => user.role === 'user').map(user => user.id);
+            }
+            // target === 'all' means targetUsers stays null
+
+            // Prepare payload for backend
+            const payload = {
+                title: notificationData.title,
+                body: notificationData.body,
+                icon: notificationData.icon,
+                image: notificationData.image,
+                badge: notificationData.badge,
+                tag: notificationData.tag,
+                url: notificationData.data.url,
+                target_users: targetUsers,
+                // Advanced options
+                lang: notificationData.lang,
+                dir: notificationData.dir,
+                timestamp: notificationData.timestamp,
+                require_interaction: notificationData.requireInteraction,
+                silent: notificationData.silent,
+                renotify: notificationData.renotify,
+                vibrate: notificationData.vibrate,
+                actions: notificationData.actions
+            };
+
             const response = await fetch('/api/admin/notifications/system', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(notificationData)
+                body: JSON.stringify(payload)
             });
 
             const result = await response.json();
@@ -1193,6 +1209,7 @@ class AdminPanel {
             form.reset();
             document.getElementById('specific-users-group').style.display = 'none';
             this.clearFormValidation(form);
+            this.clearFileUploads();
 
             console.log('System notification sent:', result);
 
@@ -1201,6 +1218,40 @@ class AdminPanel {
             this.showNotificationToast(`Failed to send notification: ${error.message}`, 'error');
         } finally {
             this.setButtonLoading(submitBtn, false);
+        }
+    }
+
+    clearFileUploads() {
+        // Clear file previews
+        const previews = ['icon-preview', 'image-preview'];
+        previews.forEach(previewId => {
+            const preview = document.getElementById(previewId);
+            if (preview) {
+                // Clear stored image URL
+                if (preview.dataset.imageUrl) {
+                    delete preview.dataset.imageUrl;
+                }
+                preview.style.display = 'none';
+                preview.innerHTML = '';
+            }
+        });
+
+        // Reset upload areas
+        const uploadAreas = document.querySelectorAll('.file-upload-area');
+        uploadAreas.forEach(area => {
+            area.classList.remove('success', 'error');
+            const uploadText = area.querySelector('.upload-text');
+            if (uploadText) {
+                uploadText.textContent = uploadText.getAttribute('data-original-text') || 'Click to upload or drag & drop';
+            }
+        });
+
+        // Reset advanced options
+        const advancedOptions = document.getElementById('advanced-options');
+        const expandTitle = document.querySelector('.section-title.expandable');
+        if (advancedOptions.classList.contains('expanded')) {
+            advancedOptions.classList.remove('expanded');
+            expandTitle.classList.remove('expanded');
         }
     }
 
@@ -1531,6 +1582,351 @@ class AdminPanel {
         if (platformLower.includes('ios') || platformLower.includes('iphone')) return '📱';
         if (platformLower.includes('linux')) return '🐧';
         return '📱';
+    }
+
+    // ===== ADVANCED NOTIFICATION FEATURES =====
+
+    setupFileUploads() {
+        // Setup icon upload
+        this.setupFileUpload('notification-icon', 'icon-preview', {
+            maxSize: 2 * 1024 * 1024, // 2MB
+            allowedTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+            recommended: '192x192px'
+        });
+
+        // Setup image upload  
+        this.setupFileUpload('notification-image', 'image-preview', {
+            maxSize: 5 * 1024 * 1024, // 5MB
+            allowedTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+            recommended: '360x240px'
+        });
+    }
+
+    setupFileUpload(inputId, previewId, options) {
+        const input = document.getElementById(inputId);
+        const uploadArea = input.nextElementSibling;
+        const preview = document.getElementById(previewId);
+
+        // File input change handler
+        input.addEventListener('change', (e) => {
+            this.handleFileSelect(e.target.files[0], uploadArea, preview, options);
+        });
+
+        // Drag and drop handlers
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                input.files = e.dataTransfer.files;
+                this.handleFileSelect(file, uploadArea, preview, options);
+            }
+        });
+    }
+
+    async handleFileSelect(file, uploadArea, preview, options) {
+        // Reset states
+        uploadArea.classList.remove('error', 'success');
+
+        if (!file) return;
+
+        // Validate file type
+        if (!options.allowedTypes.includes(file.type)) {
+            this.showFileError(uploadArea, `Please select a valid image file (${options.allowedTypes.map(t => t.split('/')[1]).join(', ')})`);
+            return;
+        }
+
+        // Validate file size
+        if (file.size > options.maxSize) {
+            this.showFileError(uploadArea, `File size must be less than ${this.formatFileSize(options.maxSize)}`);
+            return;
+        }
+
+        // Show uploading state
+        uploadArea.classList.add('uploading');
+        uploadArea.querySelector('.upload-text').textContent = `⏳ Uploading ${file.name}...`;
+
+        try {
+            // Upload image to server
+            const imageUrl = await this.uploadImageToServer(file);
+            
+            // Show success state
+            uploadArea.classList.remove('uploading');
+            uploadArea.classList.add('success');
+            uploadArea.querySelector('.upload-text').textContent = `✅ ${file.name} uploaded`;
+
+            // Create preview with server URL
+            this.createFilePreviewFromUrl(file, imageUrl, preview);
+            
+        } catch (error) {
+            console.error('Failed to upload image:', error);
+            uploadArea.classList.remove('uploading');
+            this.showFileError(uploadArea, `Upload failed: ${error.message}`);
+        }
+    }
+
+    async uploadImageToServer(file) {
+        const formData = new FormData();
+        formData.append('image', file);
+
+        const response = await fetch('/api/admin/notifications/upload-image', {
+            method: 'POST',
+            body: formData,
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || 'Upload failed');
+        }
+
+        const result = await response.json();
+        return result.image_url;
+    }
+
+    showFileError(uploadArea, message) {
+        uploadArea.classList.add('error');
+        uploadArea.querySelector('.upload-text').textContent = `❌ ${message}`;
+        
+        // Reset after 3 seconds
+        setTimeout(() => {
+            uploadArea.classList.remove('error');
+            uploadArea.querySelector('.upload-text').textContent = uploadArea.getAttribute('data-original-text') || 'Click to upload or drag & drop';
+        }, 3000);
+    }
+
+    createFilePreview(file, preview) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            preview.innerHTML = `
+                <img src="${e.target.result}" alt="Preview">
+                <div class="file-preview-info">
+                    <div class="file-preview-name">${file.name}</div>
+                    <div class="file-preview-size">${this.formatFileSize(file.size)}</div>
+                </div>
+                <button type="button" class="file-preview-remove" onclick="adminPanel.removeFilePreview('${preview.id}')">
+                    🗑️
+                </button>
+            `;
+            preview.style.display = 'flex';
+        };
+        reader.readAsDataURL(file);
+    }
+
+    createFilePreviewFromUrl(file, imageUrl, preview) {
+        // Store the image URL for later use
+        preview.dataset.imageUrl = imageUrl;
+        
+        preview.innerHTML = `
+            <img src="${imageUrl}" alt="Preview">
+            <div class="file-preview-info">
+                <div class="file-preview-name">${file.name}</div>
+                <div class="file-preview-size">${this.formatFileSize(file.size)}</div>
+            </div>
+            <button type="button" class="file-preview-remove" onclick="adminPanel.removeFilePreview('${preview.id}')">
+                🗑️
+            </button>
+        `;
+        preview.style.display = 'flex';
+    }
+
+    removeFilePreview(previewId) {
+        const preview = document.getElementById(previewId);
+        const input = preview.parentElement.querySelector('input[type="file"]');
+        const uploadArea = preview.parentElement.querySelector('.file-upload-area');
+        
+        // Clear file input
+        input.value = '';
+        
+        // Clear stored image URL
+        if (preview.dataset.imageUrl) {
+            delete preview.dataset.imageUrl;
+        }
+        
+        // Hide preview
+        preview.style.display = 'none';
+        preview.innerHTML = '';
+        
+        // Reset upload area
+        uploadArea.classList.remove('success', 'error');
+        uploadArea.querySelector('.upload-text').textContent = uploadArea.getAttribute('data-original-text') || 'Click to upload or drag & drop';
+    }
+
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    toggleAdvancedOptions() {
+        const advancedOptions = document.getElementById('advanced-options');
+        const expandTitle = document.querySelector('.section-title.expandable');
+        
+        if (advancedOptions.classList.contains('expanded')) {
+            advancedOptions.classList.remove('expanded');
+            expandTitle.classList.remove('expanded');
+        } else {
+            advancedOptions.classList.add('expanded');
+            expandTitle.classList.add('expanded');
+        }
+    }
+
+    setVibrationPreset(value) {
+        const patternInput = document.getElementById('vibration-pattern');
+        if (value) {
+            patternInput.value = value;
+        }
+    }
+
+    async previewNotification() {
+        const form = document.getElementById('system-notification-form');
+        
+        // Validate basic fields first
+        const title = form.title.value.trim();
+        const body = form.body.value.trim();
+        
+        if (!title || !body) {
+            this.showNotificationToast('Please fill in title and message to preview', 'warning');
+            return;
+        }
+
+        try {
+            // Build notification data from form
+            const notificationData = await this.buildNotificationData(form, true); // preview mode
+            
+            // Show preview using service worker
+            if (window.notificationsManager && window.notificationsManager.registration) {
+                await window.notificationsManager.registration.showNotification(
+                    notificationData.title,
+                    {
+                        body: notificationData.body,
+                        icon: notificationData.icon,
+                        image: notificationData.image,
+                        badge: notificationData.badge,
+                        tag: 'admin-preview',
+                        requireInteraction: notificationData.requireInteraction,
+                        silent: notificationData.silent,
+                        actions: notificationData.actions || [],
+                        vibrate: notificationData.vibrate,
+                        data: { ...notificationData.data, preview: true }
+                    }
+                );
+                
+                this.showNotificationToast('🎉 Preview notification sent! Check your notifications.', 'success');
+            } else {
+                this.showNotificationToast('Notifications not available for preview', 'error');
+            }
+            
+        } catch (error) {
+            console.error('Preview error:', error);
+            this.showNotificationToast(`Preview failed: ${error.message}`, 'error');
+        }
+    }
+
+    async buildNotificationData(form, isPreview = false) {
+        const formData = new FormData(form);
+        const data = {
+            title: formData.get('title'),
+            body: formData.get('body'),
+            icon: '/static/favicon/android-chrome-192x192.png', // default
+            badge: '/static/favicon/favicon-32x32.png',
+            tag: formData.get('tag') || (isPreview ? 'admin-preview' : `admin-${Date.now()}`),
+            requireInteraction: formData.get('require_interaction') === 'on',
+            silent: formData.get('silent') === 'on',
+            renotify: formData.get('renotify') === 'on',
+            data: {
+                url: formData.get('url') || '/',
+                type: 'admin_notification',
+                timestamp: Date.now()
+            }
+        };
+
+        // Add custom timestamp if provided
+        const customTimestamp = formData.get('timestamp');
+        if (customTimestamp) {
+            data.timestamp = new Date(customTimestamp).getTime();
+        }
+
+        // Add language and direction
+        const lang = formData.get('lang');
+        if (lang) data.lang = lang;
+        
+        const dir = formData.get('dir');
+        if (dir && dir !== 'auto') data.dir = dir;
+
+        // Handle custom icon upload (get URL from preview)
+        const iconPreview = document.getElementById('icon-preview');
+        if (iconPreview && iconPreview.dataset.imageUrl) {
+            data.icon = iconPreview.dataset.imageUrl;
+        }
+
+        // Handle custom image upload (get URL from preview)
+        const imagePreview = document.getElementById('image-preview');
+        if (imagePreview && imagePreview.dataset.imageUrl) {
+            data.image = imagePreview.dataset.imageUrl;
+        }
+
+        // Handle action buttons
+        const actions = [];
+        for (let i = 1; i <= 2; i++) {
+            const actionTitle = formData.get(`action_${i}_title`);
+            const actionUrl = formData.get(`action_${i}_url`);
+            const actionIcon = formData.get(`action_${i}_icon`);
+            
+            if (actionTitle && actionTitle.trim()) {
+                const action = {
+                    action: `action_${i}`,
+                    title: actionTitle.trim(),
+                    icon: actionIcon || undefined
+                };
+                
+                if (actionUrl && actionUrl.trim()) {
+                    action.data = { url: actionUrl.trim() };
+                }
+                
+                actions.push(action);
+            }
+        }
+        
+        if (actions.length > 0) {
+            data.actions = actions;
+        }
+
+        // Handle vibration pattern
+        const vibrationPattern = formData.get('vibrate');
+        if (vibrationPattern && vibrationPattern.trim()) {
+            try {
+                const pattern = vibrationPattern.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
+                if (pattern.length > 0) {
+                    data.vibrate = pattern;
+                }
+            } catch (e) {
+                console.warn('Invalid vibration pattern:', vibrationPattern);
+            }
+        }
+
+        return data;
+    }
+
+    async fileToDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
     }
 }
 

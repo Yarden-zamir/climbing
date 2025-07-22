@@ -208,20 +208,62 @@ self.addEventListener('notificationclick', (event) => {
     // Close the notification
     event.notification.close();
     
-    // Get the URL to open from notification data
-    const urlToOpen = event.notification.data?.url || '/';
-    const fullUrl = new URL(urlToOpen, self.location.origin).href;
+    let urlToOpen = event.notification.data?.url || '/';
+    let actionHandled = false;
     
-    // Handle action clicks if any
+    // Handle action button clicks
     if (event.action) {
         console.log('Service Worker: Action clicked:', event.action);
-        // Handle specific actions here if needed
+        
+        // Find the corresponding action from the notification
+        const actions = event.notification.actions || [];
+        const clickedAction = actions.find(action => action.action === event.action);
+        
+        if (clickedAction) {
+            console.log('Service Worker: Processing action:', clickedAction);
+            
+            // Check if action has custom URL in the original notification data
+            const originalActions = event.notification.data?.originalActions || 
+                                   event.notification.data?.webNotificationFeatures?.originalActions || [];
+            const originalAction = originalActions.find(action => action.action === event.action);
+            
+            if (originalAction && originalAction.data && originalAction.data.url) {
+                urlToOpen = originalAction.data.url;
+                console.log('Service Worker: Using action-specific URL:', urlToOpen);
+            }
+            
+            // Handle special action types
+            switch (event.action) {
+                case 'dismiss':
+                case 'action_2':
+                    // Don't open any URL for dismiss actions
+                    if (clickedAction.title.toLowerCase().includes('dismiss') || 
+                        clickedAction.title.toLowerCase().includes('close')) {
+                        console.log('Service Worker: Dismiss action - not opening URL');
+                        actionHandled = true;
+                        return;
+                    }
+                    break;
+                case 'view':
+                case 'action_1':
+                    // Default behavior for view actions
+                    break;
+                default:
+                    console.log('Service Worker: Unknown action type:', event.action);
+            }
+        }
     }
     
-    // Open or focus the app
-    event.waitUntil(
-        handleNotificationClick(fullUrl)
-    );
+    // Only open URL if action wasn't a dismiss-type action
+    if (!actionHandled) {
+        const fullUrl = new URL(urlToOpen, self.location.origin).href;
+        console.log('Service Worker: Opening URL:', fullUrl);
+        
+        // Open or focus the app
+        event.waitUntil(
+            handleNotificationClick(fullUrl)
+        );
+    }
 });
 
 // Push subscription change event - handle automatic subscription replacements
@@ -267,27 +309,69 @@ async function showNotification(notificationData) {
             notificationData.body = 'You have a new notification';
         }
         
-        // Prepare notification options
+        // Extract advanced features from data section (for FCM compatibility)
+        const webFeatures = notificationData.data?.webNotificationFeatures || {};
+        
+        // Prepare comprehensive notification options
         const options = {
             body: notificationData.body,
-            icon: notificationData.icon || '/static/favicon/android-chrome-192x192.png',
+            icon: notificationData.data?.customIcon || notificationData.icon || '/static/favicon/android-chrome-192x192.png',
             badge: notificationData.badge || '/static/favicon/favicon-32x32.png',
             tag: notificationData.tag || NOTIFICATION_TAG,
             requireInteraction: notificationData.requireInteraction || false,
             data: notificationData.data || {},
             silent: notificationData.silent || false,
-            renotify: true,
-            vibrate: [200, 100, 200] // Add vibration for mobile
+            renotify: notificationData.renotify || false
         };
-        
-        // Add actions if provided
-        if (notificationData.actions && Array.isArray(notificationData.actions)) {
-            options.actions = notificationData.actions.slice(0, 2); // Max 2 actions on most platforms
+
+        // Add optional visual content
+        if (notificationData.data?.customImage) {
+            // Use custom uploaded image from data section
+            options.image = notificationData.data.customImage;
+        } else if (notificationData.image) {
+            // Use regular image URL
+            options.image = notificationData.image;
+        }
+
+        // Add internationalization options from advanced features
+        if (webFeatures.lang) {
+            options.lang = webFeatures.lang;
+        }
+        if (webFeatures.dir) {
+            options.dir = webFeatures.dir;
+        }
+
+        // Add custom timestamp from advanced features
+        if (webFeatures.timestamp) {
+            options.timestamp = webFeatures.timestamp;
+        }
+
+        // Add vibration pattern from advanced features (mobile devices)
+        if (webFeatures.vibrate && Array.isArray(webFeatures.vibrate) && webFeatures.vibrate.length > 0) {
+            options.vibrate = webFeatures.vibrate;
+        } else {
+            // Default vibration pattern
+            options.vibrate = [200, 100, 200];
         }
         
-        // Add image if provided
-        if (notificationData.image) {
-            options.image = notificationData.image;
+        // Add action buttons from advanced features (limit to 2 per Web API spec)
+        if (webFeatures.actions && Array.isArray(webFeatures.actions) && webFeatures.actions.length > 0) {
+            options.actions = webFeatures.actions.slice(0, 2).map(action => {
+                const actionObj = {
+                    action: action.action,
+                    title: action.title
+                };
+                
+                // Add icon if provided (limited browser support)
+                if (action.icon) {
+                    actionObj.icon = action.icon;
+                }
+                
+                return actionObj;
+            });
+            
+            // Store original actions with URLs in data for click handling
+            options.data.originalActions = webFeatures.originalActions;
         }
         
         console.log('Service Worker: Notification options:', options);
