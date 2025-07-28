@@ -290,6 +290,11 @@ class NotificationsManager {
             this.isEnabled = true;
             console.log('Push notifications enabled successfully');
 
+            // Mark subscription as active in health manager
+            if (window.notificationHealthManager) {
+                window.notificationHealthManager.markSubscriptionActive();
+            }
+
             return true;
 
         } catch (error) {

@@ -9,6 +9,7 @@ class NotificationHealthManager {
         this.healthCheckInterval = null;
         this.lastSuccessfulNotification = localStorage.getItem('lastNotificationReceived');
         this.subscriptionStats = this.loadStats();
+        this.lastHealthCheckTime = 0;
         
         this.init();
     }
@@ -17,30 +18,70 @@ class NotificationHealthManager {
         // Start monitoring when page becomes visible
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
-                this.performHealthCheck();
+                // Only perform health check if we haven't done one recently
+                const lastCheckTime = this.lastHealthCheckTime || 0;
+                const timeSinceLastCheck = Date.now() - lastCheckTime;
+                
+                // Only check if it's been more than 30 seconds since last check
+                if (timeSinceLastCheck > 30000) {
+                    this.performHealthCheck();
+                }
                 this.startMonitoring();
             } else {
                 this.stopMonitoring();
             }
         });
 
-        // Initial health check
-        if (!document.hidden) {
-            setTimeout(() => this.performHealthCheck(), 2000);
+        // Initial health check (only when online)
+        if (!document.hidden && navigator.onLine) {
+            setTimeout(() => {
+                if (navigator.onLine) {
+                    this.performHealthCheck();
+                }
+            }, 2000);
             this.startMonitoring();
         }
 
         // Listen for notification received events
         this.setupNotificationReceiptTracking();
+        
+        // Listen for online/offline events
+        window.addEventListener('online', () => {
+            console.log('NotificationHealthManager: Back online - starting monitoring');
+            if (!document.hidden) {
+                setTimeout(() => {
+                    if (navigator.onLine) {
+                        this.performHealthCheck();
+                    }
+                }, 2000);
+                this.startMonitoring();
+            }
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('NotificationHealthManager: Going offline - stopping monitoring');
+            this.stopMonitoring();
+        });
     }
 
     startMonitoring() {
         if (this.isMonitoring) return;
         
+        // Don't start monitoring when offline
+        if (!navigator.onLine) {
+            console.log('Offline mode - not starting notification health monitoring');
+            return;
+        }
+        
         this.isMonitoring = true;
         
         // Check every 5 minutes when app is active
         this.healthCheckInterval = setInterval(() => {
+            // Skip health check if offline
+            if (!navigator.onLine) {
+                console.log('Offline during interval - skipping health check');
+                return;
+            }
             this.performHealthCheck();
         }, 5 * 60 * 1000);
 
@@ -68,7 +109,11 @@ class NotificationHealthManager {
                 return;
             }
 
-            console.log('Performing notification health check...');
+            // Track when we perform health checks
+            this.lastHealthCheckTime = Date.now();
+            
+            // Add stack trace to see where health check is being called from
+            console.log('Performing notification health check...', new Error().stack.split('\n')[2].trim());
             
             // Check if PWA is installed
             if (!window.pwaManager?.isPWAInstalled()) {
@@ -81,10 +126,26 @@ class NotificationHealthManager {
             let subscription = await registration.pushManager.getSubscription();
 
             if (!subscription) {
-                console.log('No subscription found - user needs to resubscribe');
-                this.handleNoSubscription();
+                console.log('No subscription found - notifications not enabled');
+                
+                // Check if notification permission was granted but subscription is missing
+                const permission = Notification.permission;
+                
+                if (permission === 'granted' && this.hadPreviousSubscription()) {
+                    // User had notifications and permission is still granted - this is unexpected
+                    console.log('Permission granted but subscription missing - user needs to resubscribe');
+                    this.handleNoSubscription();
+                } else if (permission === 'denied') {
+                    console.log('Notification permission denied - user must re-enable in browser settings');
+                    // Don't show prompt - user explicitly denied
+                } else {
+                    console.log('User never enabled notifications or permission not granted - skipping prompt');
+                }
                 return;
             }
+
+            // Mark that we have an active subscription
+            this.markSubscriptionActive();
 
             // Test subscription health
             const isHealthy = await this.testSubscriptionHealth(subscription);
@@ -266,6 +327,30 @@ class NotificationHealthManager {
         return 'Unknown';
     }
 
+    hadPreviousSubscription() {
+        // Check if user had a subscription in the past
+        const lastSubscriptionTime = localStorage.getItem('lastNotificationSubscription');
+        const hadSubscription = localStorage.getItem('hadNotificationSubscription') === 'true';
+        
+        // If we have evidence of previous subscription
+        if (hadSubscription || lastSubscriptionTime) {
+            // Check if it was recent (within last 30 days)
+            if (lastSubscriptionTime) {
+                const daysSinceLastSubscription = (Date.now() - parseInt(lastSubscriptionTime)) / (1000 * 60 * 60 * 24);
+                return daysSinceLastSubscription < 30;
+            }
+            return true;
+        }
+        
+        return false;
+    }
+
+    markSubscriptionActive() {
+        // Call this whenever we confirm an active subscription
+        localStorage.setItem('hadNotificationSubscription', 'true');
+        localStorage.setItem('lastNotificationSubscription', Date.now().toString());
+    }
+
     handleNoSubscription() {
         // Don't show resubscribe prompts when offline
         if (!navigator.onLine) {
@@ -293,14 +378,44 @@ class NotificationHealthManager {
     }
 
     showResubscribePrompt() {
+        // Double-check offline status before showing toast
+        if (!navigator.onLine) {
+            console.log('showResubscribePrompt called but offline - skipping');
+            return;
+        }
+
+        // Check if we've shown this recently (within last hour)
+        const lastPromptTime = localStorage.getItem('lastResubscribePromptTime');
+        if (lastPromptTime) {
+            const hoursSinceLastPrompt = (Date.now() - parseInt(lastPromptTime)) / (1000 * 60 * 60);
+            if (hoursSinceLastPrompt < 1) {
+                console.log('Resubscribe prompt shown recently - skipping');
+                return;
+            }
+        }
+
+        // Update last prompt time
+        localStorage.setItem('lastResubscribePromptTime', Date.now().toString());
+        
         this.showToast('⚠️ Please re-enable notifications in settings', 'warning', 0);
     }
 
     showRefreshErrorPrompt() {
+        // Double-check offline status before showing toast
+        if (!navigator.onLine) {
+            console.log('showRefreshErrorPrompt called but offline - skipping');
+            return;
+        }
         this.showToast('❌ Notification refresh failed. Please re-enable notifications.', 'error', 0);
     }
 
     showToast(message, type = 'info', duration = 5000) {
+        // Final defensive check - don't show any notification-related toasts when offline
+        if (!navigator.onLine && (message.includes('notification') || message.includes('Notification'))) {
+            console.log(`Toast blocked (offline): ${message}`);
+            return;
+        }
+
         // Remove existing toasts
         const existingToasts = document.querySelectorAll('.notification-health-toast');
         existingToasts.forEach(toast => toast.remove());
