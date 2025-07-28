@@ -3,10 +3,11 @@
  * Handles background push messages and notification clicks
  */
 
-const CACHE_NAME = 'climbing-app-v2';
-const STATIC_CACHE = 'climbing-static-v2';
-const API_CACHE = 'climbing-api-v2';
-const IMAGE_CACHE = 'climbing-images-v2';
+// Version will be fetched from server during install
+let CURRENT_VERSION = 'climbing-app-fallback';
+const STATIC_CACHE = () => `climbing-static-${CURRENT_VERSION}`;
+const API_CACHE = () => `climbing-api-${CURRENT_VERSION}`;
+const IMAGE_CACHE = () => `climbing-images-${CURRENT_VERSION}`;
 const NOTIFICATION_TAG = 'climbing-notification';
 
 // Cache strategies
@@ -38,31 +39,49 @@ const ESSENTIAL_RESOURCES = [
     '/static/favicon/favicon.ico'
 ];
 
+// Fetch version from server
+async function fetchCurrentVersion() {
+    try {
+        const response = await fetch('/api/version');
+        if (response.ok) {
+            const data = await response.json();
+            CURRENT_VERSION = data.version;
+            console.log('Service Worker: Fetched version:', CURRENT_VERSION);
+            return CURRENT_VERSION;
+        }
+    } catch (error) {
+        console.warn('Service Worker: Failed to fetch version:', error);
+    }
+    return CURRENT_VERSION;
+}
+
 // Install event - cache essential resources
 self.addEventListener('install', (event) => {
     console.log('Service Worker: Installing...');
     
     event.waitUntil(
-        Promise.all([
-            // Cache essential app shell resources
-            caches.open(STATIC_CACHE).then((cache) => {
-                console.log('Service Worker: Caching essential resources');
-                return cache.addAll(ESSENTIAL_RESOURCES).catch((error) => {
-                    console.warn('Service Worker: Failed to cache some essential resources:', error);
-                    // Cache resources individually to avoid complete failure
-                    return Promise.allSettled(
-                        ESSENTIAL_RESOURCES.map(url => 
-                            cache.add(url).catch(err => 
-                                console.warn(`Failed to cache ${url}:`, err)
+        fetchCurrentVersion().then(() => {
+            return Promise.all([
+                // Cache essential app shell resources
+                caches.open(STATIC_CACHE()).then((cache) => {
+                    console.log('Service Worker: Caching essential resources with version:', CURRENT_VERSION);
+                    return cache.addAll(ESSENTIAL_RESOURCES).catch((error) => {
+                        console.warn('Service Worker: Failed to cache some essential resources:', error);
+                        // Cache resources individually to avoid complete failure
+                        return Promise.allSettled(
+                            ESSENTIAL_RESOURCES.map(url => 
+                                cache.add(url).catch(err => 
+                                    console.warn(`Failed to cache ${url}:`, err)
+                                )
                             )
-                        )
-                    );
-                });
-            }),
-            // Initialize other caches
-            caches.open(API_CACHE),
-            caches.open(IMAGE_CACHE)
-        ])
+                        );
+                    });
+                }),
+                // Initialize other caches
+                caches.open(API_CACHE()),
+                caches.open(IMAGE_CACHE())
+            ]);
+        })
     );
     
     // Force activate immediately
@@ -73,7 +92,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
     console.log('Service Worker: Activating...');
     
-    const expectedCaches = [STATIC_CACHE, API_CACHE, IMAGE_CACHE];
+    const expectedCaches = [STATIC_CACHE(), API_CACHE(), IMAGE_CACHE()];
     
     event.waitUntil(
         caches.keys().then((cacheNames) => {
@@ -136,7 +155,7 @@ async function handleApiRequest(request) {
         if (networkResponse.ok) {
             // Cache successful responses (exclude auth-related endpoints)
             if (!request.url.includes('/auth/') && !request.url.includes('/login')) {
-                const cache = await caches.open(API_CACHE);
+                const cache = await caches.open(API_CACHE());
                 // Clone response before caching
                 await cache.put(cacheKey, networkResponse.clone());
                 console.log('Service Worker: Cached API response:', cacheKey);
@@ -166,7 +185,7 @@ async function handleApiRequest(request) {
  * Handle static assets with cache-first strategy
  */
 async function handleStaticAsset(request) {
-    const cache = await caches.open(STATIC_CACHE);
+    const cache = await caches.open(STATIC_CACHE());
     const cachedResponse = await cache.match(request);
     
     if (cachedResponse) {
@@ -192,7 +211,7 @@ async function handleStaticAsset(request) {
  * Handle image requests with stale-while-revalidate strategy
  */
 async function handleImageRequest(request) {
-    const cache = await caches.open(IMAGE_CACHE);
+    const cache = await caches.open(IMAGE_CACHE());
     const cachedResponse = await cache.match(request);
     
     // Always return cached version immediately if available
@@ -236,7 +255,7 @@ async function handlePageRequest(request) {
         
         if (networkResponse.ok) {
             // Cache successful page responses
-            const cache = await caches.open(STATIC_CACHE);
+            const cache = await caches.open(STATIC_CACHE());
             await cache.put(request, networkResponse.clone());
             console.log('Service Worker: Cached page:', request.url);
         }
@@ -616,13 +635,13 @@ async function processOfflineQueue() {
  */
 async function cleanupCaches() {
     try {
-        const caches = [
-            { name: STATIC_CACHE, maxAge: 7 * 24 * 60 * 60 * 1000 }, // 7 days
-            { name: API_CACHE, maxAge: 24 * 60 * 60 * 1000 },       // 1 day
-            { name: IMAGE_CACHE, maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 days
+        const cacheConfigs = [
+            { name: STATIC_CACHE(), maxAge: 7 * 24 * 60 * 60 * 1000 }, // 7 days
+            { name: API_CACHE(), maxAge: 24 * 60 * 60 * 1000 },       // 1 day
+            { name: IMAGE_CACHE(), maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 days
         ];
         
-        for (const cacheConfig of caches) {
+        for (const cacheConfig of cacheConfigs) {
             const cache = await caches.open(cacheConfig.name);
             const requests = await cache.keys();
             
@@ -653,7 +672,7 @@ async function cleanupCaches() {
 async function getCacheStats() {
     try {
         const stats = {};
-        const cacheNames = [STATIC_CACHE, API_CACHE, IMAGE_CACHE];
+        const cacheNames = [STATIC_CACHE(), API_CACHE(), IMAGE_CACHE()];
         
         for (const cacheName of cacheNames) {
             const cache = await caches.open(cacheName);
@@ -1076,7 +1095,7 @@ self.addEventListener('message', (event) => {
     
     if (event.data && event.data.type === 'GET_VERSION') {
         event.ports[0].postMessage({
-            version: CACHE_NAME,
+            version: CURRENT_VERSION,
             timestamp: Date.now()
         });
     }
