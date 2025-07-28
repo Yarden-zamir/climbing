@@ -1,6 +1,6 @@
 # Climbing App
 
-A modern, animated web app for browsing climbing albums, managing crew, and sharing memes. Features beautiful transitions, real-time updates, and a modular FastAPI backend with Redis.
+A modern, animated web app for browsing climbing albums, managing crew, and sharing memes. Features beautiful transitions, real-time push notifications, PWA installation, and a modular FastAPI backend with Redis.
 
 ---
 
@@ -10,7 +10,9 @@ A modern, animated web app for browsing climbing albums, managing crew, and shar
 - **Albums:** Browse, filter, and auto-refresh climbing albums with animated particle effects
 - **Crew:** Track crew member progress, skills, achievements, and levels
 - **Memes:** Upload and browse memes in a dedicated gallery
-- **Admin Panel:** Manage users, stats, and trigger metadata refresh (admin only)
+- **Push Notifications:** Real-time notifications for new albums, crew additions, and memes with device management
+- **PWA Ready:** Installable app with offline support, service worker caching, and app shortcuts
+- **Admin Panel:** Manage users, stats, notification broadcasts, and trigger metadata refresh (admin only)
 - **Hybrid Auth:** Supports both Google OAuth (session) and JWT Bearer tokens for API/mobile
 - **Animated UI:** Skeleton loading, blur/fade-in, typewriter text, and particle animations for real-time feedback
 - **Responsive Design:** Modern, RTL-ready, accessible, and mobile-friendly
@@ -44,13 +46,20 @@ A modern, animated web app for browsing climbing albums, managing crew, and shar
 ```
 climbing/
 ├── main.py                # FastAPI app entrypoint
-├── routes/                # Modular API endpoints (albums, crew, memes, admin, etc.)
+├── routes/                # Modular API endpoints (albums, crew, memes, notifications, admin, etc.)
 ├── middleware/            # Custom middleware (case-insensitive, cache-busting, pretty JSON)
 ├── models/                # Pydantic models for API
 ├── utils/                 # Logging, metadata parsing, background tasks, export
-├── scripts/               # CLI scripts (migrate, admin, export, etc.)
-├── redis_store.py         # Redis data layer (crew, albums, memes)
-├── static/                # HTML, CSS, JS, images
+├── scripts/               # CLI scripts (migrate, admin, export, VAPID key generation)
+├── redis_store.py         # Redis data layer (crew, albums, memes, push subscriptions)
+├── sw.js                  # Service worker for PWA and push notifications
+├── static/                # HTML, CSS, JS, images, PWA manifest
+│   ├── manifest.json      # PWA manifest for installable app
+│   ├── js/
+│   │   ├── notifications.js    # Push notification management
+│   │   ├── pwa-manager.js      # PWA installation prompts
+│   │   └── notification-health-manager.js  # Notification debugging
+│   └── ...
 ├── redis-schema.yml       # Redis schema docs
 ├── pyproject.toml         # Python dependencies
 ```
@@ -75,8 +84,21 @@ climbing/
   - Upload, browse, and delete memes in a responsive gallery
   - Masonry layout, image preview, and context menu for deletion
 
+- **Push Notifications:**
+  - Real-time notifications for new albums, crew additions, and memes
+  - Device-based subscriptions with customizable preferences
+  - Admin broadcast notifications and reliability monitoring
+  - Automatic cleanup of expired/invalid subscriptions
+
+- **PWA Features:**
+  - Installable as native app on mobile and desktop
+  - Offline-first architecture with service worker caching
+  - App shortcuts for quick access to albums, crew, and adding content
+  - Background sync and push notification support
+
 - **Admin:**
   - View system stats, manage users, refresh album metadata
+  - Notification management: broadcast messages, device statistics, reliability metrics
   - Permission system with roles (user, admin, pending)
 
 - **Authentication:**
@@ -98,7 +120,8 @@ climbing/
   - `/api/crew` — Crew management (CRUD, skills, achievements)
   - `/api/albums` — Album management (submit, edit crew, enriched listing)
   - `/api/memes` — Meme gallery (list, upload, delete)
-  - `/api/admin` — Admin stats, metadata refresh
+  - `/api/notifications` — Push notification subscriptions, device management, preferences
+  - `/api/admin` — Admin stats, metadata refresh, notification broadcasts
   - `/api/auth` — Auth endpoints (login, user info, JWT)
   - `/api/utilities` — Health check, image endpoints
   - See `JWT_API_AUTH.md` for JWT usage and hybrid auth
@@ -108,6 +131,31 @@ climbing/
   - `scripts/make_admin.py` — Promote user to admin
   - `scripts/list_users.py` — List all users
   - `scripts/export_utils.py` — Export Redis DB
+  - `scripts/generate_vapid_keys.py` — Generate VAPID keys for push notifications
+
+---
+
+## Push Notifications Setup
+
+To enable push notifications, you'll need to generate VAPID keys:
+
+```bash
+# Generate VAPID keys for push notifications
+uv run python scripts/generate_vapid_keys.py
+
+# Keys will be saved to private_key.pem and public_key.pem
+# The app will automatically detect and use them
+```
+
+Push notifications work automatically once VAPID keys are configured. Users can:
+- Subscribe to notifications from the browser
+- Manage device subscriptions and preferences
+- Receive real-time updates for new albums, crew members, and memes
+
+Admins can:
+- View notification statistics and device breakdowns
+- Send broadcast notifications to all users
+- Monitor notification delivery reliability
 
 ---
 
