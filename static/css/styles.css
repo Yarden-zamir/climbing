@@ -5362,3 +5362,32 @@ input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator {
 .file-upload-area.success .upload-text {
     color: #81c784;
 }
+
+/* Newly added album highlight effect */
+.newly-added-highlight {
+    animation: newAlbumHighlight 3s ease-out forwards;
+    transform-origin: center;
+}
+
+@keyframes newAlbumHighlight {
+    0% {
+        box-shadow: 0 0 0 0 rgba(3, 218, 198, 0.7);
+        transform: scale(1);
+    }
+    10% {
+        box-shadow: 0 0 0 8px rgba(3, 218, 198, 0.4);
+        transform: scale(1.02);
+    }
+    25% {
+        box-shadow: 0 0 0 16px rgba(3, 218, 198, 0.2);
+        transform: scale(1.01);
+    }
+    50% {
+        box-shadow: 0 0 0 24px rgba(3, 218, 198, 0.1);
+        transform: scale(1);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(3, 218, 198, 0);
+        transform: scale(1);
+    }
+}

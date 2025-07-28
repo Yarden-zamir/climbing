@@ -99,9 +99,12 @@ async def submit_crew_member(
             name, skills, location, achievements
         )
 
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
         user_id = user.get("id")
         if not user_id:
-            raise HTTPException(status_code=401, detail="Authentication required")
+            raise HTTPException(status_code=401, detail="Invalid user session")
 
         # Check permissions and submission limits if permissions system is available
         if permissions_manager is not None:

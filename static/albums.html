@@ -1947,7 +1947,12 @@
 					if (response.ok) {
 						showSubmissionSuccess(data);
 					} else {
-						showSubmissionError(data.detail || 'Submission failed');
+						// Handle authentication errors specifically
+						if (response.status === 401) {
+							showSubmissionError('Your session has expired. Please refresh the page and log in again.');
+						} else {
+							showSubmissionError(data.detail || 'Submission failed');
+						}
 					}
 				} catch (error) {
 					showSubmissionError('Network error occurred');
@@ -1965,19 +1970,59 @@
 					</div>
 				`;
 				
-				// Close modal immediately and trigger full refresh with animations
+				// Close modal immediately
 				closeModal();
 				
-				// Trigger full refresh with particle detection for new albums
-				setTimeout(() => {
-					// Use the particle-enabled refresh function to show new album animations
-					if (window.autoRefreshAlbums) {
-						window.autoRefreshAlbums(false, true); // showLoadingState=false, detectChanges=true
-					} else {
-						// Fallback if particle system not available
-						window.location.reload();
+				// Store the submitted album URL for later scrolling
+				const submittedAlbumUrl = urlInput.value.trim();
+				
+				// Trigger refresh with retry logic to ensure new album appears
+				await refreshWithRetry(submittedAlbumUrl);
+			}
+			
+			async function refreshWithRetry(expectedAlbumUrl, maxRetries = 5, delayBetweenRetries = 200) {
+				for (let attempt = 1; attempt <= maxRetries; attempt++) {
+					try {
+						// Check if album exists in the API before refreshing UI
+						const response = await fetch("/api/albums/enriched");
+						if (response.ok) {
+							const enrichedAlbums = await response.json();
+							const albumExists = enrichedAlbums.some(album => 
+								(album.metadata && album.metadata.url === expectedAlbumUrl) || 
+								album.url === expectedAlbumUrl
+							);
+							
+							if (albumExists) {
+								// Album is available, now refresh the UI with animations
+								if (window.autoRefreshAlbums) {
+									await window.autoRefreshAlbums(false, true); // showLoadingState=false, detectChanges=true
+								} else {
+									window.location.reload();
+								}
+								return; // Success - exit retry loop
+							}
+						}
+						
+						// Album not ready yet, wait before next attempt
+						if (attempt < maxRetries) {
+							await new Promise(resolve => setTimeout(resolve, delayBetweenRetries));
+							delayBetweenRetries *= 1.5; // Exponential backoff
+						}
+					} catch (error) {
+						console.warn(`Refresh attempt ${attempt} failed:`, error);
+						if (attempt === maxRetries) {
+							// Final fallback after all retries failed
+							window.location.reload();
+						}
 					}
-				}, 500);
+				}
+				
+				// If we get here, album wasn't found after all retries - do a final refresh
+				if (window.autoRefreshAlbums) {
+					await window.autoRefreshAlbums(false, true);
+				} else {
+					window.location.reload();
+				}
 			}
 			
 			function showSubmissionError(message) {

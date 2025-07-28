@@ -911,8 +911,18 @@ function enableMobileCardHighlight() {
 				if (albumCard) {
 					albumParticleSystem.animateItemChange(albumCard, 'added');
 					
-					// Scroll to the new album if it's visible
-					albumCard.scrollIntoView({ behavior: "smooth", block: "center" });
+					// Scroll to the new album with better positioning
+					albumCard.scrollIntoView({ 
+						behavior: "smooth", 
+						block: "center", 
+						inline: "nearest"
+					});
+					
+					// Add a highlight effect to make it more visible
+					albumCard.classList.add('newly-added-highlight');
+					setTimeout(() => {
+						albumCard.classList.remove('newly-added-highlight');
+					}, 3000);
 					
 					// Create particles after scroll animation
 					setTimeout(() => {
@@ -920,7 +930,7 @@ function enableMobileCardHighlight() {
 					}, 800);
 				}
 			}
-		}, 500);
+		}, 300); // Reduced delay for faster response
 		
 		// Finally animate updates (with green particles)
 		setTimeout(() => {
