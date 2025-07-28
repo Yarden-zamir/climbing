@@ -232,6 +232,7 @@ class PWAManager {
             if (result.outcome === 'accepted') {
                 console.log('PWA: User accepted installation');
                 localStorage.setItem('pwa-prompt-shown', 'true');
+                this.deferredPrompt = null;
                 // Refresh user dropdown to hide install option
                 if (window.authManager) {
                     window.authManager.updateNavigation();
@@ -239,13 +240,8 @@ class PWAManager {
             } else {
                 console.log('PWA: User dismissed installation');
                 localStorage.setItem('pwa-prompt-dismissed', 'true');
-                // Refresh user dropdown to hide install option
-                if (window.authManager) {
-                    window.authManager.updateNavigation();
-                }
+                // Keep deferredPrompt available for future attempts from dropdown
             }
-            
-            this.deferredPrompt = null;
             this.hideInstallButton();
             this.hideInstallModal();
             
@@ -297,10 +293,8 @@ class PWAManager {
         this.hideInstallButton();
         this.hideInstallModal();
         
-        // Refresh user dropdown to hide install option
-        if (window.authManager) {
-            window.authManager.updateNavigation();
-        }
+        // Keep deferredPrompt available for future attempts from dropdown
+        // Don't refresh navigation since install option should remain available
     }
 
     hideInstallModal() {
