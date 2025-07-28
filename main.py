@@ -542,6 +542,16 @@ async def service_worker():
     response.headers["Expires"] = "0"
     return response
 
+
+@app.get("/static/manifest.json")
+async def manifest():
+    """Serve manifest with no-cache headers to ensure theme color updates"""
+    response = FileResponse("static/manifest.json", media_type="application/json")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 # Add GZip compression middleware (add first for best performance)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(PrettyJSONMiddleware, api_prefix="/api")

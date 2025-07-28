@@ -148,8 +148,17 @@ class PWAManager {
         console.log('PWA Status:', {
             isStandalone: isStandalone,
             hasPromptBeenShown: hasPromptBeenShown,
-            userAgent: navigator.userAgent
+            userAgent: navigator.userAgent,
+            displayMode: window.matchMedia('(display-mode: standalone)').matches,
+            navigatorStandalone: window.navigator.standalone
         });
+        
+        // Force refresh of auth navigation to show/hide install button
+        if (window.authManager) {
+            setTimeout(() => {
+                window.authManager.updateNavigation();
+            }, 100);
+        }
     }
 
     setupInstallPrompt() {
@@ -923,6 +932,11 @@ class PWAManager {
     // Force refresh of installation state (called by auth manager)
     refreshInstallState() {
         console.log('PWA: Refreshing install state');
+        
+        // Clear install state flags to reset detection
+        localStorage.removeItem('pwa-prompt-shown');
+        localStorage.removeItem('pwa-prompt-dismissed');
+        
         this.checkInstallationStatus();
         
         // If auth manager exists, update navigation
@@ -957,6 +971,24 @@ window.addEventListener('load', () => {
     setTimeout(() => {
         if (window.pwaManager) {
             window.pwaManager.logCurrentState();
+            
+            // Also add a global debug function
+            window.debugPWA = () => {
+                console.log('=== PWA Debug Info ===');
+                window.pwaManager.logCurrentState();
+                console.log('LocalStorage flags:');
+                console.log('- pwa-prompt-shown:', localStorage.getItem('pwa-prompt-shown'));
+                console.log('- pwa-prompt-dismissed:', localStorage.getItem('pwa-prompt-dismissed'));
+                console.log('Auth manager state:');
+                if (window.authManager) {
+                    console.log('- currentUser:', window.authManager.currentUser);
+                } else {
+                    console.log('- authManager not loaded');
+                }
+                console.log('=== End PWA Debug ===');
+            };
+            
+            console.log('PWA Debug: Call window.debugPWA() for detailed state info');
         }
     }, 1000);
 });

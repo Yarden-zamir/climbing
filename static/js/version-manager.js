@@ -180,6 +180,21 @@ class VersionManager {
             // Show loading indicator immediately
             this.showReloadingIndicator();
             
+            // Force clear manifest cache at browser level
+            try {
+                await fetch('/static/manifest.json', { 
+                    cache: 'no-store',
+                    method: 'GET',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                console.log('Version Manager: Forced manifest cache clear');
+            } catch (error) {
+                console.warn('Version Manager: Failed to clear manifest cache:', error);
+            }
+            
             // First, unregister the current service worker
             if ('serviceWorker' in navigator) {
                 const registrations = await navigator.serviceWorker.getRegistrations();
@@ -203,14 +218,15 @@ class VersionManager {
                 }
             }
             
-            // Clear PWA-related localStorage but keep version tracking
+            // Clear PWA-related localStorage to reset install state
             localStorage.removeItem('pwa-prompt-shown');
             localStorage.removeItem('pwa-prompt-dismissed');
             
-            // Add a timestamp to force cache bypass
+            // Add multiple cache-busting parameters
             const timestamp = Date.now();
             const currentUrl = new URL(window.location);
             currentUrl.searchParams.set('v', timestamp);
+            currentUrl.searchParams.set('cache_bust', Math.random().toString(36).substr(2, 9));
             
             console.log('Version Manager: Reloading to:', currentUrl.toString());
             

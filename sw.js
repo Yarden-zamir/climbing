@@ -141,7 +141,15 @@ self.addEventListener('fetch', (event) => {
         }
     } else if (url.pathname === '/static/manifest.json') {
         // Always fetch manifest fresh to get updated theme colors, etc.
-        event.respondWith(fetch(request, { cache: 'no-cache' }));
+        // Use no-store to prevent any caching at all levels
+        event.respondWith(fetch(request, { 
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+        }));
     } else if (url.pathname.startsWith('/static/') || url.pathname.includes('.css') || url.pathname.includes('.js')) {
         // Static assets - cache first
         event.respondWith(handleStaticAsset(request));
