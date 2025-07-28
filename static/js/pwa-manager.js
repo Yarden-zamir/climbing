@@ -21,6 +21,78 @@ class PWAManager {
         
         // Setup installation prompt detection
         this.setupInstallPrompt();
+        
+        // Handle URL parameters for redirects
+        this.handleRedirectParameters();
+    }
+
+    handleRedirectParameters() {
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        if (urlParams.get('pwa') === 'true' || urlParams.get('pwa') === 'installed') {
+            // Remove the parameter from URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            // Show welcome message for PWA users
+            if (this.isInstalled) {
+                this.showPWAWelcomeMessage();
+            }
+        }
+        
+        if (urlParams.get('source') === 'browser-redirect') {
+            // Remove the parameter from URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            // Show message about better experience in PWA
+            if (this.isInstalled) {
+                this.showPWAWelcomeMessage();
+            } else {
+                this.showBrowserRedirectMessage();
+            }
+        }
+    }
+
+    showPWAWelcomeMessage() {
+        // Only show if we're actually in PWA mode
+        if (this.isInstalled) {
+            const message = document.createElement('div');
+            message.className = 'pwa-success-message';
+            message.innerHTML = `
+                <div class="pwa-success-content">
+                    🎉 Welcome to the Climbing App! You can now enable reliable notifications in settings.
+                    <button onclick="this.parentElement.parentElement.remove()">Got it</button>
+                </div>
+            `;
+            
+            document.body.appendChild(message);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (message.parentElement) {
+                    message.remove();
+                }
+            }, 5000);
+        }
+    }
+
+    showBrowserRedirectMessage() {
+        const message = document.createElement('div');
+        message.className = 'pwa-success-message';
+        message.innerHTML = `
+            <div class="pwa-success-content" style="background: linear-gradient(135deg, #f39c12, #e67e22);">
+                ⚠️ For best notification reliability, please open the Climbing app from your home screen instead of the browser.
+                <button onclick="this.parentElement.parentElement.remove()">Got it</button>
+            </div>
+        `;
+        
+        document.body.appendChild(message);
+        
+        // Auto-remove after 8 seconds (longer for important message)
+        setTimeout(() => {
+            if (message.parentElement) {
+                message.remove();
+            }
+        }, 8000);
     }
 
     setupEventListeners() {
@@ -228,8 +300,51 @@ class PWAManager {
         this.installCallbacks.forEach(callback => callback());
         this.installCallbacks = [];
         
-        // Show success message
+        // Show success message briefly, then redirect
         this.showSuccessMessage();
+        
+        // Redirect to the PWA after a short delay
+        setTimeout(() => {
+            this.redirectToPWA();
+        }, 2000);
+    }
+
+    redirectToPWA() {
+        // Close the current browser tab/window and open the PWA
+        try {
+            // For Chrome/Edge - try to launch the PWA directly
+            if ('getInstalledRelatedApps' in navigator) {
+                // Modern approach - let the browser handle the transition
+                window.location.href = window.location.origin + '?pwa=true';
+            } else {
+                // Fallback - show instructions to open the PWA
+                this.showPWAOpenInstructions();
+            }
+        } catch (error) {
+            console.log('PWA redirect fallback:', error);
+            this.showPWAOpenInstructions();
+        }
+    }
+
+    showPWAOpenInstructions() {
+        this.showModal(
+            '📱 App Installed Successfully!',
+            `
+                <p><strong>Your Climbing App is now installed!</strong></p>
+                <p>To get the best experience with reliable notifications:</p>
+                <ol style="text-align: left; margin: 16px 0;">
+                    <li><strong>Look for the Climbing app icon</strong> on your home screen</li>
+                    <li><strong>Tap the icon</strong> to open the app</li>
+                    <li><strong>Enable notifications</strong> in the app for best reliability</li>
+                </ol>
+                <p><em>The app works offline and provides much better notification delivery!</em></p>
+                <div style="margin: 20px 0;">
+                    <button class="pwa-modal-install" onclick="window.location.href = window.location.origin + '?pwa=installed'; this.closest('.pwa-install-modal').remove();">
+                        Open App Now
+                    </button>
+                </div>
+            `
+        );
     }
 
     showSuccessMessage() {
@@ -295,6 +410,62 @@ class PWAManager {
             return true; // Already installed, can proceed
         }
 
+        // Check if PWA is installed but user is in browser
+        this.checkIfPWAInstalledButInBrowser().then(pwaInstalled => {
+            if (pwaInstalled) {
+                this.showOpenPWAForNotifications();
+            } else {
+                this.showInstallPWAForNotifications();
+            }
+        }).catch(() => {
+            this.showInstallPWAForNotifications();
+        });
+
+        return false; // Installation required
+    }
+
+    async checkIfPWAInstalledButInBrowser() {
+        // Check if PWA is installed using getInstalledRelatedApps API
+        if ('getInstalledRelatedApps' in navigator) {
+            try {
+                const relatedApps = await navigator.getInstalledRelatedApps();
+                return relatedApps.length > 0;
+            } catch (error) {
+                console.log('Could not check installed apps:', error);
+            }
+        }
+        
+        // Fallback: check if we're in browser mode but have indicators of PWA installation
+        const hasBeenInstalled = localStorage.getItem('pwa-prompt-shown') === 'true';
+        const isInBrowser = !window.matchMedia('(display-mode: standalone)').matches && 
+                           window.navigator.standalone !== true;
+        
+        return hasBeenInstalled && isInBrowser;
+    }
+
+    showOpenPWAForNotifications() {
+        this.showModal(
+            '📱 Open App for Reliable Notifications',
+            `
+                <p><strong>You already have the Climbing App installed!</strong></p>
+                <p>For the most reliable notifications, please:</p>
+                <ol style="text-align: left; margin: 16px 0;">
+                    <li><strong>Close this browser tab</strong></li>
+                    <li><strong>Open the Climbing app</strong> from your home screen</li>
+                    <li><strong>Enable notifications</strong> in the app</li>
+                </ol>
+                <p><em>Browser notifications are less reliable than app notifications.</em></p>
+                <div style="margin: 20px 0;">
+                    <button class="pwa-modal-install" onclick="window.location.href = window.location.origin + '?source=browser-redirect'; this.closest('.pwa-install-modal').remove();">
+                        Open App Instead
+                    </button>
+                </div>
+                <p><small>Or continue in browser with limited reliability</small></p>
+            `
+        );
+    }
+
+    showInstallPWAForNotifications() {
         this.showModal(
             '📱 Install Required for Notifications',
             `
@@ -308,8 +479,6 @@ class PWAManager {
                 <p><small>You can enable notifications after installation.</small></p>
             `
         );
-
-        return false; // Installation required
     }
 
     addInstallButtonStyles() {

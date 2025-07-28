@@ -48,6 +48,30 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Post Album",
+      "short_name": "Add Album",
+      "description": "Create a new climbing album",
+      "url": "/albums?action=add",
+      "icons": [
+        {
+          "src": "/static/favicon/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Post Meme",
+      "short_name": "Add Meme",
+      "description": "Share a climbing meme",
+      "url": "/memes?action=add",
+      "icons": [
+        {
+          "src": "/static/favicon/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

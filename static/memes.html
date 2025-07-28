@@ -460,6 +460,18 @@
 						}
 					});
 				});
+				
+				// Check for PWA shortcut action parameter
+				const urlParams = new URLSearchParams(window.location.search);
+				if (urlParams.get('action') === 'add') {
+					// Wait a moment for the page to fully load, then open the add meme modal
+					setTimeout(() => {
+						const addMemeFab = document.getElementById('add-meme-fab');
+						if (addMemeFab) {
+							addMemeFab.click();
+						}
+					}, 500);
+				}
 			});
 		</script>
 		<!-- PWA and Notification Management -->

@@ -1331,6 +1331,18 @@
 			// Initialize add album functionality
 			initAddAlbumModal();
 			
+			// Check for PWA shortcut action parameter
+			const urlParams = new URLSearchParams(window.location.search);
+			if (urlParams.get('action') === 'add') {
+				// Wait a moment for the page to fully load, then open the add album modal
+				setTimeout(() => {
+					const addAlbumFab = document.getElementById('add-album-fab');
+					if (addAlbumFab) {
+						addAlbumFab.click();
+					}
+				}, 500);
+			}
+			
 			// Initialize edit album functionality
 			initEditAlbumModal();
 			
