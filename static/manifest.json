@@ -1,0 +1,53 @@
+{
+  "name": "Climbing App",
+  "short_name": "Climbing",
+  "description": "Track your climbing adventures and crew",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4285f4",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en",
+  "categories": ["sports", "social", "lifestyle"],
+  "icons": [
+    {
+      "src": "/static/favicon/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/favicon/android-chrome-512x512.png", 
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Albums",
+      "short_name": "Albums",
+      "description": "View climbing albums",
+      "url": "/albums",
+      "icons": [
+        {
+          "src": "/static/favicon/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Crew",
+      "short_name": "Crew", 
+      "description": "View climbing crew",
+      "url": "/crew",
+      "icons": [
+        {
+          "src": "/static/favicon/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

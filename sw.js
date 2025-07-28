@@ -155,6 +155,12 @@ async function showNotificationWithLogging(notificationData) {
                 data: notificationData,
                 timestamp: Date.now()
             });
+            
+            // Also send notification received event for health tracking
+            client.postMessage({
+                type: 'NOTIFICATION_RECEIVED',
+                timestamp: Date.now()
+            });
         });
     } catch (clientError) {
         console.error('Service Worker: Failed to notify clients:', clientError);

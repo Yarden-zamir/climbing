@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Administrative dashboard for managing the climbing community platform. Access user management, content moderation, and system analytics." />
     <title>Admin Panel - Climbing App</title>
+    
+    <!-- PWA manifest -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#4285f4">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Climbing">
+    
     <link rel="stylesheet" href="/static/css/styles.css">
     <style>
         .admin-container {
@@ -84,6 +92,109 @@
             border-radius: 8px;
             padding: 2rem;
             margin-bottom: 2rem;
+        }
+
+        /* Notification admin styles */
+        #notification-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            border-left: 4px solid #3498db;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stat-card h5 {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-detail {
+            color: #888;
+            font-size: 0.8rem;
+        }
+
+        .reliability-card {
+            border-left-color: #27ae60;
+        }
+
+        .failed-card {
+            border-left-color: #e74c3c;
+        }
+
+        .users-card {
+            border-left-color: #f39c12;
+        }
+
+        .browser-stats-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .browser-stats-section h5 {
+            margin-bottom: 0.75rem;
+            color: #2c3e50;
+        }
+
+        .browser-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .browser-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            background: white;
+            border-radius: 6px;
+            border-left: 3px solid #3498db;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            font-size: 0.9rem;
+        }
+
+        .notification-admin-actions {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .notification-admin-actions .action-btn {
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+        }
+
+        .error-message {
+            background: #ffeaea;
+            border: 1px solid #e74c3c;
+            border-radius: 6px;
+            padding: 0.75rem;
+            color: #c0392b;
+            font-size: 0.9rem;
+        }
+
+        .loading {
+            text-align: center;
+            color: #7f8c8d;
+            font-style: italic;
+            padding: 1rem;
         }
 
         .system-notification-form {
@@ -953,6 +1064,58 @@
                         </div>
                     </form>
                 </div>
+
+                <!-- Notification Statistics & Monitoring -->
+                <div class="notification-form-container">
+                    <h4>📊 Notification Statistics & Health</h4>
+                    
+                    <!-- Stats Grid -->
+                    <div class="stats-grid" id="notification-stats-grid">
+                        <div class="stat-card">
+                            <h5>Total Subscriptions</h5>
+                            <div class="stat-value" id="total-subscriptions">-</div>
+                            <div class="stat-detail" id="subscription-detail">Loading...</div>
+                        </div>
+                        <div class="stat-card reliability-card">
+                            <h5>Reliability Rate</h5>
+                            <div class="stat-value" id="reliability-rate">-</div>
+                            <div class="stat-detail">Last 7 days</div>
+                        </div>
+                        <div class="stat-card failed-card">
+                            <h5>Failed Sends</h5>
+                            <div class="stat-value" id="failed-sends">-</div>
+                            <div class="stat-detail">This week</div>
+                        </div>
+                        <div class="stat-card users-card">
+                            <h5>Active Users</h5>
+                            <div class="stat-value" id="active-users">-</div>
+                            <div class="stat-detail">With notifications</div>
+                        </div>
+                    </div>
+
+                    <!-- Browser Distribution -->
+                    <div class="browser-stats-section">
+                        <h5>Browser Distribution</h5>
+                        <div class="browser-stats" id="browser-stats">
+                            <div class="loading">Loading browser stats...</div>
+                        </div>
+                    </div>
+
+                    <!-- Admin Actions -->
+                    <div class="notification-admin-actions">
+                        <button type="button" class="action-btn btn-secondary" onclick="refreshNotificationStats()">
+                            🔄 Refresh Stats
+                        </button>
+                        <button type="button" class="action-btn btn-secondary" onclick="validateAllSubscriptions()">
+                            ✅ Validate All Subscriptions
+                        </button>
+                        <button type="button" class="action-btn btn-secondary" onclick="sendTestNotification()">
+                            🧪 Send Test Notification
+                        </button>
+                    </div>
+
+                    <div id="notification-admin-error" class="error-message" style="display: none;"></div>
+                </div>
             </div>
         </div>
 
@@ -1019,8 +1182,167 @@
         </div>
     </div>
 
+    <!-- PWA and Notification Management -->
+    <script src="/static/js/pwa-manager.js"></script>
+    <script src="/static/js/notification-health-manager.js"></script>
     <script src="/static/js/notifications.js"></script>
-<script src="/static/js/auth.js"></script>
+    <script src="/static/js/auth.js"></script>
     <script src="/static/js/admin.js"></script>
+    
+    <script>
+        // Notification Admin Functions
+        let notificationStatsData = null;
+        let reliabilityData = null;
+
+        // Load stats when notifications section is shown
+        document.addEventListener('DOMContentLoaded', function() {
+            // Listen for section changes
+            const navButtons = document.querySelectorAll('.admin-nav-btn');
+            navButtons.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    if (this.dataset.section === 'notifications') {
+                        setTimeout(refreshNotificationStats, 500);
+                    }
+                });
+            });
+        });
+
+        async function refreshNotificationStats() {
+            try {
+                showNotificationError('');
+                
+                // Update button state
+                const refreshBtn = document.querySelector('button[onclick="refreshNotificationStats()"]');
+                if (refreshBtn) {
+                    refreshBtn.disabled = true;
+                    refreshBtn.textContent = '🔄 Loading...';
+                }
+
+                // Fetch both stats and reliability data
+                const [statsResponse, reliabilityResponse] = await Promise.all([
+                    fetch('/api/notifications/admin/stats'),
+                    fetch('/api/notifications/admin/reliability?days=7')
+                ]);
+
+                if (!statsResponse.ok || !reliabilityResponse.ok) {
+                    throw new Error('Failed to fetch notification statistics');
+                }
+
+                notificationStatsData = await statsResponse.json();
+                reliabilityData = await reliabilityResponse.json();
+
+                updateNotificationDashboard();
+
+            } catch (error) {
+                console.error('Error fetching notification stats:', error);
+                showNotificationError('Failed to load notification statistics: ' + error.message);
+            } finally {
+                // Reset button state
+                const refreshBtn = document.querySelector('button[onclick="refreshNotificationStats()"]');
+                if (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.textContent = '🔄 Refresh Stats';
+                }
+            }
+        }
+
+        function updateNotificationDashboard() {
+            if (!notificationStatsData || !reliabilityData) return;
+
+            // Update main stats
+            document.getElementById('total-subscriptions').textContent = notificationStatsData.device_subscriptions.total;
+            document.getElementById('subscription-detail').textContent = 
+                `${notificationStatsData.device_subscriptions.healthy} healthy, ${notificationStatsData.device_subscriptions.stale} stale`;
+
+            document.getElementById('reliability-rate').textContent = `${reliabilityData.reliability_percentage.toFixed(1)}%`;
+            
+            document.getElementById('failed-sends').textContent = reliabilityData.failed_sends;
+            
+            document.getElementById('active-users').textContent = notificationStatsData.user_stats.users_with_notifications;
+
+            // Update browser stats
+            updateBrowserStats();
+        }
+
+        function updateBrowserStats() {
+            const container = document.getElementById('browser-stats');
+            const browserData = notificationStatsData.device_subscriptions.by_browser;
+
+            container.innerHTML = '';
+
+            if (Object.keys(browserData).length === 0) {
+                container.innerHTML = '<div class="loading">No browser data available</div>';
+                return;
+            }
+
+            Object.entries(browserData).forEach(([browser, count]) => {
+                const percentage = ((count / notificationStatsData.device_subscriptions.total) * 100).toFixed(1);
+                
+                const item = document.createElement('div');
+                item.className = 'browser-item';
+                item.innerHTML = `
+                    <span><strong>${browser}</strong></span>
+                    <span>${count} (${percentage}%)</span>
+                `;
+                
+                container.appendChild(item);
+            });
+        }
+
+        async function validateAllSubscriptions() {
+            try {
+                const response = await fetch('/api/notifications/validate-subscriptions', {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(`Validation started for ${result.total} subscription(s). Invalid subscriptions will be cleaned up automatically.`);
+                    
+                    // Refresh stats after validation
+                    setTimeout(refreshNotificationStats, 5000);
+                } else {
+                    throw new Error('Failed to start subscription validation');
+                }
+            } catch (error) {
+                showNotificationError('Error validating subscriptions: ' + error.message);
+            }
+        }
+
+        async function sendTestNotification() {
+            try {
+                const response = await fetch('/api/notifications/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title: '🧪 Admin Test',
+                        body: 'This is a test notification from the admin panel',
+                        icon: '/static/favicon/android-chrome-192x192.png'
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(`Test notification sent to ${result.devices} device(s)`);
+                } else {
+                    throw new Error('Failed to send test notification');
+                }
+            } catch (error) {
+                showNotificationError('Error sending test notification: ' + error.message);
+            }
+        }
+
+        function showNotificationError(message) {
+            const errorDiv = document.getElementById('notification-admin-error');
+            if (message) {
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+            } else {
+                errorDiv.style.display = 'none';
+            }
+        }
+    </script>
 </body>
 </html> 

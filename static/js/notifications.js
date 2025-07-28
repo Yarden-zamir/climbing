@@ -233,6 +233,13 @@ class NotificationsManager {
             throw new Error('Push notifications not supported');
         }
 
+        // Enforce PWA installation requirement
+        if (!window.pwaManager?.isPWAInstalled()) {
+            console.log('PWA not installed - prompting user');
+            window.pwaManager?.promptForNotifications();
+            throw new Error('PWA installation required for notifications');
+        }
+
         if (!this.registration || !this.vapidPublicKey) {
             throw new Error('Service worker or VAPID key not ready');
         }

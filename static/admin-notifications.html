@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notification Admin Dashboard - Climbing App</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4285f4, #34a853);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 4px solid #4285f4;
+        }
+
+        .stat-card h3 {
+            color: #666;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .stat-card .detail {
+            color: #888;
+            font-size: 12px;
+        }
+
+        .reliability-card {
+            border-left-color: #34a853;
+        }
+
+        .failed-card {
+            border-left-color: #ea4335;
+        }
+
+        .users-card {
+            border-left-color: #fbbc04;
+        }
+
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .section h2 {
+            margin-bottom: 16px;
+            color: #333;
+            font-size: 20px;
+        }
+
+        .browser-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .browser-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #4285f4;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #4285f4, #34a853);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3);
+        }
+
+        .btn-secondary {
+            background: #f1f3f4;
+            color: #5f6368;
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error {
+            background: #fce8e6;
+            border: 1px solid #ea4335;
+            border-radius: 6px;
+            padding: 12px;
+            color: #d93025;
+            margin-bottom: 16px;
+        }
+
+        .reliability-chart {
+            height: 200px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 16px;
+            color: #666;
+        }
+
+        .broadcast-form {
+            display: grid;
+            gap: 12px;
+            max-width: 500px;
+        }
+
+        .broadcast-form input,
+        .broadcast-form textarea {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-family: inherit;
+        }
+
+        .broadcast-form textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧗‍♂️ Notification Admin Dashboard</h1>
+        <p>Monitor notification health and reliability</p>
+    </div>
+
+    <div class="container">
+        <div class="controls">
+            <button class="btn" onclick="refreshStats()">🔄 Refresh Data</button>
+            <button class="btn btn-secondary" onclick="testNotifications()">🧪 Test Notifications</button>
+            <button class="btn btn-secondary" onclick="validateSubscriptions()">✅ Validate All Subscriptions</button>
+        </div>
+
+        <div id="error-container"></div>
+        <div id="loading" class="loading">Loading notification statistics...</div>
+
+        <div id="stats-container" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>Total Subscriptions</h3>
+                    <div class="value" id="total-subscriptions">-</div>
+                    <div class="detail" id="subscription-detail">Loading...</div>
+                </div>
+
+                <div class="stat-card reliability-card">
+                    <h3>Reliability Rate</h3>
+                    <div class="value" id="reliability-rate">-</div>
+                    <div class="detail" id="reliability-detail">Last 7 days</div>
+                </div>
+
+                <div class="stat-card failed-card">
+                    <h3>Failed Sends</h3>
+                    <div class="value" id="failed-sends">-</div>
+                    <div class="detail" id="failed-detail">This week</div>
+                </div>
+
+                <div class="stat-card users-card">
+                    <h3>Active Users</h3>
+                    <div class="value" id="active-users">-</div>
+                    <div class="detail" id="users-detail">With notifications</div>
+                </div>
+            </div>
+
+            <!-- Browser Distribution -->
+            <div class="section">
+                <h2>📊 Browser Distribution</h2>
+                <div class="browser-stats" id="browser-stats">
+                    <div class="loading">Loading browser stats...</div>
+                </div>
+            </div>
+
+            <!-- Reliability Chart -->
+            <div class="section">
+                <h2>📈 Reliability Trends</h2>
+                <div class="reliability-chart">
+                    📊 Chart would be here (integrate with Chart.js for production)
+                </div>
+            </div>
+
+            <!-- Admin Broadcast -->
+            <div class="section">
+                <h2>📢 Send Broadcast Notification</h2>
+                <div class="broadcast-form">
+                    <input type="text" id="broadcast-title" placeholder="Notification title" maxlength="100">
+                    <textarea id="broadcast-body" placeholder="Notification message" maxlength="200"></textarea>
+                    <button class="btn" onclick="sendBroadcast()">Send to All Users</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let statsData = null;
+        let reliabilityData = null;
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshStats();
+            
+            // Auto-refresh every 2 minutes
+            setInterval(refreshStats, 2 * 60 * 1000);
+        });
+
+        async function refreshStats() {
+            try {
+                showLoading(true);
+                clearError();
+
+                // Fetch both stats and reliability data
+                const [statsResponse, reliabilityResponse] = await Promise.all([
+                    fetch('/api/notifications/admin/stats'),
+                    fetch('/api/notifications/admin/reliability?days=7')
+                ]);
+
+                if (!statsResponse.ok || !reliabilityResponse.ok) {
+                    throw new Error('Failed to fetch statistics');
+                }
+
+                statsData = await statsResponse.json();
+                reliabilityData = await reliabilityResponse.json();
+
+                updateDashboard();
+                showLoading(false);
+
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+                showError('Failed to load notification statistics: ' + error.message);
+                showLoading(false);
+            }
+        }
+
+        function updateDashboard() {
+            if (!statsData || !reliabilityData) return;
+
+            // Update main stats
+            document.getElementById('total-subscriptions').textContent = statsData.device_subscriptions.total;
+            document.getElementById('subscription-detail').textContent = 
+                `${statsData.device_subscriptions.healthy} healthy, ${statsData.device_subscriptions.stale} stale`;
+
+            document.getElementById('reliability-rate').textContent = `${reliabilityData.reliability_percentage.toFixed(1)}%`;
+            document.getElementById('reliability-detail').textContent = 
+                `${reliabilityData.successful_sends} of ${reliabilityData.total_attempts} sent`;
+
+            document.getElementById('failed-sends').textContent = reliabilityData.failed_sends;
+            document.getElementById('failed-detail').textContent = 
+                `${reliabilityData.cleaned_subscriptions} cleaned up`;
+
+            document.getElementById('active-users').textContent = statsData.user_stats.users_with_notifications;
+            document.getElementById('users-detail').textContent = 
+                `${statsData.user_stats.avg_devices_per_user.toFixed(1)} devices avg`;
+
+            // Update browser stats
+            updateBrowserStats();
+        }
+
+        function updateBrowserStats() {
+            const container = document.getElementById('browser-stats');
+            const browserData = statsData.device_subscriptions.by_browser;
+
+            container.innerHTML = '';
+
+            Object.entries(browserData).forEach(([browser, count]) => {
+                const percentage = ((count / statsData.device_subscriptions.total) * 100).toFixed(1);
+                
+                const item = document.createElement('div');
+                item.className = 'browser-item';
+                item.innerHTML = `
+                    <span><strong>${browser}</strong></span>
+                    <span>${count} (${percentage}%)</span>
+                `;
+                
+                container.appendChild(item);
+            });
+        }
+
+        async function testNotifications() {
+            try {
+                const response = await fetch('/api/notifications/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title: '🧪 Admin Test',
+                        body: 'This is a test notification from the admin panel',
+                        icon: '/static/favicon/android-chrome-192x192.png'
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(`Test notification sent to ${result.devices} device(s)`);
+                } else {
+                    throw new Error('Failed to send test notification');
+                }
+            } catch (error) {
+                alert('Error sending test notification: ' + error.message);
+            }
+        }
+
+        async function validateSubscriptions() {
+            try {
+                const response = await fetch('/api/notifications/validate-subscriptions', {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(`Validation started for ${result.total} subscription(s). Invalid ones will be cleaned up automatically.`);
+                    
+                    // Refresh stats after validation
+                    setTimeout(refreshStats, 5000);
+                } else {
+                    throw new Error('Failed to start subscription validation');
+                }
+            } catch (error) {
+                alert('Error validating subscriptions: ' + error.message);
+            }
+        }
+
+        async function sendBroadcast() {
+            const title = document.getElementById('broadcast-title').value.trim();
+            const body = document.getElementById('broadcast-body').value.trim();
+
+            if (!title || !body) {
+                alert('Please enter both title and message for the broadcast');
+                return;
+            }
+
+            if (!confirm(`Send broadcast notification to all ${statsData?.device_subscriptions?.total || 0} subscribers?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/notifications/admin/broadcast', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title: title,
+                        body: body,
+                        icon: '/static/favicon/android-chrome-192x192.png'
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(`Broadcast sent to ${result.recipients} device(s)`);
+                    
+                    // Clear form
+                    document.getElementById('broadcast-title').value = '';
+                    document.getElementById('broadcast-body').value = '';
+                } else {
+                    throw new Error('Failed to send broadcast notification');
+                }
+            } catch (error) {
+                alert('Error sending broadcast: ' + error.message);
+            }
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+            document.getElementById('stats-container').style.display = show ? 'none' : 'block';
+        }
+
+        function showError(message) {
+            const container = document.getElementById('error-container');
+            container.innerHTML = `<div class="error">${message}</div>`;
+        }
+
+        function clearError() {
+            document.getElementById('error-container').innerHTML = '';
+        }
+    </script>
+</body>
+</html>
