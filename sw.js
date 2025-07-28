@@ -3,25 +3,66 @@
  * Handles background push messages and notification clicks
  */
 
-const CACHE_NAME = 'climbing-app-v1';
+const CACHE_NAME = 'climbing-app-v2';
+const STATIC_CACHE = 'climbing-static-v2';
+const API_CACHE = 'climbing-api-v2';
+const IMAGE_CACHE = 'climbing-images-v2';
 const NOTIFICATION_TAG = 'climbing-notification';
+
+// Cache strategies
+const CACHE_STRATEGIES = {
+    CACHE_FIRST: 'cache-first',
+    NETWORK_FIRST: 'network-first',
+    STALE_WHILE_REVALIDATE: 'stale-while-revalidate',
+    NETWORK_ONLY: 'network-only',
+    CACHE_ONLY: 'cache-only'
+};
+
+// Resources to cache on install
+const ESSENTIAL_RESOURCES = [
+    '/',
+    '/crew',
+    '/albums',
+    '/memes',
+    '/knowledge',
+    '/static/css/styles.css',
+    '/static/js/pwa-manager.js',
+    '/static/js/notification-health-manager.js',
+    '/static/js/notifications.js',
+    '/static/js/auth.js',
+    '/static/js/memes.js',
+    '/static/manifest.json',
+    '/static/favicon/android-chrome-192x192.png',
+    '/static/favicon/android-chrome-512x512.png',
+    '/static/favicon/favicon-32x32.png',
+    '/static/favicon/favicon.ico'
+];
 
 // Install event - cache essential resources
 self.addEventListener('install', (event) => {
     console.log('Service Worker: Installing...');
     
     event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            console.log('Service Worker: Caching essential resources');
-            return cache.addAll([
-                '/',
-                '/static/favicon/android-chrome-192x192.png',
-                '/static/favicon/favicon-32x32.png',
-                '/static/css/styles.css'
-            ]).catch((error) => {
-                console.warn('Service Worker: Failed to cache some resources:', error);
-            });
-        })
+        Promise.all([
+            // Cache essential app shell resources
+            caches.open(STATIC_CACHE).then((cache) => {
+                console.log('Service Worker: Caching essential resources');
+                return cache.addAll(ESSENTIAL_RESOURCES).catch((error) => {
+                    console.warn('Service Worker: Failed to cache some essential resources:', error);
+                    // Cache resources individually to avoid complete failure
+                    return Promise.allSettled(
+                        ESSENTIAL_RESOURCES.map(url => 
+                            cache.add(url).catch(err => 
+                                console.warn(`Failed to cache ${url}:`, err)
+                            )
+                        )
+                    );
+                });
+            }),
+            // Initialize other caches
+            caches.open(API_CACHE),
+            caches.open(IMAGE_CACHE)
+        ])
     );
     
     // Force activate immediately
@@ -32,11 +73,13 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
     console.log('Service Worker: Activating...');
     
+    const expectedCaches = [STATIC_CACHE, API_CACHE, IMAGE_CACHE];
+    
     event.waitUntil(
         caches.keys().then((cacheNames) => {
             return Promise.all(
                 cacheNames.map((cacheName) => {
-                    if (cacheName !== CACHE_NAME) {
+                    if (!expectedCaches.includes(cacheName)) {
                         console.log('Service Worker: Deleting old cache:', cacheName);
                         return caches.delete(cacheName);
                     }
@@ -48,6 +91,178 @@ self.addEventListener('activate', (event) => {
         })
     );
 });
+
+// Fetch event - handle all network requests with caching strategies
+self.addEventListener('fetch', (event) => {
+    const request = event.request;
+    const url = new URL(request.url);
+    
+    // Skip non-GET requests for caching
+    if (request.method !== 'GET') {
+        return;
+    }
+    
+    // Skip chrome-extension and other protocol requests
+    if (!url.protocol.startsWith('http')) {
+        return;
+    }
+    
+    // Route requests based on URL patterns
+    if (url.pathname.startsWith('/api/')) {
+        // API requests - network first with cache fallback
+        event.respondWith(handleApiRequest(request));
+    } else if (url.pathname.startsWith('/static/') || url.pathname.includes('.css') || url.pathname.includes('.js')) {
+        // Static assets - cache first
+        event.respondWith(handleStaticAsset(request));
+    } else if (url.pathname.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)) {
+        // Images - stale while revalidate
+        event.respondWith(handleImageRequest(request));
+    } else {
+        // HTML pages - network first with offline fallback
+        event.respondWith(handlePageRequest(request));
+    }
+});
+
+/**
+ * Handle API requests with network-first strategy
+ */
+async function handleApiRequest(request) {
+    const cacheKey = request.url;
+    
+    try {
+        // Try network first
+        const networkResponse = await fetch(request);
+        
+        if (networkResponse.ok) {
+            // Cache successful responses (exclude auth-related endpoints)
+            if (!request.url.includes('/auth/') && !request.url.includes('/login')) {
+                const cache = await caches.open(API_CACHE);
+                // Clone response before caching
+                await cache.put(cacheKey, networkResponse.clone());
+                console.log('Service Worker: Cached API response:', cacheKey);
+            }
+        }
+        
+        return networkResponse;
+    } catch (error) {
+        console.log('Service Worker: Network failed for API request, trying cache:', cacheKey);
+        
+        // Network failed, try cache
+        const cachedResponse = await caches.match(cacheKey);
+        if (cachedResponse) {
+            console.log('Service Worker: Served from cache:', cacheKey);
+            // Add a header to indicate it's from cache
+            const response = cachedResponse.clone();
+            response.headers.set('X-Served-From', 'cache');
+            return response;
+        }
+        
+        // No cache available, return network error
+        throw error;
+    }
+}
+
+/**
+ * Handle static assets with cache-first strategy
+ */
+async function handleStaticAsset(request) {
+    const cache = await caches.open(STATIC_CACHE);
+    const cachedResponse = await cache.match(request);
+    
+    if (cachedResponse) {
+        console.log('Service Worker: Served static asset from cache:', request.url);
+        return cachedResponse;
+    }
+    
+    // Not in cache, fetch from network and cache
+    try {
+        const networkResponse = await fetch(request);
+        if (networkResponse.ok) {
+            await cache.put(request, networkResponse.clone());
+            console.log('Service Worker: Cached static asset:', request.url);
+        }
+        return networkResponse;
+    } catch (error) {
+        console.error('Service Worker: Failed to fetch static asset:', request.url, error);
+        throw error;
+    }
+}
+
+/**
+ * Handle image requests with stale-while-revalidate strategy
+ */
+async function handleImageRequest(request) {
+    const cache = await caches.open(IMAGE_CACHE);
+    const cachedResponse = await cache.match(request);
+    
+    // Always return cached version immediately if available
+    if (cachedResponse) {
+        console.log('Service Worker: Served image from cache:', request.url);
+        
+        // Update cache in background (stale-while-revalidate)
+        fetch(request).then(async (networkResponse) => {
+            if (networkResponse.ok) {
+                await cache.put(request, networkResponse.clone());
+                console.log('Service Worker: Updated cached image:', request.url);
+            }
+        }).catch((error) => {
+            console.log('Service Worker: Background image update failed:', request.url, error);
+        });
+        
+        return cachedResponse;
+    }
+    
+    // Not in cache, fetch from network and cache
+    try {
+        const networkResponse = await fetch(request);
+        if (networkResponse.ok) {
+            await cache.put(request, networkResponse.clone());
+            console.log('Service Worker: Cached new image:', request.url);
+        }
+        return networkResponse;
+    } catch (error) {
+        console.error('Service Worker: Failed to fetch image:', request.url, error);
+        throw error;
+    }
+}
+
+/**
+ * Handle page requests with network-first and offline fallback
+ */
+async function handlePageRequest(request) {
+    try {
+        // Try network first
+        const networkResponse = await fetch(request);
+        
+        if (networkResponse.ok) {
+            // Cache successful page responses
+            const cache = await caches.open(STATIC_CACHE);
+            await cache.put(request, networkResponse.clone());
+            console.log('Service Worker: Cached page:', request.url);
+        }
+        
+        return networkResponse;
+    } catch (error) {
+        console.log('Service Worker: Network failed for page request, trying cache:', request.url);
+        
+        // Network failed, try cache
+        const cachedResponse = await caches.match(request);
+        if (cachedResponse) {
+            console.log('Service Worker: Served page from cache:', request.url);
+            return cachedResponse;
+        }
+        
+        // No cache available, try to serve the main page as fallback
+        const fallbackResponse = await caches.match('/');
+        if (fallbackResponse) {
+            console.log('Service Worker: Served fallback page for:', request.url);
+            return fallbackResponse;
+        }
+        
+        // No fallback available, return error
+        throw error;
+    }
+}
 
 // Push event - handle incoming push notifications
 self.addEventListener('push', (event) => {
@@ -288,8 +503,179 @@ self.addEventListener('sync', (event) => {
     
     if (event.tag === 'background-notification-sync') {
         event.waitUntil(handleBackgroundSync());
+    } else if (event.tag === 'offline-requests-sync') {
+        event.waitUntil(processOfflineQueue());
     }
 });
+
+/**
+ * Store failed requests for later retry
+ */
+async function storeOfflineRequest(request, data = null) {
+    try {
+        const offlineRequest = {
+            url: request.url,
+            method: request.method,
+            headers: Object.fromEntries(request.headers.entries()),
+            body: data || (await request.clone().text()),
+            timestamp: Date.now()
+        };
+        
+        await storeValue('offlineQueue', await getOfflineQueue().then(queue => {
+            queue.push(offlineRequest);
+            return queue;
+        }));
+        
+        console.log('Service Worker: Stored offline request:', request.url);
+        
+        // Register for background sync
+        if ('serviceWorker' in self && 'sync' in self.registration) {
+            await self.registration.sync.register('offline-requests-sync');
+        }
+    } catch (error) {
+        console.error('Service Worker: Failed to store offline request:', error);
+    }
+}
+
+/**
+ * Get offline request queue
+ */
+async function getOfflineQueue() {
+    try {
+        const queue = await getStoredValue('offlineQueue');
+        return queue || [];
+    } catch (error) {
+        console.error('Service Worker: Failed to get offline queue:', error);
+        return [];
+    }
+}
+
+/**
+ * Process offline request queue
+ */
+async function processOfflineQueue() {
+    try {
+        const queue = await getOfflineQueue();
+        console.log(`Service Worker: Processing ${queue.length} offline requests`);
+        
+        const processedRequests = [];
+        const failedRequests = [];
+        
+        for (const offlineRequest of queue) {
+            try {
+                const request = new Request(offlineRequest.url, {
+                    method: offlineRequest.method,
+                    headers: offlineRequest.headers,
+                    body: offlineRequest.method !== 'GET' ? offlineRequest.body : null
+                });
+                
+                const response = await fetch(request);
+                
+                if (response.ok) {
+                    console.log('Service Worker: Successfully processed offline request:', offlineRequest.url);
+                    processedRequests.push(offlineRequest);
+                } else {
+                    console.warn('Service Worker: Offline request failed with status:', response.status, offlineRequest.url);
+                    // Keep in queue for retry if it's been less than 24 hours
+                    if (Date.now() - offlineRequest.timestamp < 24 * 60 * 60 * 1000) {
+                        failedRequests.push(offlineRequest);
+                    }
+                }
+            } catch (error) {
+                console.error('Service Worker: Error processing offline request:', error, offlineRequest.url);
+                // Keep in queue for retry if it's been less than 24 hours
+                if (Date.now() - offlineRequest.timestamp < 24 * 60 * 60 * 1000) {
+                    failedRequests.push(offlineRequest);
+                }
+            }
+        }
+        
+        // Update queue with only failed requests
+        await storeValue('offlineQueue', failedRequests);
+        
+        // Notify clients about processed requests
+        if (processedRequests.length > 0) {
+            const clients = await self.clients.matchAll();
+            clients.forEach(client => {
+                client.postMessage({
+                    type: 'OFFLINE_REQUESTS_PROCESSED',
+                    count: processedRequests.length,
+                    requests: processedRequests,
+                    timestamp: Date.now()
+                });
+            });
+        }
+        
+    } catch (error) {
+        console.error('Service Worker: Failed to process offline queue:', error);
+    }
+}
+
+/**
+ * Clean up old cache entries to prevent storage bloat
+ */
+async function cleanupCaches() {
+    try {
+        const caches = [
+            { name: STATIC_CACHE, maxAge: 7 * 24 * 60 * 60 * 1000 }, // 7 days
+            { name: API_CACHE, maxAge: 24 * 60 * 60 * 1000 },       // 1 day
+            { name: IMAGE_CACHE, maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 days
+        ];
+        
+        for (const cacheConfig of caches) {
+            const cache = await caches.open(cacheConfig.name);
+            const requests = await cache.keys();
+            
+            for (const request of requests) {
+                const response = await cache.match(request);
+                if (response) {
+                    const dateHeader = response.headers.get('date');
+                    if (dateHeader) {
+                        const cacheDate = new Date(dateHeader);
+                        const age = Date.now() - cacheDate.getTime();
+                        
+                        if (age > cacheConfig.maxAge) {
+                            await cache.delete(request);
+                            console.log(`Service Worker: Cleaned up old cache entry: ${request.url}`);
+                        }
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Service Worker: Cache cleanup failed:', error);
+    }
+}
+
+/**
+ * Get cache statistics
+ */
+async function getCacheStats() {
+    try {
+        const stats = {};
+        const cacheNames = [STATIC_CACHE, API_CACHE, IMAGE_CACHE];
+        
+        for (const cacheName of cacheNames) {
+            const cache = await caches.open(cacheName);
+            const requests = await cache.keys();
+            stats[cacheName] = {
+                count: requests.length,
+                urls: requests.map(req => req.url)
+            };
+        }
+        
+        const offlineQueue = await getOfflineQueue();
+        stats.offlineQueue = {
+            count: offlineQueue.length,
+            requests: offlineQueue
+        };
+        
+        return stats;
+    } catch (error) {
+        console.error('Service Worker: Failed to get cache stats:', error);
+        return {};
+    }
+}
 
 /**
  * Show a notification with proper error handling
@@ -692,6 +1078,52 @@ self.addEventListener('message', (event) => {
         event.ports[0].postMessage({
             version: CACHE_NAME,
             timestamp: Date.now()
+        });
+    }
+    
+    if (event.data && event.data.type === 'GET_CACHE_STATS') {
+        getCacheStats().then(stats => {
+            event.ports[0].postMessage({
+                type: 'CACHE_STATS',
+                stats: stats,
+                timestamp: Date.now()
+            });
+        }).catch(error => {
+            event.ports[0].postMessage({
+                type: 'CACHE_STATS_ERROR',
+                error: error.message,
+                timestamp: Date.now()
+            });
+        });
+    }
+    
+    if (event.data && event.data.type === 'CLEANUP_CACHES') {
+        cleanupCaches().then(() => {
+            event.ports[0].postMessage({
+                type: 'CACHE_CLEANUP_COMPLETE',
+                timestamp: Date.now()
+            });
+        }).catch(error => {
+            event.ports[0].postMessage({
+                type: 'CACHE_CLEANUP_ERROR',
+                error: error.message,
+                timestamp: Date.now()
+            });
+        });
+    }
+    
+    if (event.data && event.data.type === 'CLEAR_OFFLINE_QUEUE') {
+        storeValue('offlineQueue', []).then(() => {
+            event.ports[0].postMessage({
+                type: 'OFFLINE_QUEUE_CLEARED',
+                timestamp: Date.now()
+            });
+        }).catch(error => {
+            event.ports[0].postMessage({
+                type: 'OFFLINE_QUEUE_CLEAR_ERROR',
+                error: error.message,
+                timestamp: Date.now()
+            });
         });
     }
 });
