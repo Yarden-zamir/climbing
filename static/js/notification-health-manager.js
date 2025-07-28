@@ -184,6 +184,12 @@ class NotificationHealthManager {
     }
 
     async updateSubscriptionOnServer(subscription) {
+        // Skip server update when offline
+        if (!navigator.onLine) {
+            console.log('Offline mode - skipping subscription server update');
+            throw new Error('Cannot update subscription while offline');
+        }
+
         const deviceId = await this.getDeviceId();
         const deviceInfo = await this.getDeviceInfo();
 
@@ -215,6 +221,12 @@ class NotificationHealthManager {
     }
 
     async getVapidPublicKey() {
+        // Skip VAPID key fetch when offline
+        if (!navigator.onLine) {
+            console.log('Offline mode - skipping VAPID key fetch');
+            throw new Error('Cannot fetch VAPID key while offline');
+        }
+
         try {
             const response = await fetch('/api/notifications/vapid-public-key');
             const data = await response.json();
@@ -255,11 +267,23 @@ class NotificationHealthManager {
     }
 
     handleNoSubscription() {
+        // Don't show resubscribe prompts when offline
+        if (!navigator.onLine) {
+            console.log('Offline mode - skipping resubscribe prompt');
+            return;
+        }
+        
         // Show notification to user that they need to re-enable notifications
         this.showResubscribePrompt();
     }
 
     handleRefreshFailure() {
+        // Don't show error messages when offline
+        if (!navigator.onLine) {
+            console.log('Offline mode - skipping refresh failure notification');
+            return;
+        }
+        
         // Show error message and prompt manual resubscription
         this.showRefreshErrorPrompt();
     }

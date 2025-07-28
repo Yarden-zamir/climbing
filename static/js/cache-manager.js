@@ -87,12 +87,23 @@ class CacheManager {
         indicator.className = `connectivity-indicator ${status}`;
         
         if (status === 'online') {
-            indicator.innerHTML = '🟢 Back online';
+            indicator.innerHTML = '🟢 Back online <span class="close-btn">×</span>';
             indicator.style.background = 'linear-gradient(135deg, #4caf50, #2e7d32)';
         } else {
-            indicator.innerHTML = '🔴 Offline mode';
+            indicator.innerHTML = '🔴 Offline mode <span class="close-btn">×</span>';
             indicator.style.background = 'linear-gradient(135deg, #ff9800, #f57c00)';
         }
+        
+        // Add click to close functionality
+        indicator.style.cursor = 'pointer';
+        indicator.onclick = () => {
+            indicator.style.opacity = '0';
+            setTimeout(() => {
+                if (indicator && indicator.parentNode) {
+                    indicator.parentNode.removeChild(indicator);
+                }
+            }, 300);
+        };
         
         // Auto-hide after delay
         setTimeout(() => {
@@ -150,6 +161,34 @@ class CacheManager {
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3);
                 transition: all 0.3s ease;
                 animation: slideInRight 0.3s ease-out;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+            }
+            
+            .connectivity-indicator:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+            }
+            
+            .connectivity-indicator .close-btn {
+                background: rgba(255,255,255,0.2);
+                border-radius: 50%;
+                width: 20px;
+                height: 20px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 16px;
+                line-height: 1;
+                flex-shrink: 0;
+                transition: background 0.2s ease;
+            }
+            
+            .connectivity-indicator .close-btn:hover {
+                background: rgba(255,255,255,0.3);
             }
             
             .connectivity-indicator.offline {
@@ -177,7 +216,7 @@ class CacheManager {
                     top: 10px;
                     right: 10px;
                     left: 10px;
-                    text-align: center;
+                    text-align: left;
                 }
             }
         `;
