@@ -103,6 +103,16 @@ class AuthManager {
             }
         });
 
+        // Install app button click
+        document.addEventListener('click', (e) => {
+            if (e.target.matches('.install-app-btn, .install-app-btn *')) {
+                e.preventDefault();
+                if (window.pwaManager) {
+                    window.pwaManager.showInstallPrompt();
+                }
+            }
+        });
+
         // Token modal event listeners
         document.addEventListener('click', (e) => {
             // Close token modal
@@ -258,6 +268,14 @@ class AuthManager {
             </div>
             <hr class="dropdown-divider">
         ` : '';
+
+        // Generate install app item if PWA can be installed
+        const installAppItem = (window.pwaManager && window.pwaManager.canInstall()) ? `
+            <button class="install-app-btn dropdown-item">
+                <span>📱</span> Install App
+            </button>
+            <hr class="dropdown-divider">
+        ` : '';
         
         userDropdown.innerHTML = `
             <button class="user-profile-btn">
@@ -274,6 +292,7 @@ class AuthManager {
                 </div>
                 <hr class="dropdown-divider">
                 ${pendingApprovalItem}
+                ${installAppItem}
                 ${adminPanelLink}
                 <button class="manage-tokens-btn dropdown-item">
                     <span>⚙️</span> Manage Tokens

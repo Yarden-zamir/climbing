@@ -138,12 +138,14 @@ class PWAManager {
     }
 
     setupInstallPrompt() {
-        // Show install prompt for non-installed users after delay
-        if (!this.isInstalled && !localStorage.getItem('pwa-prompt-dismissed')) {
-            setTimeout(() => {
-                this.showInstallPrompt();
-            }, 3000); // Show after 3 seconds
-        }
+        // Don't show automatic popup - only available through user dropdown
+        // The install option will be available in the user profile dropdown
+        return;
+    }
+
+    // Check if PWA can be installed (for dropdown visibility)
+    canInstall() {
+        return !this.isInstalled && !localStorage.getItem('pwa-prompt-dismissed');
     }
 
     showInstallButton() {
@@ -230,9 +232,17 @@ class PWAManager {
             if (result.outcome === 'accepted') {
                 console.log('PWA: User accepted installation');
                 localStorage.setItem('pwa-prompt-shown', 'true');
+                // Refresh user dropdown to hide install option
+                if (window.authManager) {
+                    window.authManager.updateNavigation();
+                }
             } else {
                 console.log('PWA: User dismissed installation');
                 localStorage.setItem('pwa-prompt-dismissed', 'true');
+                // Refresh user dropdown to hide install option
+                if (window.authManager) {
+                    window.authManager.updateNavigation();
+                }
             }
             
             this.deferredPrompt = null;
@@ -286,6 +296,11 @@ class PWAManager {
         localStorage.setItem('pwa-prompt-dismissed', 'true');
         this.hideInstallButton();
         this.hideInstallModal();
+        
+        // Refresh user dropdown to hide install option
+        if (window.authManager) {
+            window.authManager.updateNavigation();
+        }
     }
 
     hideInstallModal() {
