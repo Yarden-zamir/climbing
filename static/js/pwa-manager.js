@@ -101,7 +101,7 @@ class PWAManager {
             console.log('PWA: Install prompt available');
             e.preventDefault();
             this.deferredPrompt = e;
-            this.showInstallButton();
+            // Install button now only available through user dropdown
         });
 
         // PWA installed
@@ -145,7 +145,7 @@ class PWAManager {
 
     // Check if PWA can be installed (for dropdown visibility)
     canInstall() {
-        return !this.isInstalled && !localStorage.getItem('pwa-prompt-dismissed');
+        return !this.isInstalled;
     }
 
     showInstallButton() {
