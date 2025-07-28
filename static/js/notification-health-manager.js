@@ -62,6 +62,12 @@ class NotificationHealthManager {
 
     async performHealthCheck() {
         try {
+            // Skip health checks when offline
+            if (!navigator.onLine) {
+                console.log('Offline mode - skipping notification health check');
+                return;
+            }
+
             console.log('Performing notification health check...');
             
             // Check if PWA is installed
@@ -99,6 +105,12 @@ class NotificationHealthManager {
 
     async testSubscriptionHealth(subscription) {
         try {
+            // Skip health test when offline
+            if (!navigator.onLine) {
+                console.log('Offline mode - assuming subscription is healthy');
+                return true;
+            }
+
             const response = await fetch('/api/notifications/test-subscription', {
                 method: 'POST',
                 headers: {
@@ -117,6 +129,12 @@ class NotificationHealthManager {
             return result.valid === true;
 
         } catch (error) {
+            // If offline, don't treat network errors as subscription failures
+            if (!navigator.onLine) {
+                console.log('Network error during health test (offline) - assuming healthy');
+                return true;
+            }
+            
             console.error('Subscription health test failed:', error);
             return false;
         }
@@ -124,6 +142,12 @@ class NotificationHealthManager {
 
     async refreshSubscription(oldSubscription) {
         try {
+            // Skip refresh when offline
+            if (!navigator.onLine) {
+                console.log('Offline mode - skipping subscription refresh');
+                return;
+            }
+
             console.log('Refreshing subscription token...');
             
             // Unsubscribe from old subscription

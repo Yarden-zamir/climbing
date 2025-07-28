@@ -169,6 +169,14 @@ class NotificationsManager {
             const subscription = await this.registration.pushManager.getSubscription();
             
             if (subscription) {
+                // If offline, assume subscription is valid without server verification
+                if (!navigator.onLine) {
+                    console.log('Offline mode - assuming existing subscription is valid');
+                    this.subscription = subscription;
+                    this.isEnabled = true;
+                    return true;
+                }
+
                 // Verify the subscription is still valid by checking with server
                 const response = await fetch('/api/notifications/subscriptions', {
                     headers: {
@@ -195,6 +203,12 @@ class NotificationsManager {
             }
 
         } catch (error) {
+            // If offline, assume existing subscription is still valid
+            if (!navigator.onLine && this.subscription) {
+                console.log('Network error during subscription check (offline) - assuming valid');
+                return this.isEnabled;
+            }
+            
             console.error('Error checking subscription state:', error);
             this.subscription = null;
             this.isEnabled = false;
@@ -231,6 +245,11 @@ class NotificationsManager {
     async enableNotifications() {
         if (!this.isSupported) {
             throw new Error('Push notifications not supported');
+        }
+
+        // Check if we're offline
+        if (!navigator.onLine) {
+            throw new Error('Cannot enable notifications while offline. Please try again when connected.');
         }
 
         // Enforce PWA installation requirement
@@ -383,6 +402,11 @@ class NotificationsManager {
     async sendTestNotification() {
         if (!this.isEnabled) {
             throw new Error('Notifications not enabled');
+        }
+
+        // Check if we're offline
+        if (!navigator.onLine) {
+            throw new Error('Cannot send test notification while offline. Please try again when connected.');
         }
 
         const testPayload = {
