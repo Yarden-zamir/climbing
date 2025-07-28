@@ -9,6 +9,7 @@ class VersionManager {
         this.serverVersion = null;
         this.checkInterval = null;
         this.updateNotification = null;
+        // Remove the lastNotifiedVersion tracking - we want to keep nagging
         
         this.init();
     }
@@ -82,15 +83,18 @@ class VersionManager {
             console.log('Version Manager: Server version:', this.serverVersion);
             console.log('Version Manager: Current version:', this.currentVersion);
             
-            // Check if we have a new version
+            // Check if we have a new version - keep nagging until they update
             if (this.currentVersion && 
                 this.serverVersion && 
                 this.currentVersion !== this.serverVersion) {
                 
                 console.log('Version Manager: New version detected!');
+                console.log('Version Manager: Current:', this.currentVersion, 'Server:', this.serverVersion);
                 this.showUpdateNotification();
             } else {
-                console.log('Version Manager: No update needed');
+                console.log('Version Manager: No update needed - versions match');
+                // Hide any existing notification since versions match
+                this.dismissUpdateNotification();
             }
             
         } catch (error) {
@@ -99,8 +103,19 @@ class VersionManager {
     }
 
     showUpdateNotification() {
-        // Don't show multiple notifications
+        // Don't show if temporarily dismissed
+        if (this.temporarilyDismissed) {
+            console.log('Version Manager: Notification temporarily dismissed, skipping');
+            return;
+        }
+
+        // Don't show multiple notifications - but update the content if version changed
         if (this.updateNotification && document.body.contains(this.updateNotification)) {
+            // Update the notification content with latest version info
+            const versionText = this.updateNotification.querySelector('.version-update-text small');
+            if (versionText) {
+                versionText.textContent = `Click to reload and get the latest features (${this.serverVersion})`;
+            }
             return;
         }
 
@@ -113,12 +128,12 @@ class VersionManager {
                 <div class="version-update-icon">🚀</div>
                 <div class="version-update-text">
                     <strong>New version available!</strong>
-                    <small>Click to reload and get the latest features</small>
+                    <small>Click to reload and get the latest features (${this.serverVersion})</small>
                 </div>
                 <button class="version-update-btn" onclick="versionManager.reloadWithNewVersion()">
                     Reload
                 </button>
-                <button class="version-update-close" onclick="versionManager.dismissUpdateNotification()">
+                <button class="version-update-close" onclick="versionManager.temporarilyDismissNotification()" title="Hide for 5 minutes (will reappear until you update)">
                     ×
                 </button>
             </div>
@@ -145,39 +160,68 @@ class VersionManager {
         }
     }
 
+    // Temporarily hide notification (user dismissed it, but we'll show it again on next check)
+    temporarilyDismissNotification() {
+        console.log('Version Manager: Temporarily dismissing notification');
+        this.dismissUpdateNotification();
+        
+        // Set a flag to not show the notification again for a short period
+        this.temporarilyDismissed = true;
+        setTimeout(() => {
+            this.temporarilyDismissed = false;
+            console.log('Version Manager: Temporary dismissal expired, will show notification on next check');
+        }, 5 * 60 * 1000); // 5 minutes
+    }
+
     async reloadWithNewVersion() {
         console.log('Version Manager: Reloading with new version...');
         
         try {
-            // Clear service worker cache to ensure fresh content
+            // Show loading indicator immediately
+            this.showReloadingIndicator();
+            
+            // First, unregister the current service worker
             if ('serviceWorker' in navigator) {
-                const registration = await navigator.serviceWorker.ready;
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                console.log('Version Manager: Found', registrations.length, 'service worker registrations');
                 
-                // Tell service worker to skip waiting and activate immediately
-                if (registration.waiting) {
-                    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                for (const registration of registrations) {
+                    console.log('Version Manager: Unregistering service worker');
+                    await registration.unregister();
                 }
                 
-                // Clear caches
+                // Clear all caches
                 if ('caches' in window) {
                     const cacheNames = await caches.keys();
+                    console.log('Version Manager: Clearing', cacheNames.length, 'caches');
                     await Promise.all(
-                        cacheNames.map(name => caches.delete(name))
+                        cacheNames.map(name => {
+                            console.log('Version Manager: Deleting cache:', name);
+                            return caches.delete(name);
+                        })
                     );
                 }
             }
             
-            // Show loading indicator
-            this.showReloadingIndicator();
+            // Clear PWA-related localStorage but keep version tracking
+            localStorage.removeItem('pwa-prompt-shown');
+            localStorage.removeItem('pwa-prompt-dismissed');
             
-            // Reload the page
+            // Add a timestamp to force cache bypass
+            const timestamp = Date.now();
+            const currentUrl = new URL(window.location);
+            currentUrl.searchParams.set('v', timestamp);
+            
+            console.log('Version Manager: Reloading to:', currentUrl.toString());
+            
+            // Wait a moment for cleanup to complete, then reload
             setTimeout(() => {
-                window.location.reload(true);
-            }, 500);
+                window.location.href = currentUrl.toString();
+            }, 1000);
             
         } catch (error) {
             console.error('Version Manager: Error during reload:', error);
-            // Fallback to simple reload
+            // Fallback: do hard reload (don't clear version tracking)
             window.location.reload(true);
         }
     }

@@ -42,7 +42,11 @@ const ESSENTIAL_RESOURCES = [
 // Fetch version from server
 async function fetchCurrentVersion() {
     try {
-        const response = await fetch('/api/version');
+        // Add cache-busting parameter to ensure fresh version info
+        const timestamp = Date.now();
+        const response = await fetch(`/api/version?_t=${timestamp}`, {
+            cache: 'no-cache'
+        });
         if (response.ok) {
             const data = await response.json();
             CURRENT_VERSION = data.version;
@@ -128,8 +132,16 @@ self.addEventListener('fetch', (event) => {
     
     // Route requests based on URL patterns
     if (url.pathname.startsWith('/api/')) {
-        // API requests - network first with cache fallback
-        event.respondWith(handleApiRequest(request));
+        // Special handling for version endpoint - always fetch fresh
+        if (url.pathname === '/api/version') {
+            event.respondWith(fetch(request, { cache: 'no-cache' }));
+        } else {
+            // Other API requests - network first with cache fallback
+            event.respondWith(handleApiRequest(request));
+        }
+    } else if (url.pathname === '/static/manifest.json') {
+        // Always fetch manifest fresh to get updated theme colors, etc.
+        event.respondWith(fetch(request, { cache: 'no-cache' }));
     } else if (url.pathname.startsWith('/static/') || url.pathname.includes('.css') || url.pathname.includes('.js')) {
         // Static assets - cache first
         event.respondWith(handleStaticAsset(request));

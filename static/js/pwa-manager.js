@@ -99,8 +99,13 @@ class PWAManager {
         // PWA installation prompt
         window.addEventListener('beforeinstallprompt', (e) => {
             console.log('PWA: Install prompt available');
+            console.log('PWA: beforeinstallprompt event:', e);
             e.preventDefault();
             this.deferredPrompt = e;
+            
+            // Log for debugging
+            console.log('PWA: deferredPrompt saved:', !!this.deferredPrompt);
+            
             // Install button now only available through user dropdown
         });
 
@@ -108,6 +113,7 @@ class PWAManager {
         window.addEventListener('appinstalled', (evt) => {
             console.log('PWA: App was installed');
             this.isInstalled = true;
+            this.deferredPrompt = null; // Clear the deferred prompt
             this.hideInstallButton();
             this.onInstallationComplete();
         });
@@ -117,6 +123,15 @@ class PWAManager {
             window.navigator.standalone === true) {
             this.isInstalled = true;
             console.log('PWA: Running in standalone mode');
+        }
+        
+        // Listen for service worker updates (can affect PWA installability)
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                console.log('PWA: Service worker controller changed');
+                // Refresh install state after SW update
+                setTimeout(() => this.checkInstallationStatus(), 1000);
+            });
         }
     }
 
@@ -145,7 +160,23 @@ class PWAManager {
 
     // Check if PWA can be installed (for dropdown visibility)
     canInstall() {
-        return !this.isInstalled;
+        // Can install if not already installed AND either:
+        // 1. We have a deferred prompt available, OR
+        // 2. We're on a platform that supports manual installation (iOS, etc.)
+        const hasInstallPrompt = !!this.deferredPrompt;
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isAndroid = /Android/.test(navigator.userAgent);
+        const isDesktop = !isIOS && !isAndroid;
+        
+        console.log('PWA: canInstall check:', {
+            isInstalled: this.isInstalled,
+            hasInstallPrompt,
+            isIOS,
+            isAndroid,
+            isDesktop
+        });
+        
+        return !this.isInstalled && (hasInstallPrompt || isIOS || isDesktop);
     }
 
     showInstallButton() {
@@ -181,9 +212,16 @@ class PWAManager {
     }
 
     showInstallPrompt() {
-        if (this.isInstalled || localStorage.getItem('pwa-prompt-dismissed')) {
+        if (this.isInstalled) {
+            console.log('PWA: Already installed, not showing prompt');
             return;
         }
+
+        // Always show the modal, even if previously dismissed
+        // User explicitly clicked install button
+        
+        // Close any existing modal first
+        this.hideInstallModal();
 
         const modal = document.createElement('div');
         modal.id = 'pwa-install-modal';
@@ -214,16 +252,42 @@ class PWAManager {
         
         document.body.appendChild(modal);
         this.addModalStyles();
+        
+        // Add show class after a brief delay for animation
+        setTimeout(() => {
+            modal.classList.add('pwa-modal-show');
+        }, 10);
     }
 
     async installApp() {
+        console.log('PWA: installApp() called');
+        console.log('PWA: deferredPrompt available:', !!this.deferredPrompt);
+        console.log('PWA: isInstalled:', this.isInstalled);
+        
+        // If already installed, don't try to install again
+        if (this.isInstalled) {
+            console.log('PWA: Already installed, hiding modal');
+            this.hideInstallModal();
+            return;
+        }
+
         if (!this.deferredPrompt) {
+            console.log('PWA: No deferredPrompt available, showing manual instructions');
             // Fallback: show manual installation instructions
             this.showManualInstallInstructions();
             return;
         }
 
         try {
+            console.log('PWA: Attempting to show install prompt');
+            
+            // Disable the install button to prevent multiple clicks
+            const installButtons = document.querySelectorAll('.pwa-modal-install');
+            installButtons.forEach(btn => {
+                btn.disabled = true;
+                btn.textContent = 'Installing...';
+            });
+            
             this.deferredPrompt.prompt();
             const result = await this.deferredPrompt.userChoice;
             
@@ -233,20 +297,42 @@ class PWAManager {
                 console.log('PWA: User accepted installation');
                 localStorage.setItem('pwa-prompt-shown', 'true');
                 this.deferredPrompt = null;
+                
+                // Hide modal immediately
+                this.hideInstallModal();
+                
                 // Refresh user dropdown to hide install option
                 if (window.authManager) {
                     window.authManager.updateNavigation();
                 }
+                
+                // Show success message
+                this.showSuccessMessage();
+                
             } else {
                 console.log('PWA: User dismissed installation');
-                localStorage.setItem('pwa-prompt-dismissed', 'true');
-                // Keep deferredPrompt available for future attempts from dropdown
+                // Don't mark as dismissed from manual action
+                // User explicitly tried to install, so keep option available
+                
+                // Re-enable buttons
+                installButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = 'Install Now';
+                });
             }
+            
             this.hideInstallButton();
-            this.hideInstallModal();
             
         } catch (error) {
             console.error('PWA: Installation failed:', error);
+            
+            // Re-enable buttons
+            const installButtons = document.querySelectorAll('.pwa-modal-install');
+            installButtons.forEach(btn => {
+                btn.disabled = false;
+                btn.textContent = 'Install Now';
+            });
+            
             this.showManualInstallInstructions();
         }
     }
@@ -300,7 +386,12 @@ class PWAManager {
     hideInstallModal() {
         const modal = document.getElementById('pwa-install-modal');
         if (modal) {
-            modal.remove();
+            modal.classList.remove('pwa-modal-show');
+            setTimeout(() => {
+                if (modal.parentElement) {
+                    modal.remove();
+                }
+            }, 300); // Wait for fade out animation
         }
     }
 
@@ -611,8 +702,13 @@ class PWAManager {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                animation: fadeIn 0.3s ease-out;
+                opacity: 0;
+                transition: opacity 0.3s ease-out;
                 pointer-events: auto;
+            }
+
+            .pwa-install-modal.pwa-modal-show {
+                opacity: 1;
             }
 
             .pwa-modal-backdrop {
@@ -823,10 +919,47 @@ class PWAManager {
         
         document.head.appendChild(styles);
     }
+    
+    // Force refresh of installation state (called by auth manager)
+    refreshInstallState() {
+        console.log('PWA: Refreshing install state');
+        this.checkInstallationStatus();
+        
+        // If auth manager exists, update navigation
+        if (window.authManager) {
+            setTimeout(() => {
+                window.authManager.updateNavigation();
+            }, 100);
+        }
+    }
+    
+    // Debug method to log current state
+    logCurrentState() {
+        console.log('PWA Manager State:', {
+            isInstalled: this.isInstalled,
+            hasDeferredPrompt: !!this.deferredPrompt,
+            canInstall: this.canInstall(),
+            userAgent: navigator.userAgent,
+            displayMode: window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser',
+            localStorage: {
+                promptShown: localStorage.getItem('pwa-prompt-shown'),
+                promptDismissed: localStorage.getItem('pwa-prompt-dismissed')
+            }
+        });
+    }
 }
 
 // Initialize PWA Manager
 window.pwaManager = new PWAManager();
+
+// Add debug logging on page load
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        if (window.pwaManager) {
+            window.pwaManager.logCurrentState();
+        }
+    }, 1000);
+});
 
 // Export for module systems
 if (typeof module !== 'undefined' && module.exports) {
