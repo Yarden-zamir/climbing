@@ -96,28 +96,40 @@ class CacheManager {
         
         // Add click to close functionality
         indicator.style.cursor = 'pointer';
-        indicator.onclick = () => {
-            indicator.style.opacity = '0';
+        
+        // Remove any existing click handlers to prevent duplicates
+        indicator.onclick = null;
+        
+        // Add click handler
+        indicator.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.closeConnectivityIndicator(indicator);
+        });
+        
+        // Auto-hide after delay (only for online status)
+        if (status === 'online') {
             setTimeout(() => {
                 if (indicator && indicator.parentNode) {
-                    indicator.parentNode.removeChild(indicator);
+                    this.closeConnectivityIndicator(indicator);
                 }
-            }, 300);
-        };
-        
-        // Auto-hide after delay
-        setTimeout(() => {
-            if (status === 'online' && indicator) {
-                indicator.style.opacity = '0';
-                setTimeout(() => {
-                    if (indicator && indicator.parentNode) {
-                        indicator.parentNode.removeChild(indicator);
-                    }
-                }, 300);
-            }
-        }, 3000);
+            }, 3000);
+        }
         
         this.addConnectivityStyles();
+    }
+
+    closeConnectivityIndicator(indicator) {
+        if (!indicator || !indicator.parentNode) return;
+        
+        indicator.style.opacity = '0';
+        indicator.style.transform = 'translateX(100%)';
+        
+        setTimeout(() => {
+            if (indicator && indicator.parentNode) {
+                indicator.parentNode.removeChild(indicator);
+            }
+        }, 300);
     }
 
     showOfflineRequestsProcessed(count) {
