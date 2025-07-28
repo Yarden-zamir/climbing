@@ -495,9 +495,14 @@ class AdminPanel {
         const formData = new FormData(document.getElementById('roleForm'));
         const newRole = formData.get('role');
         
+        // Create form data for the API call
+        const apiFormData = new FormData();
+        apiFormData.append('new_role', newRole);
+        
         try {
-            const response = await fetch(`/api/admin/users/${this.selectedUser}/role?new_role=${encodeURIComponent(newRole)}`, {
-                method: 'POST'
+            const response = await fetch(`/api/admin/users/${this.selectedUser}/role`, {
+                method: 'POST',
+                body: apiFormData
             });
             
             if (!response.ok) throw new Error('Failed to update role');
