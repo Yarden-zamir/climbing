@@ -28,6 +28,18 @@ class VersionManager {
     async startVersionChecking() {
         console.log('Version Manager: Starting version checking...');
         
+        // Wait for service worker to be ready if it's installing
+        if ('serviceWorker' in navigator) {
+            try {
+                await navigator.serviceWorker.ready;
+                console.log('Version Manager: Service worker is ready');
+                // Give it a moment to settle
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            } catch (error) {
+                console.warn('Version Manager: Service worker not available:', error);
+            }
+        }
+        
         // Get current version from service worker if available
         await this.getCurrentVersion();
         
@@ -38,14 +50,30 @@ class VersionManager {
         this.checkInterval = setInterval(() => {
             this.checkForUpdates();
         }, 5 * 60 * 1000);
+        
+        // Listen for service worker controller changes (new SW activated)
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                console.log('Version Manager: Service worker controller changed, rechecking version');
+                setTimeout(() => {
+                    this.getCurrentVersion().then(() => this.checkForUpdates());
+                }, 1000);
+            });
+        }
     }
 
     async getCurrentVersion() {
+        // First, try to get version from service worker
         if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
             try {
                 const messageChannel = new MessageChannel();
-                const versionPromise = new Promise((resolve) => {
+                const versionPromise = new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        reject(new Error('Service worker version request timeout'));
+                    }, 2000);
+                    
                     messageChannel.port1.onmessage = (event) => {
+                        clearTimeout(timeout);
                         resolve(event.data.version);
                     };
                 });
@@ -57,9 +85,18 @@ class VersionManager {
 
                 this.currentVersion = await versionPromise;
                 console.log('Version Manager: Current version from SW:', this.currentVersion);
+                return;
             } catch (error) {
                 console.warn('Version Manager: Failed to get version from service worker:', error);
             }
+        }
+        
+        // Fallback: If no service worker available, assume we have the latest version
+        // This happens after a reload when SW is unregistered
+        if (!navigator.serviceWorker.controller) {
+            console.log('Version Manager: No service worker controller, assuming current version matches server');
+            // We'll set this.currentVersion to match serverVersion in checkForUpdates
+            this.currentVersion = null; // Will be set to serverVersion if SW unavailable
         }
     }
 
@@ -82,6 +119,12 @@ class VersionManager {
             
             console.log('Version Manager: Server version:', this.serverVersion);
             console.log('Version Manager: Current version:', this.currentVersion);
+            
+            // If no service worker is available, assume we have the latest version
+            if (!navigator.serviceWorker.controller && this.serverVersion) {
+                console.log('Version Manager: No service worker available, assuming current version is latest');
+                this.currentVersion = this.serverVersion;
+            }
             
             // Check if we have a new version - keep nagging until they update
             if (this.currentVersion && 
@@ -114,7 +157,8 @@ class VersionManager {
             // Update the notification content with latest version info
             const versionText = this.updateNotification.querySelector('.version-update-text small');
             if (versionText) {
-                versionText.textContent = `Click to reload and get the latest features (${this.serverVersion})`;
+                const shortVersion = this.serverVersion ? this.serverVersion.substring(0, 7) : 'latest';
+                versionText.textContent = `Click to reload and get the latest features (${shortVersion})`;
             }
             return;
         }
@@ -128,7 +172,7 @@ class VersionManager {
                 <div class="version-update-icon">🚀</div>
                 <div class="version-update-text">
                     <strong>New version available!</strong>
-                    <small>Click to reload and get the latest features (${this.serverVersion})</small>
+                    <small>Click to reload and get the latest features (${this.serverVersion ? this.serverVersion.substring(0, 7) : 'latest'})</small>
                 </div>
                 <button class="version-update-btn" onclick="versionManager.reloadWithNewVersion()">
                     Reload
