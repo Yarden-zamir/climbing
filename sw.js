@@ -89,8 +89,9 @@ self.addEventListener('fetch', (event) => {
         // HTML pages: Stale-while-revalidate (instant load + background update)
         event.respondWith(staleWhileRevalidate(request));
     } else if (url.pathname.startsWith('/static/') || 
-               url.pathname.match(/\.(css|js|png|jpg|jpeg|gif|webp|svg|ico)$/i)) {
-        // Static assets: Cache-first with long expiry
+               url.pathname.match(/\.(css|js|png|jpg|jpeg|gif|webp|svg|ico)$/i) ||
+               url.hostname.includes('googleusercontent.com')) {
+        // Static assets and Google Photos images: Cache-first with long expiry
         event.respondWith(cacheFirst(request));
     } else {
         // Everything else: Network-first
