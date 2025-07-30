@@ -7,7 +7,6 @@ import math
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import uuid
@@ -86,28 +85,7 @@ logger = setup_logging()
 # Initialize FastAPI app
 app = FastAPI(title="Climbing App", description="A climbing album and crew management system")
 
-# Get git hash for version tracking
-def get_git_hash():
-    """Get current git commit hash for version tracking"""
-    try:
-        result = subprocess.run(
-            ['git', 'rev-parse', 'HEAD'], 
-            capture_output=True, 
-            text=True, 
-            cwd=os.path.dirname(os.path.abspath(__file__))
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-        else:
-            logger.warning(f"Git command failed: {result.stderr}")
-            return "dev-unknown"
-    except Exception as e:
-        logger.warning(f"Failed to get git hash: {e}")
-        return "dev-unknown"
-
-# Store git hash globally for version tracking
-CURRENT_VERSION = get_git_hash()
-logger.info(f"Current version hash: {CURRENT_VERSION}")
+# Simple app initialization - no version tracking needed
 
 logger.info("Starting Redis-based Climbing App initialization...")
 
@@ -244,22 +222,6 @@ async def get_meta(url: str = Query(..., description="URL to fetch metadata from
             "Cache-Control": "public, max-age=5,stale-while-revalidate=86400, immutable"
         }
         return Response(content=json.dumps(meta_data), media_type="application/json", headers=headers)
-
-
-@app.get("/api/version", tags=["utilities"])
-async def get_version():
-    """
-    Get the current application version based on git hash.
-    
-    Returns:
-        JSON object containing:
-        - version: Current git commit hash
-        - timestamp: Server timestamp when the version was retrieved
-    """
-    return {
-        "version": CURRENT_VERSION,
-        "timestamp": datetime.datetime.now().isoformat()
-    }
 
 
 # Albums endpoints moved to routes/albums.py
