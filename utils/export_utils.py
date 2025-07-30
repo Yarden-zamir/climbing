@@ -31,7 +31,19 @@ def encode_redis_protocol(command_parts):
 
 
 async def export_redis_database(redis_store) -> str:
-    """Export Redis database with mixed format: Redis commands for text data, Redis protocol for binary data"""
+    """
+    Export Redis database using Redis protocol format for full compatibility.
+    
+    Exports both text data (DB 0) and binary images (DB 1) in Redis protocol format,
+    ensuring that binary data is preserved exactly as-is during import.
+    
+    Usage:
+        Export: curl -s http://localhost:8000/api/admin/export | jq -r '.export' > export.txt
+        Import: cat export.txt | base64 -d | redis-cli --pipe
+    
+    Returns:
+        Base64-encoded Redis protocol data for safe JSON transport
+    """
     
     try:
         # Get keys from both text and binary Redis databases
