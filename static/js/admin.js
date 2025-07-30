@@ -680,8 +680,8 @@ class AdminPanel {
                 ✅ Database exported successfully!<br>
                 <small>File: ${filename}</small><br><br>
                 <strong>To load into Redis:</strong><br>
-                <code style="background: #f8f9fa; padding: 4px 8px; border-radius: 4px; font-family: monospace; display: block; margin: 8px 0;">grep -v '^#' ${filename} | redis-cli</code>
-                <small>Or for remote Redis: <code>grep -v '^#' ${filename} | redis-cli -h hostname -p 6379</code></small><br>
+                <code style="background: #f8f9fa; padding: 4px 8px; border-radius: 4px; font-family: monospace; display: block; margin: 8px 0;">cat ${filename} | jq -r '.export' | grep -v '^#' | redis-cli</code>
+                <small>Or for remote Redis: <code>cat ${filename} | jq -r '.export' | grep -v '^#' | redis-cli -h hostname -p 6379</code></small><br>
                 <small style="color: #6c757d;">Note: The grep command filters out comment lines before importing</small>
             `;
             
