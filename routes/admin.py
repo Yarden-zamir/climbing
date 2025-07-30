@@ -602,13 +602,8 @@ async def export_redis_database_admin(user: dict = Depends(get_current_user)):
         return JSONResponse({
             "success": True,
             "message": "Database exported successfully",
+            "import_command": "cat climbing_db_export.txt | base64 -d | redis-cli --pipe",
             "export": export_data,
-            "usage": {
-                "export_command": "curl -s http://localhost:8000/api/admin/export | jq -r '.export' > climbing_db_export.txt",
-                "import_command": "cat climbing_db_export.txt | base64 -d | redis-cli --pipe",
-                "format": "Redis protocol format with base64 encoding for JSON transport",
-                "note": "Includes both text data (DB 0) and binary images (DB 1)"
-            }
         })
 
     except Exception as e:
