@@ -617,6 +617,71 @@
 		.crew-option.selected .crew-option-name {
 			color: #ffae52;
 		}
+
+		/* Location selector (single-select) */
+		.location-selector {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+			gap: 0.5rem;
+			max-height: 200px;
+			overflow-y: auto;
+			padding: 1rem;
+			background: #222;
+			border-radius: 12px;
+			border: 2px solid #444;
+			margin-top: 0.5rem;
+		}
+
+		.location-option {
+			display: flex;
+			align-items: center;
+			gap: 0.7rem;
+			padding: 0.5rem;
+			border-radius: 8px;
+			cursor: pointer;
+			transition: all 0.2s ease;
+			background: transparent;
+		}
+
+		.location-option:hover {
+			background: #333;
+		}
+
+		.location-option.selected {
+			background: #03dac622;
+			border: 2px solid #03dac6;
+		}
+
+		.location-option input[type="radio"] {
+			display: none;
+		}
+
+		.location-option .location-pin {
+			width: 28px;
+			height: 28px;
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			border-radius: 50%;
+			border: 2px solid #555;
+			font-size: 0.95rem;
+		}
+
+		.location-option.selected .location-pin {
+			border-color: #03dac6;
+		}
+
+		.location-option-name {
+			color: #e0e0e0;
+			font-size: 0.95rem;
+			font-weight: 500;
+		}
+
+		.location-helper {
+			color: #aaa;
+			font-size: 0.85rem;
+			margin-top: 0.3rem;
+		}
 		
 		.new-person-form {
 			background: #222;
@@ -1122,8 +1187,10 @@
                             id="album-location" 
                             class="form-input" 
                             list="locations-datalist"
-                            placeholder="e.g., Kalymnos, Greece"
+                            placeholder="Type a new location or pick below"
                         >
+                        <div class="location-helper">Pick an existing location or type a new one</div>
+                        <div id="location-selector" class="location-selector"></div>
                         <!-- Global datalist used for both add and edit location autocompletes -->
                         <datalist id="locations-datalist"></datalist>
                     </div>
@@ -1210,8 +1277,10 @@
                             id="edit-album-location" 
                             class="form-input" 
                             list="locations-datalist"
-                            placeholder="e.g., Kalymnos, Greece"
+                            placeholder="Type a new location or pick below"
                         >
+                        <div class="location-helper">Pick an existing location or type a new one</div>
+                        <div id="edit-location-selector" class="location-selector"></div>
                     </div>
 
                     <div class="form-group">
@@ -1492,17 +1561,65 @@
 			let urlValidationTimeout;
 			let allSkills = [];
 			let selectedSkills = [];
+
+			function populateAddLocationSelector(locationNames) {
+				try {
+					const container = document.getElementById('location-selector');
+					const input = document.getElementById('album-location');
+					if (!container || !input) return;
+
+					const unique = Array.from(new Set((locationNames || []).filter(Boolean))).sort();
+					container.innerHTML = '';
+
+					unique.forEach(name => {
+						const option = document.createElement('div');
+						option.className = 'location-option';
+						option.innerHTML = `
+							<input type="radio" name="album-location-radio" value="${name}">
+							<div class="location-pin">📍</div>
+							<span class="location-option-name">${name}</span>
+						`;
+
+						option.addEventListener('click', () => {
+							input.value = name;
+							container.querySelectorAll('.location-option').forEach(o => {
+								o.classList.remove('selected');
+								const r = o.querySelector('input');
+								if (r) r.checked = false;
+							});
+							option.classList.add('selected');
+							const radio = option.querySelector('input');
+							if (radio) radio.checked = true;
+						});
+
+						container.appendChild(option);
+					});
+
+					// Sync selection when user types
+					input.addEventListener('input', () => {
+						const val = input.value.trim().toLowerCase();
+						container.querySelectorAll('.location-option').forEach(o => {
+							const text = (o.querySelector('.location-option-name')?.textContent || '').toLowerCase();
+							const match = val && text === val;
+							o.classList.toggle('selected', match);
+							const r = o.querySelector('input');
+							if (r) r.checked = match;
+						});
+					});
+				} catch (_) {}
+			}
 			
             // Fetch crew data, skills, and canonical locations
-            Promise.all([
+			Promise.all([
                 fetch('/api/crew').then(r => r.json()),
                 fetch('/api/skills').then(r => r.json()),
                 fetch('/api/locations').then(r => r.json())
             ]).then(([crew, skills, locations]) => {
 				crewData = crew;
 				allSkills = skills;
-                const locationNames = Array.isArray(locations) ? locations.map(l => l.name || l) : [];
-                if (window.fillLocationsDataList) window.fillLocationsDataList(locationNames);
+				const locationNames = Array.isArray(locations) ? locations.map(l => l.name || l) : [];
+				if (window.fillLocationsDataList) window.fillLocationsDataList(locationNames);
+				populateAddLocationSelector(locationNames);
 				populateCrewSelector();
 				initNewPersonForm();
 				// Trigger initial render of skills badges
@@ -2145,6 +2262,65 @@
 			let crewData = [];
 			let selectedCrew = new Set();
 			let editNewPeople = [];
+
+			function populateEditLocationSelector(locationNames) {
+				try {
+					const container = document.getElementById('edit-location-selector');
+					const input = document.getElementById('edit-album-location');
+					if (!container || !input) return;
+
+					const unique = Array.from(new Set((locationNames || []).filter(Boolean))).sort();
+					container.innerHTML = '';
+
+					unique.forEach(name => {
+						const option = document.createElement('div');
+						option.className = 'location-option';
+						option.innerHTML = `
+							<input type="radio" name="edit-album-location-radio" value="${name}">
+							<div class=\"location-pin\">📍</div>
+							<span class=\"location-option-name\">${name}</span>
+						`;
+
+						option.addEventListener('click', () => {
+							input.value = name;
+							container.querySelectorAll('.location-option').forEach(o => {
+								o.classList.remove('selected');
+								const r = o.querySelector('input');
+								if (r) r.checked = false;
+							});
+							option.classList.add('selected');
+							const radio = option.querySelector('input');
+							if (radio) radio.checked = true;
+						});
+
+						container.appendChild(option);
+					});
+
+					// Sync selection when user types
+					input.addEventListener('input', () => {
+						const val = input.value.trim().toLowerCase();
+						container.querySelectorAll('.location-option').forEach(o => {
+							const text = (o.querySelector('.location-option-name')?.textContent || '').toLowerCase();
+							const match = val && text === val;
+							o.classList.toggle('selected', match);
+							const r = o.querySelector('input');
+							if (r) r.checked = match;
+						});
+					});
+
+					// Pre-select current value if present
+					const current = (input.value || '').trim().toLowerCase();
+					if (current) {
+						container.querySelectorAll('.location-option').forEach(o => {
+							const text = (o.querySelector('.location-option-name')?.textContent || '').toLowerCase();
+							const match = text === current;
+							o.classList.toggle('selected', match);
+							const r = o.querySelector('input');
+							if (r) r.checked = match;
+						});
+					}
+				} catch (_) {}
+			}
 			
 			// Fetch crew data
 			fetch('/api/crew')
@@ -2153,6 +2329,16 @@
 					crewData = crew;
 				})
 				.catch(e => console.warn('Could not load crew:', e));
+
+			// Also load canonical locations for edit selector
+			fetch('/api/locations')
+				.then(r => r.json())
+				.then(locs => {
+					const names = Array.isArray(locs) ? locs.map(l => l.name || l) : [];
+					if (window.fillLocationsDataList) window.fillLocationsDataList(names);
+					populateEditLocationSelector(names);
+				})
+				.catch(() => {});
 			
 			// Delete album functionality
 			deleteAlbumBtn.addEventListener('click', async () => {
@@ -2278,8 +2464,23 @@
                     fetch('/api/locations').then(r => r.json()).then(locs => {
                         const names = Array.isArray(locs) ? locs.map(l => l.name || l) : [];
                         if (window.fillLocationsDataList) window.fillLocationsDataList(names);
+                        populateEditLocationSelector(names);
                     }).catch(() => {});
                     editLocationInput.value = albumMeta.location || '';
+                    // After setting value, reflect selection in custom selector if present
+                    try {
+                        const container = document.getElementById('edit-location-selector');
+                        if (container) {
+                            const val = (editLocationInput.value || '').trim().toLowerCase();
+                            container.querySelectorAll('.location-option').forEach(o => {
+                                const text = (o.querySelector('.location-option-name')?.textContent || '').toLowerCase();
+                                const match = val && text === val;
+                                o.classList.toggle('selected', match);
+                                const r = o.querySelector('input');
+                                if (r) r.checked = match;
+                            });
+                        }
+                    } catch (_) {}
                 }
 				
 							// Get current crew for this album
