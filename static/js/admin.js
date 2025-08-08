@@ -820,6 +820,17 @@ class AdminPanel {
         }
     }
 
+    async loadLocations() {
+        try {
+            const response = await fetch('/api/locations');
+            if (!response.ok) throw new Error('Failed to load locations');
+            const locations = await response.json();
+            this.locations = locations;
+        } catch (error) {
+            console.error('Error loading locations:', error);
+        }
+    }
+
     renderSkills(skills) {
         const container = document.getElementById('skills-list');
         

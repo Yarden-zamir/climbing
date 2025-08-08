@@ -1,11 +1,22 @@
 document.addEventListener("DOMContentLoaded", () => {
 	const container = document.getElementById("albums-container");
 	let allAlbums = []; // Store all album cards for filtering
-	let allPeople = new Set(); // Store all unique people
+  let allPeople = new Set(); // Store all unique people
+  let allLocations = new Set(); // Store all unique locations
 	
 	// Make allPeople globally accessible for edit functions
 	window.allPeople = allPeople;
+  window.allLocations = allLocations;
+  window.fillLocationsDataList = function fillLocationsDataList(locationNames) {
+    try {
+      const dl = document.getElementById('locations-datalist');
+      if (!dl) return;
+      const unique = Array.from(new Set((locationNames || []).filter(Boolean)));
+      dl.innerHTML = unique.map(name => `<option value="${name}"></option>`).join('');
+    } catch (_) {}
+  };
 	let selectedPeople = new Set(); // Store currently selected people
+  let selectedLocations = new Set(); // Store currently selected locations
 
 	// Cropping variables
 	let currentCropper = null;
@@ -192,7 +203,7 @@ const populateCard = async (card, meta) => {
 
 	const proxyImageUrl = `/get-image?url=${encodeURIComponent(meta.imageUrl)}`;
 
-	card.innerHTML = `
+  card.innerHTML = `
       <div class="img-container">
         <img src="${proxyImageUrl}" alt="${meta.title}" loading="lazy" onerror="this.style.display='none'">
       </div>
@@ -225,8 +236,15 @@ const populateCard = async (card, meta) => {
 	await typewriter(titleEl, meta.title);
 	await typewriter(descriptionEl, meta.description);
 
-	// Set date (no animation)
-	dateEl.textContent = meta.date || "";
+  // Set date (no animation)
+  dateEl.textContent = meta.date || "";
+  // Append location inline next to date (smaller font)
+  if (meta.location) {
+    const locSpan = document.createElement('span');
+    locSpan.className = 'album-location-inline';
+    locSpan.textContent = (meta.date ? ' · ' : '') + '📍 ' + meta.location;
+    dateEl.appendChild(locSpan);
+  }
 
 	// --- Crew Faces Stack ---
 	if (meta.crew && Array.isArray(meta.crew) && meta.crew.length > 0) {
@@ -293,7 +311,7 @@ function enableMobileCardHighlight() {
 }
 
 	// URL parameter handling
-	const updateUrlParams = () => {
+  const updateUrlParams = () => {
 		const url = new URL(window.location);
 		if (selectedPeople.size > 0) {
 			const peopleArray = Array.from(selectedPeople).sort();
@@ -301,10 +319,19 @@ function enableMobileCardHighlight() {
 		} else {
 			url.searchParams.delete('people');
 		}
+    if (selectedLocations.size > 0) {
+      const locationsArray = Array.from(selectedLocations).sort();
+      url.searchParams.set('locations', locationsArray.join(','));
+    } else {
+      url.searchParams.delete('locations');
+    }
 		history.pushState({}, '', url.toString());
 	};
 	
-	const loadFiltersFromUrl = () => {
+  const loadFiltersFromUrl = () => {
+    // Reset current selections before loading from URL
+    selectedPeople.clear();
+    selectedLocations.clear();
 		const params = new URLSearchParams(window.location.search);
 		const peopleParam = params.get('people');
 		if (peopleParam) {
@@ -319,9 +346,17 @@ function enableMobileCardHighlight() {
 				}
 			});
 		}
+    const locationsParam = params.get('locations');
+    if (locationsParam) {
+      const locsFromUrl = locationsParam.split(',').map(l => l.trim()).filter(l => l);
+      locsFromUrl.forEach(loc => {
+        const matchingLoc = Array.from(allLocations).find(x => x.toLowerCase() === loc.toLowerCase());
+        if (matchingLoc) selectedLocations.add(matchingLoc);
+      });
+    }
 	};
 	
-	const syncFiltersWithUI = () => {
+  const syncFiltersWithUI = () => {
 		// Update checkbox states based on selectedPeople
 		document.querySelectorAll('#people-filters input[type="checkbox"]').forEach(checkbox => {
 			const filterDiv = checkbox.closest('.person-filter');
@@ -332,6 +367,17 @@ function enableMobileCardHighlight() {
 				filterDiv.classList.remove('checked');
 			}
 		});
+
+    // Update checkbox states based on selectedLocations
+    document.querySelectorAll('#locations-filters input[type="checkbox"]').forEach(checkbox => {
+      const filterDiv = checkbox.closest('.person-filter');
+      checkbox.checked = selectedLocations.has(checkbox.value);
+      if (checkbox.checked) {
+        filterDiv.classList.add('checked');
+      } else {
+        filterDiv.classList.remove('checked');
+      }
+    });
 		
 		// Apply filters and update UI
 		applyFilters();
@@ -340,14 +386,13 @@ function enableMobileCardHighlight() {
 	};
 	
 	// Handle browser back/forward navigation
-	window.addEventListener('popstate', () => {
-		selectedPeople.clear();
-		loadFiltersFromUrl();
-		syncFiltersWithUI();
-	});
+  window.addEventListener('popstate', () => {
+    loadFiltersFromUrl();
+    syncFiltersWithUI();
+  });
 
 	// Filter popup functionality
-	const initFilterPopup = () => {
+  const initFilterPopup = () => {
 		const filterFab = document.getElementById('filter-fab');
 		const filterPopup = document.getElementById('filter-popup');
 		const filterOverlay = document.getElementById('filter-popup-overlay');
@@ -381,19 +426,19 @@ function enableMobileCardHighlight() {
 		filterClose.addEventListener('click', closePopup);
 		
 		// Initialize clear all button
-		document.getElementById('clear-all-btn').addEventListener('click', clearAllPeople);
+    document.getElementById('clear-all-btn').addEventListener('click', () => { clearAllPeople(); clearAllLocations(); });
 	};
 	
-	const updateFilterFab = () => {
+  const updateFilterFab = () => {
 		const filterFab = document.getElementById('filter-fab');
-		if (selectedPeople.size > 0) {
+    if (selectedPeople.size > 0 || selectedLocations.size > 0) {
 			filterFab.classList.add('has-filters');
 		} else {
 			filterFab.classList.remove('has-filters');
 		}
 	};
 
-	const populatePersonFilters = () => {
+  const populatePersonFilters = () => {
 		const filtersContainer = document.getElementById('people-filters');
 		const sortedPeople = Array.from(allPeople).sort();
 		
@@ -414,12 +459,33 @@ function enableMobileCardHighlight() {
 			});
 		});
 		
-		// Sync with current URL filters
-		loadFiltersFromUrl();
-		syncFiltersWithUI();
+    // Sync with current URL filters
+    loadFiltersFromUrl();
+    syncFiltersWithUI();
 	};
+
+  const populateLocationFilters = () => {
+    const filtersContainer = document.getElementById('locations-filters');
+    const sortedLocs = Array.from(allLocations).sort();
+
+    filtersContainer.innerHTML = sortedLocs.map(loc => `
+      <div class="person-filter">
+        <input type="checkbox" value="${loc}" onchange="handleFilterChange()">
+        <span>${loc}</span>
+      </div>
+    `).join('');
+
+    // Add click handlers to location filters
+    document.querySelectorAll('#locations-filters .person-filter').forEach(filter => {
+      filter.addEventListener('click', () => {
+        const checkbox = filter.querySelector('input[type="checkbox"]');
+        checkbox.checked = !checkbox.checked;
+        handleFilterChange();
+      });
+    });
+  };
 	
-	const handleFilterChange = () => {
+  const handleFilterChange = () => {
 		// Update selectedPeople based on checked checkboxes
 		selectedPeople.clear();
 		document.querySelectorAll('#people-filters input[type="checkbox"]:checked').forEach(checkbox => {
@@ -427,7 +493,17 @@ function enableMobileCardHighlight() {
 			checkbox.closest('.person-filter').classList.add('checked');
 		});
 		
-		// Remove checked class from unchecked items
+    // Update selectedLocations
+    selectedLocations.clear();
+    document.querySelectorAll('#locations-filters input[type="checkbox"]:checked').forEach(checkbox => {
+      selectedLocations.add(checkbox.value);
+      checkbox.closest('.person-filter').classList.add('checked');
+    });
+    document.querySelectorAll('#locations-filters input[type="checkbox"]:not(:checked)').forEach(checkbox => {
+      checkbox.closest('.person-filter').classList.remove('checked');
+    });
+
+    // Remove checked class from unchecked items
 		document.querySelectorAll('#people-filters input[type="checkbox"]:not(:checked)').forEach(checkbox => {
 			checkbox.closest('.person-filter').classList.remove('checked');
 		});
@@ -439,11 +515,12 @@ function enableMobileCardHighlight() {
 		updateUrlParams();
 	};
 	
-	const applyFilters = () => {
+  const applyFilters = () => {
 		const hasFilters = selectedPeople.size > 0;
+    const hasLocationFilters = selectedLocations.size > 0;
 		
 		allAlbums.forEach(({ card, meta }) => {
-			if (!hasFilters) {
+      if (!hasFilters && !hasLocationFilters) {
 				// No filters selected, show all
 				card.style.display = '';
 				card.classList.remove('filtered-out');
@@ -453,13 +530,22 @@ function enableMobileCardHighlight() {
 					typeof crew === 'string' ? crew : crew.name
 				);
 				
-				const hasAllSelectedPeople = Array.from(selectedPeople).every(selectedPerson => 
+        const hasAllSelectedPeople = Array.from(selectedPeople).every(selectedPerson => 
 					albumCrewNames.some(crewName => 
 						crewName.toLowerCase() === selectedPerson.toLowerCase()
 					)
 				);
+
+        // Check location filters (match ANY selected location)
+        const albumLocation = (meta.location || '').toLowerCase();
+        const matchesAnySelectedLocation = Array.from(selectedLocations).some(loc => 
+          albumLocation === loc.toLowerCase()
+        );
 				
-				if (hasAllSelectedPeople) {
+        const passPeople = hasFilters ? hasAllSelectedPeople : true;
+        const passLocations = hasLocationFilters ? matchesAnySelectedLocation : true;
+
+        if (passPeople && passLocations) {
 					card.style.display = '';
 					card.classList.remove('filtered-out');
 				} else {
@@ -470,26 +556,37 @@ function enableMobileCardHighlight() {
 		});
 	};
 	
-	const updateFilterStatus = () => {
+  const updateFilterStatus = () => {
 		const statusEl = document.getElementById('filter-status');
 		const visibleAlbums = allAlbums.filter(({ card }) => card.style.display !== 'none').length;
 		const totalAlbums = allAlbums.length;
 		
-		if (selectedPeople.size === 0) {
+    if (selectedPeople.size === 0 && selectedLocations.size === 0) {
 			statusEl.style.display = 'none';
 		} else {
 			statusEl.style.display = 'block';
-			const peopleList = Array.from(selectedPeople).join(', ');
-			statusEl.innerHTML = `✨ Showing <strong>${visibleAlbums}</strong> of <strong>${totalAlbums}</strong> albums featuring: <strong>${peopleList}</strong>`;
+      const peopleList = Array.from(selectedPeople).join(', ');
+      const locList = Array.from(selectedLocations).join(', ');
+      const who = selectedPeople.size > 0 ? `people: <strong>${peopleList}</strong>` : '';
+      const where = selectedLocations.size > 0 ? `location: <strong>${locList}</strong>` : '';
+      const sep = (who && where) ? ' • ' : '';
+      statusEl.innerHTML = `✨ Showing <strong>${visibleAlbums}</strong> of <strong>${totalAlbums}</strong> albums ${who}${sep}${where}`;
 		}
 	};
 	
-	const clearAllPeople = () => {
+  const clearAllPeople = () => {
 		document.querySelectorAll('#people-filters input[type="checkbox"]').forEach(checkbox => {
 			checkbox.checked = false;
 		});
 		handleFilterChange();
 	};
+
+  const clearAllLocations = () => {
+    document.querySelectorAll('#locations-filters input[type="checkbox"]').forEach(checkbox => {
+      checkbox.checked = false;
+    });
+    handleFilterChange();
+  };
 
 	function showSkeletonCards() {
 		// Skeleton cards are created in processAlbums
@@ -563,7 +660,7 @@ function enableMobileCardHighlight() {
 	async function processEnrichedAlbums(enrichedAlbums) {
 		const placeholders = document.querySelectorAll(".album-card.loading");
 		
-		// Extract all unique people from the enriched data
+    // Extract all unique people and locations from the enriched data
 		enrichedAlbums.forEach(({ metadata }) => {
 			if (metadata.crew && Array.isArray(metadata.crew)) {
 				metadata.crew.forEach(person => {
@@ -572,11 +669,18 @@ function enableMobileCardHighlight() {
 					}
 				});
 			}
+      if (metadata.location) {
+        allLocations.add(metadata.location);
+      }
 		});
 
-		// Initialize filter functionality
+    // Initialize filter functionality
 		initFilterPopup();
-		populatePersonFilters();
+    populatePersonFilters();
+    populateLocationFilters();
+
+    // Fill global locations datalist for add/edit modals
+    window.fillLocationsDataList(Array.from(allLocations));
 		
 		// Load filters from URL parameters
 		loadFiltersFromUrl();
@@ -618,7 +722,7 @@ function enableMobileCardHighlight() {
 			}
 			
 			// Use the new enriched endpoint that returns albums with pre-loaded metadata
-			const response = await fetch("/api/albums/enriched");
+            const response = await fetch(`/api/albums/enriched?_t=${Date.now()}`);
 			if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 			
 			const enrichedAlbums = await response.json();
@@ -671,7 +775,7 @@ function enableMobileCardHighlight() {
 			showSkeletonCards();
 			
 			// Use the new enriched endpoint that returns albums with pre-loaded metadata
-			const response = await fetch("/api/albums/enriched");
+            const response = await fetch(`/api/albums/enriched?_t=${Date.now()}`);
 			if (!response.ok) throw new Error("Could not load enriched album data");
 			
 			const enrichedAlbums = await response.json();
@@ -803,7 +907,7 @@ function enableMobileCardHighlight() {
 		const scrollPosition = window.pageYOffset || document.documentElement.scrollTop;
 		
 		// Use the new enriched endpoint that returns albums with pre-loaded metadata
-		const response = await fetch("/api/albums/enriched");
+        const response = await fetch(`/api/albums/enriched?_t=${Date.now()}`);
 		if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 		
 		const enrichedAlbums = await response.json();

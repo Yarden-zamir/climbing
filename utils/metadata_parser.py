@@ -11,10 +11,24 @@ def inject_css_version(html_path):
         html = f.read()
     css_path = "static/css/styles.css"
     version = int(Path(css_path).stat().st_mtime)
-    html = html.replace(
-        'href="/static/css/styles.css"',
-        f'href="/static/css/styles.css?v={version}"'
+    # Replace any existing styles.css reference (with or without query) with versioned one
+    html = re.sub(
+        r'href="/static/css/styles\.css(?:\?[^"}]*)?"',
+        f'href="/static/css/styles.css?v={version}"',
+        html
     )
+
+    # Also version all local static JS files individually
+    def version_js(match: re.Match) -> str:
+        filename = match.group(1)
+        js_path = Path("static/js") / filename
+        try:
+            js_version = int(js_path.stat().st_mtime)
+        except FileNotFoundError:
+            js_version = version  # fall back to css version timestamp
+        return f'src="/static/js/{filename}?v={js_version}"'
+
+    html = re.sub(r'src="/static/js/([^"\?]+\.js)(?:\?[^\"]*)?"', version_js, html)
     return html
 
 

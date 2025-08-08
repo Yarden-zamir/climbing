@@ -114,6 +114,54 @@ async def delete_skill(skill_name: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Failed to delete skill")
 
 
+# === LOCATIONS (FIRST-CLASS ENTITY) ===
+
+@router.get("/locations")
+async def get_locations():
+    """Get all canonical locations."""
+    redis_store = get_redis_store()
+
+    if not redis_store:
+        logger.error("Redis store not available")
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        locations = await redis_store.get_all_locations()
+        return JSONResponse(locations)
+    except Exception as e:
+        logger.error(f"Error getting locations: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get locations")
+
+
+@router.post("/locations")
+async def create_location(request: dict, user: dict = Depends(get_current_user)):
+    """Create a new canonical location (idempotent by name)."""
+    redis_store = get_redis_store()
+    permissions_manager = get_permissions_manager()
+
+    if not redis_store:
+        logger.error("Redis store not available")
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Allow all authenticated users to propose locations; can tighten later if needed
+        name = (request.get("name") or "").strip()
+        description = (request.get("description") or "").strip() or None
+        if not name:
+            raise HTTPException(status_code=400, detail="Location name is required")
+
+        await redis_store.add_location(name, description)
+        return JSONResponse({"success": True, "name": name})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating location: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create location")
+
 # === ACHIEVEMENTS MANAGEMENT ===
 
 @router.get("/achievements")

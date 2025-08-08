@@ -15,10 +15,10 @@
 	<meta name="apple-mobile-web-app-status-bar-style" content="default">
 	<meta name="apple-mobile-web-app-title" content="Climbing">
 	
-	<link rel="preconnect" href="https://fonts.googleapis.com" />
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-	<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet" />
-			<link rel="stylesheet" href="/static/css/styles.css?v=1.1" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet" />
+		<link rel="stylesheet" href="/static/css/styles.css" />
 	<!-- Cropper.js CSS -->
 	    <link rel="stylesheet" href="/static/css/cropper.min.css">
 	<style>
@@ -1076,6 +1076,11 @@
 				<div id="people-filters" class="people-filters">
 					<!-- People checkboxes will be populated here -->
 				</div>
+				<div style="height: 0.5rem;"></div>
+				<div style="color:#aaa; font-weight:600; margin: 0.2rem 0 0.3rem 0;">Locations</div>
+				<div id="locations-filters" class="people-filters">
+					<!-- Locations checkboxes will be populated here -->
+				</div>
 				<div id="filter-status" class="filter-status" style="display: none;">
 					<!-- Status message will appear here -->
 				</div>
@@ -1109,6 +1114,19 @@
 					<div id="album-preview" class="album-preview" style="display: none;">
 						<!-- Album preview will be populated here -->
 					</div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="album-location">Location (optional)</label>
+                        <input 
+                            type="text" 
+                            id="album-location" 
+                            class="form-input" 
+                            list="locations-datalist"
+                            placeholder="e.g., Kalymnos, Greece"
+                        >
+                        <!-- Global datalist used for both add and edit location autocompletes -->
+                        <datalist id="locations-datalist"></datalist>
+                    </div>
 					
 					<div class="form-group">
 						<label class="form-label">Select Crew Members</label>
@@ -1186,6 +1204,17 @@
 					</div>
 					
 					<div class="form-group">
+                        <label class="form-label" for="edit-album-location">Location</label>
+                        <input 
+                            type="text" 
+                            id="edit-album-location" 
+                            class="form-input" 
+                            list="locations-datalist"
+                            placeholder="e.g., Kalymnos, Greece"
+                        >
+                    </div>
+
+                    <div class="form-group">
 						<label class="form-label">Select Crew Members</label>
 						<div id="edit-crew-selector" class="crew-selector">
 							<!-- Crew options will be populated here -->
@@ -1273,7 +1302,7 @@
 	
 	<!-- Cropper.js JavaScript -->
 	<script src="/static/js/cropper.min.js"></script>
-	<script src="static/js/albums.js"></script>
+	<script src="/static/js/albums.js"></script>
 	<!-- PWA and Notification Management -->
 	<script src="/static/js/pwa-manager.js"></script>
 	<script src="/static/js/notification-health-manager.js"></script>
@@ -1464,13 +1493,16 @@
 			let allSkills = [];
 			let selectedSkills = [];
 			
-			// Fetch crew data and skills
-			Promise.all([
-				fetch('/api/crew').then(r => r.json()),
-				fetch('/api/skills').then(r => r.json())
-			]).then(([crew, skills]) => {
+            // Fetch crew data, skills, and canonical locations
+            Promise.all([
+                fetch('/api/crew').then(r => r.json()),
+                fetch('/api/skills').then(r => r.json()),
+                fetch('/api/locations').then(r => r.json())
+            ]).then(([crew, skills, locations]) => {
 				crewData = crew;
 				allSkills = skills;
+                const locationNames = Array.isArray(locations) ? locations.map(l => l.name || l) : [];
+                if (window.fillLocationsDataList) window.fillLocationsDataList(locationNames);
 				populateCrewSelector();
 				initNewPersonForm();
 				// Trigger initial render of skills badges
@@ -1913,6 +1945,8 @@
 				e.preventDefault();
 				
 				const url = urlInput.value.trim();
+				const locationField = document.getElementById('album-location');
+				const albumLocation = locationField ? locationField.value.trim() : '';
 				const crew = Array.from(selectedCrew);
 				
 				submitBtn.disabled = true;
@@ -1962,6 +1996,7 @@
 						body: JSON.stringify({
 							url,
 							crew,
+							location: albumLocation || null,
 							new_people: processedNewPeople
 						})
 					});
@@ -2235,6 +2270,17 @@
 					<div class="album-info-title">${albumMeta.title}</div>
 					<div class="album-info-url">${currentEditAlbum.url}</div>
 				`;
+
+				// Pre-fill location
+				const editLocationInput = document.getElementById('edit-album-location');
+                if (editLocationInput) {
+                    // Try to load canonical locations for autocomplete
+                    fetch('/api/locations').then(r => r.json()).then(locs => {
+                        const names = Array.isArray(locs) ? locs.map(l => l.name || l) : [];
+                        if (window.fillLocationsDataList) window.fillLocationsDataList(names);
+                    }).catch(() => {});
+                    editLocationInput.value = albumMeta.location || '';
+                }
 				
 							// Get current crew for this album
 			const currentCrew = albumMeta.crew || [];
@@ -2383,6 +2429,25 @@
 						crew: cleanCrew,
 						new_people: processedNewPeople
 					};
+
+					// Include metadata edits (location only for now)
+					const editLocationField = document.getElementById('edit-album-location');
+					if (editLocationField) {
+						const newLoc = editLocationField.value.trim();
+						if (newLoc !== ((currentEditAlbum && currentEditAlbum.meta && currentEditAlbum.meta.location) || '')) {
+							// Ensure location exists (idempotent), then update album metadata
+							fetch('/api/locations', {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({ name: newLoc })
+							}).catch(() => {});
+							fetch('/api/albums/edit-metadata', {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({ album_url: currentEditAlbum.url, location: newLoc })
+							}).catch(() => {});
+						}
+					}
 				
 				console.log('Selected crew before processing:', Array.from(selectedCrew));
 				console.log('New crew after Array.from:', newCrew);

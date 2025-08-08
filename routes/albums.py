@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, Response
 
 from auth import get_current_user, require_auth, get_current_user_hybrid, require_auth_hybrid
 from dependencies import get_redis_store, get_permissions_manager
-from models.api_models import AlbumSubmission, AlbumCrewEdit
+from models.api_models import AlbumSubmission, AlbumCrewEdit, AlbumMetadataUpdate
 from permissions import ResourceType
 from utils.metadata_parser import fetch_url, parse_meta_tags
 from validation import (
@@ -52,6 +52,7 @@ async def get_enriched_albums():
                     "description": album.get("description", ""),
                     "date": album.get("date", ""),
                     "imageUrl": album.get("image_url", ""),
+                    "location": album.get("location", ""),
                     "url": album["url"],
                     "crew": crew_with_status
                 }
@@ -216,7 +217,7 @@ async def submit_album(submission: AlbumSubmission, user: dict = Depends(get_cur
             metadata = parse_meta_tags(response.text, submission.url)
 
         # Add album to Redis
-        await redis_store.add_album(submission.url, submission.crew, metadata)
+        await redis_store.add_album(submission.url, submission.crew, metadata, location=submission.location)
 
         # Set resource ownership and increment count if permissions system available
         if permissions_manager is not None:
@@ -477,3 +478,66 @@ async def delete_album(album_url: str = Query(...), user: dict = Depends(get_cur
     except Exception as e:
         logger.error(f"Error deleting album: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to delete album")
+
+
+@router.post("/edit-metadata")
+async def edit_album_metadata(update: AlbumMetadataUpdate, user: dict = Depends(require_auth_hybrid)):
+    """Edit album metadata such as title/description/date and location."""
+    redis_store = get_redis_store()
+    permissions_manager = get_permissions_manager()
+
+    # Validate URL format
+    try:
+        validated_url = validate_google_photos_url(update.album_url)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not redis_store:
+        logger.error("Redis store not available")
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Check if album exists
+        existing_album = await redis_store.get_album(validated_url)
+        if not existing_album:
+            raise HTTPException(status_code=404, detail="Album not found")
+
+        # Check permissions
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_resource_access(
+                    user_id, ResourceType.ALBUM, validated_url, "edit"
+                )
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(
+                    status_code=403,
+                    detail="You don't have permission to edit this album. You can only edit albums you created.")
+
+        # Build metadata dict from provided fields
+        metadata = {
+            "title": update.title if update.title is not None else existing_album.get("title", ""),
+            "description": update.description
+            if update.description is not None else existing_album.get("description", ""), "date": update.date
+            if update.date is not None else existing_album.get("date", ""), "imageUrl": existing_album.get(
+                "image_url", ""),
+            "cover_image": update.cover_image
+            if update.cover_image is not None else existing_album.get("cover_image", "")}
+
+        await redis_store.update_album_metadata(validated_url, metadata, location=update.location)
+
+        return JSONResponse({
+            "success": True,
+            "message": "Album metadata updated successfully!",
+            "album_url": validated_url
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error editing album metadata: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

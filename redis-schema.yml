@@ -201,6 +201,9 @@ models:
       date:
         type: string
         validation: optional
+      location:
+        type: string
+        validation: optional
       image_url:
         type: string
         validation: optional
@@ -218,6 +221,31 @@ models:
     indexes:
     - "index:albums:all"
     - "index:albums:crew:{crew_member}" # for each crew member
+    - "index:albums:location:{location}" # reverse lookup for albums per location
+
+  location:
+    type: hash
+    prefix: "location:"
+    key_field: "name"
+    description: "Canonical locations where albums can be associated"
+    fields:
+      name:
+        type: string
+        validation: [ required, name ]
+        immutable: true
+      description:
+        type: string
+        validation: optional
+      created_at:
+        type: iso_datetime
+        validation: required
+        auto_generate: true
+      updated_at:
+        type: iso_datetime
+        validation: required
+        auto_update: true
+    indexes:
+    - "index:locations:all"
     # SHOULD BE SET: crew should be a Redis set for better performance
     # REVERSE LOOKUP: crew_member -> albums (already exists)
 
@@ -291,6 +319,12 @@ collections:
     type: set
     key: "index:tags:all"
     description: "All unique tags across all climbers"
+    element_type: string
+
+  locations:
+    type: set
+    key: "index:locations:all"
+    description: "All known location names"
     element_type: string
 
 # Image Storage

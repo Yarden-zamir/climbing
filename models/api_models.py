@@ -13,6 +13,8 @@ class NewPerson(BaseModel):
 class AlbumSubmission(BaseModel):
     url: str
     crew: List[str]
+    # Optional album location (free text, e.g., "Kalymnos, Greece")
+    location: Optional[str] = None
     new_people: Optional[List[NewPerson]] = []
 
 
@@ -30,3 +32,12 @@ class AddSkillsRequest(BaseModel):
 class AddAchievementsRequest(BaseModel):
     crew_name: str
     achievements: List[str] 
+
+
+class AlbumMetadataUpdate(BaseModel):
+    album_url: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    date: Optional[str] = None
+    cover_image: Optional[str] = None
+    location: Optional[str] = None

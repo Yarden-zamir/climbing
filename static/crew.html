@@ -14,7 +14,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Climbing">
     
-    	<link rel="stylesheet" href="/static/css/styles.css?v=1.1" />
+	<link rel="stylesheet" href="/static/css/styles.css" />
     <!-- Cropper.js CSS -->
     <link rel="stylesheet" href="/static/css/cropper.min.css">
 </head>
@@ -244,12 +244,13 @@
             CLIMBS_PER_LEVEL: 5,
             BASE_LEVEL: 1,
             
-            calculateLevel(skillsCount, climbs, achievementsCount = 0) {
+            calculateLevel(skillsCount, climbs, achievementsCount = 0, locationsCount = 0) {
                 const levelFromSkills = skillsCount;
                 const levelFromClimbs = Math.floor(climbs / this.CLIMBS_PER_LEVEL);
                 const levelFromAchievements = achievementsCount;
-                const totalLevel = this.BASE_LEVEL + levelFromSkills + levelFromClimbs + levelFromAchievements;
-                return { totalLevel, levelFromSkills, levelFromClimbs, levelFromAchievements };
+                const levelFromLocations = locationsCount;
+                const totalLevel = this.BASE_LEVEL + levelFromSkills + levelFromClimbs + levelFromAchievements + levelFromLocations;
+                return { totalLevel, levelFromSkills, levelFromClimbs, levelFromAchievements, levelFromLocations };
             },
             
             calculateClimbsToNextLevel(climbs) {
@@ -652,6 +653,8 @@
                         ? `<span class="achievement-badge">${achievement}</span>`
                         : ""
                 ).join("")}
+                ${Array.isArray(c.locations_visited) && c.locations_visited.length > 0 ?
+                    c.locations_visited.map(loc => `<span class="location-badge">${loc}</span>`).join("") : ""}
                 <span class="skill-add-badge" data-crew-name="${encodeURIComponent(c.name)}" title="Add skill" style="display: none;">+</span>
             </td>
             <td data-label="New">${c.is_new ? 'Yes' : 'No'}</td>
@@ -812,6 +815,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     <div class="progress-bar-inner crew" style="width:0%"></div>
                     <div class="progress-bar-inner skills" style="width:0%"></div>
                     <div class="progress-bar-inner climbs" style="width:0%"></div>
+                    ${(c.level_from_locations && (c.locations_visited || []).length > 0) ? `<div class="progress-bar-inner locations" style="width:0%"></div>` : ''}
                     ${(c.level_from_achievements && (c.achievements || []).length > 0) ? `<div class="progress-bar-inner achievements" style="width:0%"></div>` : ''}
                     <div class="progress-bar-text">Lv. ${c.level}</div>
                 </div>
@@ -819,6 +823,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     <span class="crew">1 level from being crew</span>
                     <span class="skills">${c.level_from_skills} levels from ${c.skills.length} skills</span>
                     <span class="climbs">${Math.floor(c.climbs / 5)} levels from <a href="/albums?people=${encodeURIComponent(c.name)}" class="climbs-link">${c.climbs} climbs</a></span>
+                    ${(c.level_from_locations && (c.locations_visited || []).length > 0) ? `<span class="locations">${c.level_from_locations} levels from ${c.locations_visited.length} locations</span>` : ''}
                     ${(c.level_from_achievements && (c.achievements || []).length > 0) ? `<span class="achievements">${c.level_from_achievements} levels from ${c.achievements.length} achievements</span>` : ''}
                 </div>
             </div>

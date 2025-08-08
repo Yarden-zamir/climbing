@@ -641,6 +641,11 @@ nav a.active {
 	text-align: right;
 }
 
+.album-date .album-location-inline {
+    color: #9adbbd;
+    font-size: 0.8rem;
+}
+
 .page-fade {
 	opacity: 1;
 	transition: opacity 0.5s cubic-bezier(.4,0,.2,1);
@@ -875,13 +880,6 @@ nav a.active {
         font-size: 1.15em;
         align-items: center;
         order: 2;
-    }
-    .crew-table td[data-label="Skills"] {
-        flex: 1 1 100%;
-        margin-top: 0.5em;
-        flex-wrap: wrap;
-        font-size: 1.1em;
-        order: 3;
     }
     .crew-table td[data-label="Location"] {
         display: none !important;
@@ -1658,6 +1656,22 @@ nav a.active {
     margin: 0 0.2em 0.2em 0;
     font-size: 1.05em;
     font-weight: 600;
+}
+
+.location-badge {
+    display: inline-block;
+    background: #00b894; /* distinct green for locations */
+    color: #1a1a1a;
+    border-radius: 6px;
+    padding: 0.3em 0.8em;
+    margin: 0 0.2em 0.2em 0;
+    font-size: 1.05em;
+    font-weight: 600;
+}
+
+/* Level breakdown bars */
+.progress-bar-inner.locations {
+    background: #00b894; /* match location-badge */
 }
 
 /* .achievement-badge:hover {
@@ -2476,7 +2490,7 @@ nav a.active {
         flex: 1 1 100%;
         margin-top: 0.5em;
         flex-wrap: wrap;
-        font-size: 0.97em;
+        font-size: 0.8em;
         order: 3;
     }
     .crew-table td[data-label="Location"] {

@@ -218,16 +218,26 @@ class RedisDataStore:
         climber_data["is_new"] = climber_data.get("is_new", "false") == "true"
 
         # Calculate levels dynamically using current logic (ignore stored values)
-        total_level, level_from_skills, level_from_climbs, level_from_achievements = self.calculate_climber_level(
-            len(skills), climbs, len(achievements))
+        # Include locations visited in level calculation
+        locations_visited = await self.get_locations_for_climber(name)
+        total_level, level_from_skills, level_from_climbs, level_from_achievements, level_from_locations = self.calculate_climber_level(
+            len(skills), climbs, len(achievements), len(locations_visited))
         climber_data["level"] = total_level
         climber_data["level_from_skills"] = level_from_skills
         climber_data["level_from_climbs"] = level_from_climbs
         climber_data["level_from_achievements"] = level_from_achievements
+        climber_data["level_from_locations"] = level_from_locations
 
         # Add computed fields
         climber_data["first_climb_date"] = climber_data.get("first_climb_date", None)
         climber_data["face"] = f"/redis-image/climber/{name}/face"
+
+        # Dynamically compute locations visited from albums index
+        try:
+            locations_visited = await self.get_locations_for_climber(name)
+        except Exception:
+            locations_visited = []
+        climber_data["locations_visited"] = locations_visited
 
         return climber_data
 
@@ -389,7 +399,7 @@ class RedisDataStore:
 
     # === ENHANCED ALBUM METHODS ===
 
-    async def add_album(self, url: str, crew: List[str], metadata: Dict = None) -> None:
+    async def add_album(self, url: str, crew: List[str], metadata: Dict = None, location: Optional[str] = None) -> None:
         """Add album with validation and proper data types"""
 
         # Validate inputs
@@ -415,6 +425,10 @@ class RedisDataStore:
                 "cover_image": metadata.get("cover_image", "")
             })
 
+        # Optional album location (free text)
+        if location:
+            album_data["location"] = location.strip()
+
         # Use pipeline for atomic operations
         pipe = self.redis.pipeline()
 
@@ -431,6 +445,15 @@ class RedisDataStore:
         # Index by crew members
         for crew_member in crew:
             pipe.sadd(f"index:albums:crew:{crew_member}", url)
+
+        # Associate to location entity (create if missing) and index albums by location
+        if location:
+            safe_location = location.strip()
+            if safe_location:
+                # Ensure location exists
+                await self.ensure_location_exists(safe_location)
+                # Add reverse index for albums by location
+                pipe.sadd(f"index:albums:location:{safe_location}", url)
 
         # Update climb counts for crew members
         for crew_member in crew:
@@ -509,7 +532,7 @@ class RedisDataStore:
         
         logger.info(f"Updated album crew: {url} from {old_crew} to {new_crew}")
 
-    async def update_album_metadata(self, url: str, metadata: Dict) -> None:
+    async def update_album_metadata(self, url: str, metadata: Dict, location: Optional[str] = None) -> None:
         """Update album metadata without changing crew data"""
         
         # Validate inputs
@@ -529,7 +552,26 @@ class RedisDataStore:
             "cover_image": metadata.get("cover_image", ""),
             "updated_at": datetime.now().isoformat()
         }
-        
+
+        # Handle location update via canonical location entity with reverse index maintenance
+        if location is not None:
+            location = location.strip()
+            # Fetch current album to update reverse index
+            current_album = await self.get_album(url)
+            old_location = (current_album or {}).get("location")
+            if old_location and old_location != location:
+                # Remove from old index
+                self.redis.srem(f"index:albums:location:{old_location}", url)
+            if location:
+                await self.ensure_location_exists(location)
+                metadata_update["location"] = location
+                self.redis.sadd(f"index:albums:location:{location}", url)
+            else:
+                # Clearing location
+                metadata_update["location"] = ""
+                if old_location:
+                    self.redis.srem(f"index:albums:location:{old_location}", url)
+
         # Update album with new metadata
         self.redis.hset(album_key, mapping=metadata_update)
         logger.info(f"Updated metadata for album: {url}")
@@ -546,6 +588,7 @@ class RedisDataStore:
             return False
         
         crew = album["crew"]
+        location = album.get("location")
         
         # Use pipeline for atomic operations
         pipe = self.redis.pipeline()
@@ -560,7 +603,11 @@ class RedisDataStore:
         
         # Remove from main index
         pipe.srem("index:albums:all", url)
-        
+
+        # Remove from location index
+        if location:
+            pipe.srem(f"index:albums:location:{location}", url)
+
         # Delete album data and crew set
         pipe.delete(f"album:{url}")
         pipe.delete(f"album:{url}:crew")
@@ -737,16 +784,19 @@ class RedisDataStore:
     # === UTILITY METHODS ===
 
     @staticmethod
-    def calculate_climber_level(skills_count: int, climbs: int, achievements_count: int = 0) -> tuple[int, int, int, int]:
+    def calculate_climber_level(
+            skills_count: int, climbs: int, achievements_count: int = 0, locations_count: int = 0) -> tuple[
+            int, int, int, int, int]:
         """
         Central level calculation for climbers.
-        Returns: (total_level, level_from_skills, level_from_climbs, level_from_achievements)
+        Returns: (total_level, level_from_skills, level_from_climbs, level_from_achievements, level_from_locations)
         """
         level_from_skills = skills_count
         level_from_climbs = climbs // 5  # 1 level per 5 climbs
         level_from_achievements = achievements_count
-        total_level = 1 + level_from_skills + level_from_climbs + level_from_achievements
-        return total_level, level_from_skills, level_from_climbs, level_from_achievements
+        level_from_locations = locations_count
+        total_level = 1 + level_from_skills + level_from_climbs + level_from_achievements + level_from_locations
+        return total_level, level_from_skills, level_from_climbs, level_from_achievements, level_from_locations
 
     @staticmethod
     def calculate_climbs_to_next_level(climbs: int) -> int:
@@ -880,6 +930,79 @@ class RedisDataStore:
         # Sort by level (highest first), then by name
         climbers.sort(key=lambda x: (-x["level"], x["name"]))
         return climbers
+
+    async def get_locations_for_climber(self, name: str) -> List[str]:
+        """Return sorted unique list of canonical location names this climber has visited."""
+        name = self._validate_name(name)
+        album_urls = list(self.redis.smembers(f"index:albums:crew:{name}"))
+        if not album_urls:
+            return []
+
+        # Pipeline hget for each album location
+        pipe = self.redis.pipeline()
+        for url in album_urls:
+            pipe.hget(f"album:{url}", "location")
+        results = pipe.execute()
+
+        locations: Set[str] = set()
+        for loc in results:
+            if loc and isinstance(loc, str):
+                trimmed = loc.strip()
+                if trimmed:
+                    locations.add(trimmed)
+
+        return sorted(list(locations))
+
+    # === LOCATIONS API ===
+    async def ensure_location_exists(self, name: str) -> None:
+        name = self._validate_name(name)
+        key = f"location:{name}"
+        if self.redis.exists(key):
+            return
+        # Create location hash and index it
+        self.redis.hset(key, mapping={
+            "name": name,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        })
+        self.redis.sadd("index:locations:all", name)
+
+    async def get_all_locations(self) -> List[Dict]:
+        names = list(self.redis.smembers("index:locations:all"))
+        if not names:
+            return []
+        pipe = self.redis.pipeline()
+        for nm in names:
+            pipe.hgetall(f"location:{nm}")
+        results = pipe.execute()
+        locations: List[Dict] = []
+        for nm, data in zip(names, results):
+            if data:
+                locations.append(data)
+        locations.sort(key=lambda x: x.get("name", ""))
+        return locations
+
+    async def add_location(self, name: str, description: Optional[str] = None) -> None:
+        name = self._validate_name(name)
+        key = f"location:{name}"
+        if self.redis.exists(key):
+            # Update description if provided
+            if description is not None:
+                self.redis.hset(key, mapping={
+                    "description": description,
+                    "updated_at": datetime.now().isoformat()
+                })
+            return
+        mapping = {
+            "name": name,
+            "description": description or "",
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+        pipe = self.redis.pipeline()
+        pipe.hset(key, mapping=mapping)
+        pipe.sadd("index:locations:all", name)
+        pipe.execute()
 
     async def get_all_albums(self) -> List[Dict]:
         """Get all albums - backward compatible"""
