@@ -1026,6 +1026,7 @@ nav a.active {
 .progress-bar-inner.crew {
     background: linear-gradient(90deg, #03dac6, #03dac6);
 }
+
 .progress-bar-inner.skills {
     background: linear-gradient(90deg, #bb86fc, #bb86fc);
 }
@@ -1066,6 +1067,7 @@ nav a.active {
     font-weight: 600;
 }
 .progress-breakdown .crew { color: #03dac6; }
+.progress-breakdown .locations { color: #03dac6; }
 .progress-breakdown .skills { color: #bb86fc; }
 .progress-breakdown .climbs { color: #ffae52; }
 .progress-breakdown .achievements { color: #f3646e; }
@@ -1661,7 +1663,7 @@ nav a.active {
 
 /* Level breakdown bars */
 .progress-bar-inner.locations {
-    background: #00b894; /* teal to represent locations */
+    background: #00b894 !important; /* teal to represent locations */
 }
 
 /* .achievement-badge:hover {
@@ -1696,7 +1698,7 @@ nav a.active {
 }
 
 .address {
-    color: #cf6679;
+    color: #03dac6;
     font-size: 1.05em;
 }
 
