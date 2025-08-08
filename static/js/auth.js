@@ -946,7 +946,7 @@ class AuthManager {
             if (isExpired) {
                 expiryStatus = '<span style="color: #cf6679; font-weight: 600;">⚠️ EXPIRED</span>';
             } else if (isExpiringSoon) {
-                expiryStatus = '<span style="color: #ffae52; font-weight: 600;">⏰ Expires soon</span>';
+                expiryStatus = '<span style="color: #ff7a3d; font-weight: 600;">⏰ Expires soon</span>';
             }
 
             return `
@@ -2312,8 +2312,8 @@ input:checked + .slider:before {
 
             .clear-preferences-btn:hover {
                 background: rgba(255, 174, 82, 0.1);
-                color: #ffae52;
-                border-left-color: #ffae52;
+                color: #ff7a3d;
+                border-left-color: #ff7a3d;
             }
 
             /* Pending Notification Styles */
@@ -2369,7 +2369,7 @@ input:checked + .slider:before {
 
             .pending-notification-icon {
                 font-size: 2rem;
-                color: #ffae52;
+                color: #ff7a3d;
                 flex-shrink: 0;
             }
 
@@ -2392,7 +2392,7 @@ input:checked + .slider:before {
             }
 
             .status-badge {
-                background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+                background: linear-gradient(135deg, #ff7a3d 0%, #ff7a3d 100%);
                 color: #121212;
                 padding: 6px 12px;
                 border-radius: 6px;

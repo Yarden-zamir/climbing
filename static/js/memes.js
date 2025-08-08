@@ -869,7 +869,7 @@ class MemesManager {
 			switch (status) {
 				case 'uploading':
 					progressBar.style.width = '50%';
-					progressBar.style.background = 'linear-gradient(90deg, #ffae52, #ff6b35)';
+					progressBar.style.background = 'linear-gradient(90deg, #ff7a3d, #ff7a3d)';
 					break;
 				case 'success':
 					progressBar.style.width = '100%';

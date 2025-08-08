@@ -1031,8 +1031,7 @@ nav a.active {
     background: linear-gradient(90deg, #bb86fc, #bb86fc);
 }
 .progress-bar-inner.climbs {
-    background: linear-gradient(90deg, #ff8052
-    , #ff5252);
+    background: #ff7a3d;
 }
 .progress-bar-inner.achievements {
     background: linear-gradient(90deg, #f3646e, #531c1f);
@@ -1069,14 +1068,14 @@ nav a.active {
 .progress-breakdown .crew { color: #ffffff; }
 .progress-breakdown .locations { color: #03dac6; }
 .progress-breakdown .skills { color: #bb86fc; }
-.progress-breakdown .climbs { color: #ffae52; }
+.progress-breakdown .climbs { color: #ff7a3d; }
 .progress-breakdown .achievements { color: #f3646e; }
 
 .progress-next-label {
     font-size: 1em;
     font-weight: 600;
     margin: 0.7em 0 0.3em 0;
-    color: #ffae52;
+    color: #ff7a3d;
     text-align: center;
 }
 .progress-next-bar {
@@ -1085,13 +1084,13 @@ nav a.active {
     background: #181818;
     border-radius: 8px;
     overflow: hidden;
-    border: 1.5px solid #ffae52;
+    border: 1.5px solid #ff7a3d;
     position: relative;
     margin-bottom: 0.2em;
 }
 .progress-next-bar-inner {
     height: 100%;
-    background: linear-gradient(90deg, #ffae52, #ff5252);
+    background: #ff7a3d;
     border-radius: 8px;
     transition: width 0.4s cubic-bezier(.4,0,.2,1);
 }
@@ -1229,7 +1228,7 @@ nav a.active {
 
 /* New climber styling for album crew faces */
 .album-crew-face.new-climber {
-  border: 2px solid #ffae52;
+  border: 2px solid #ff7a3d;
   animation: new-climber-glow 3s ease-in-out infinite;
   position: relative;
 }
@@ -1239,7 +1238,7 @@ nav a.active {
   position: absolute;
   top: -6px;
   right: -6px;
-  background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+  background: linear-gradient(135deg, #ff7a3d 0%, #ff7a3d 100%);
   color: #121212;
   font-size: 8px;
   font-weight: 700;
@@ -1250,7 +1249,7 @@ nav a.active {
   transform: scale(0.7);
   white-space: nowrap;
   box-shadow: 0 1px 4px rgba(255, 174, 82, 0.6);
-  border: 1px solid #ff6b35;
+  border: 1px solid #ff7a3d;
 }
 .album-card-content {
   padding-bottom: 3.0em;
@@ -1319,7 +1318,7 @@ nav a.active {
 
 /* New climber face styling */
 .crew-face.new-climber {
-    border: 3px solid #ffae52;
+    border: 3px solid #ff7a3d;
     animation: new-climber-glow 3s ease-in-out infinite;
     position: relative;
 }
@@ -1329,7 +1328,7 @@ nav a.active {
     position: absolute;
     top: -10px;
     right: -15px;
-    background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+    background: linear-gradient(135deg, #ff7a3d 0%, #ff7a3d 100%);
     color: #121212;
     font-size: 10px;
     font-weight: 700;
@@ -1340,16 +1339,16 @@ nav a.active {
     transform: scale(0.85);
     white-space: nowrap;
     box-shadow: 0 2px 8px rgba(255, 174, 82, 0.6);
-    border: 1px solid #ff6b35;
+    border: 1px solid #ff7a3d;
 }
 
 @keyframes new-climber-glow {
     0%, 100% { 
-        border-color: #ffae52;
+        border-color: #ff7a3d;
         box-shadow: 0 0 8px rgba(255, 174, 82, 0.4);
     }
     50% { 
-        border-color: #ff6b35;
+        border-color: #ff7a3d;
         box-shadow: 0 0 18px rgba(255, 174, 82, 0.8);
     }
 }
@@ -1593,7 +1592,7 @@ nav a.active {
     position: absolute;
     top: -5px;
     right: -5px;
-    background: linear-gradient(135deg, #ffae52 0%, #ff6b35 100%);
+    background: linear-gradient(135deg, #ff7a3d 0%, #ff7a3d 100%);
     color: #121212;
     padding: 4px 8px;
     border-radius: 8px;
@@ -1607,7 +1606,7 @@ nav a.active {
     text-decoration: none;
     transition: all 0.2s ease-in-out;
     box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
-    border: 1px solid #ff6b35;
+    border: 1px solid #ff7a3d;
 }
 
 .new-climber-badge:hover {
@@ -1667,7 +1666,7 @@ nav a.active {
 }
 
 /* .achievement-badge:hover {
-    background: #ff6b35;
+    background: #ff7a3d;
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(255, 174, 82, 0.4);
 } */
@@ -1703,14 +1702,14 @@ nav a.active {
 }
 
 .climbs-link {
-    color: #ffae52;
+    color: #ff7a3d;
     text-decoration: underline;
     border-bottom: 1px solid transparent;
     transition: all 0.2s ease;
 }
 
 .climbs-link:hover {
-    color: #ffae52;
+    color: #ff7a3d;
     border-bottom-color: #bb86fc;
 }
 
@@ -1794,7 +1793,7 @@ nav a.active {
     right: 2rem;
     width: 64px;
     height: 64px;
-    background: linear-gradient(135deg, #ff6b35 0%, #e63946 100%);
+    background: linear-gradient(135deg, #ff7a3d 0%, #e63946 100%);
     border: none;
     border-radius: 50%;
     cursor: pointer;
@@ -1902,7 +1901,7 @@ nav a.active {
     margin: 0;
     font-size: 1.5rem;
     color: #333;
-    background: linear-gradient(135deg, #ff6b35 0%, #e63946 100%);
+    background: linear-gradient(135deg, #ff7a3d 0%, #e63946 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -2259,7 +2258,7 @@ nav a.active {
 .achievement-badge-toggleable {
     display: inline-block;
     background: #2a2a2a;
-    color: #ffae52;
+    color: #ff7a3d;
     border: 2px solid #444;
     border-radius: 8px;
     padding: 0.5rem 1rem;
@@ -2273,22 +2272,22 @@ nav a.active {
 
 .achievement-badge-toggleable:hover {
     background: #333;
-    border-color: #ffae52;
+    border-color: #ff7a3d;
     transform: translateY(-2px);
     box-shadow: 0 4px 8px rgba(255, 174, 82, 0.3);
 }
 
 .achievement-badge-toggleable.selected {
-    background: #ffae52;
+    background: #ff7a3d;
     color: #1a1a1a;
-    border-color: #ff6b35;
+    border-color: #ff7a3d;
     font-weight: 700;
 }
 
 .achievement-badge-toggleable.selected:hover {
-    background: #ff6b35;
+    background: #ff7a3d;
     color: #1a1a1a;
-    border-color: #ff6b35;
+    border-color: #ff7a3d;
 }
 
 /* Image Cropping Modal */

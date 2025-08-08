@@ -1264,7 +1264,7 @@ function updateEditNewPeopleList() {
                 height: 40px;
                 border-radius: 50%;
                 object-fit: cover;
-                border: 2px solid #ffae52;
+                border: 2px solid #ff7a3d;
             " alt="${person.name}">` : 
             `<div style="
                 width: 40px;
@@ -1280,7 +1280,7 @@ function updateEditNewPeopleList() {
         const skillsDisplay = person.skills && person.skills.length > 0 ? 
             person.skills.map(skill => 
                 `<span style="
-                    background: #ffae52;
+                    background: #ff7a3d;
                     color: #1a1a1a;
                     padding: 0.2rem 0.5rem;
                     border-radius: 12px;
@@ -1292,7 +1292,7 @@ function updateEditNewPeopleList() {
         item.innerHTML = `
             ${imagePreview}
             <div style="flex: 1;">
-                <div style="color: #ffae52; font-weight: 600; margin-bottom: 0.3rem;">${person.name}</div>
+                <div style="color: #ff7a3d; font-weight: 600; margin-bottom: 0.3rem;">${person.name}</div>
                 <div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">${skillsDisplay}</div>
             </div>
             <button type="button" style="
