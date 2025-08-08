@@ -638,23 +638,25 @@
             <td data-label="Name">${c.name}</td>
             <td data-label="Location"><span class="address">${c.location.join(", ")}</span></td>
             <td data-label="Skills">
-                ${skillOrder.map(skill =>
-                    c.skills.includes(skill)
-                        ? `<span class="skill-badge">${skill}</span>`
-                        : ""
-                ).join("")}
-                ${tagOrder.map(tag =>
-                    c.tags && c.tags.includes(tag)
-                        ? `<span class="tag-badge">${tag}</span>`
-                        : ""
-                ).join("")}
-                ${achievementOrder.map(achievement =>
-                    c.achievements && c.achievements.includes(achievement)
-                        ? `<span class="achievement-badge">${achievement}</span>`
-                        : ""
-                ).join("")}
-                ${Array.isArray(c.locations_visited) && c.locations_visited.length > 0 ?
-                    c.locations_visited.map(loc => `<span class="location-badge">${loc}</span>`).join("") : ""}
+                ${[
+                    ...skillOrder.map(skill =>
+                        c.skills.includes(skill)
+                            ? `<span class="skill-badge">${skill}</span>`
+                            : ""
+                    ),
+                    ...tagOrder.map(tag =>
+                        c.tags && c.tags.includes(tag)
+                            ? `<span class="tag-badge">${tag}</span>`
+                            : ""
+                    ),
+                    ...achievementOrder.map(achievement =>
+                        c.achievements && c.achievements.includes(achievement)
+                            ? `<span class="achievement-badge">${achievement}</span>`
+                            : ""
+                    ),
+                    ...(Array.isArray(c.locations_visited) && c.locations_visited.length > 0 ?
+                        c.locations_visited.map(loc => `<span class="location-badge">${loc}</span>`) : [])
+                ].filter(badge => badge !== "").join("")}
                 <span class="skill-add-badge" data-crew-name="${encodeURIComponent(c.name)}" title="Add skill" style="display: none;">+</span>
             </td>
             <td data-label="New">${c.is_new ? 'Yes' : 'No'}</td>
