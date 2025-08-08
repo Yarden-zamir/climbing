@@ -1183,15 +1183,11 @@
                     <div class="form-group">
                         <label class="form-label" for="album-location">Location (optional)</label>
                         <input 
-                            type="text" 
-                            id="album-location" 
-                            class="form-input" 
-                            list="locations-datalist"
-                            placeholder="Type a new location or pick below"
+                            type="hidden" 
+                            id="album-location"
                         >
-                        <div class="location-helper">Pick an existing location or type a new one</div>
                         <div id="location-selector" class="location-selector"></div>
-                        <!-- Global datalist used for both add and edit location autocompletes -->
+                        <!-- Global datalist used for both add and edit location autocompletes (may be updated programmatically) -->
                         <datalist id="locations-datalist"></datalist>
                     </div>
 					
@@ -1270,16 +1266,12 @@
 						<!-- Album info will be populated here -->
 					</div>
 					
-					<div class="form-group">
+                    <div class="form-group">
                         <label class="form-label" for="edit-album-location">Location</label>
                         <input 
-                            type="text" 
-                            id="edit-album-location" 
-                            class="form-input" 
-                            list="locations-datalist"
-                            placeholder="Type a new location or pick below"
+                            type="hidden" 
+                            id="edit-album-location"
                         >
-                        <div class="location-helper">Pick an existing location or type a new one</div>
                         <div id="edit-location-selector" class="location-selector"></div>
                     </div>
 
@@ -1595,17 +1587,44 @@
 						container.appendChild(option);
 					});
 
-					// Sync selection when user types
-					input.addEventListener('input', () => {
-						const val = input.value.trim().toLowerCase();
+
+					// Add the "Add new…" control at the end
+					const addNew = document.createElement('div');
+					addNew.className = 'location-option';
+					addNew.innerHTML = `
+						<div class="location-pin">➕</div>
+						<span class="location-option-name">Add new location…</span>
+					`;
+					addNew.addEventListener('click', () => {
+						// Replace this option with an inline text input for new value
+						const editor = document.createElement('div');
+						editor.className = 'location-option selected';
+						editor.innerHTML = `
+							<div class="location-pin">📝</div>
+							<input id="album-location-inline" type="text" class="form-input" placeholder="Type new location" style="flex:1;">
+						`;
+						container.replaceChild(editor, addNew);
+						const inline = editor.querySelector('#album-location-inline');
+						inline.focus();
+						inline.addEventListener('input', () => {
+							input.value = inline.value;
+						});
+						inline.addEventListener('keydown', (e) => {
+							if (e.key === 'Enter') {
+								input.value = inline.value.trim();
+							}
+						});
+
+						// Unselect other options when entering new value mode
 						container.querySelectorAll('.location-option').forEach(o => {
-							const text = (o.querySelector('.location-option-name')?.textContent || '').toLowerCase();
-							const match = val && text === val;
-							o.classList.toggle('selected', match);
-							const r = o.querySelector('input');
-							if (r) r.checked = match;
+							if (o !== editor) {
+								o.classList.remove('selected');
+								const r = o.querySelector('input');
+								if (r) r.checked = false;
+							}
 						});
 					});
+					container.appendChild(addNew);
 				} catch (_) {}
 			}
 			
@@ -2296,17 +2315,44 @@
 						container.appendChild(option);
 					});
 
-					// Sync selection when user types
-					input.addEventListener('input', () => {
-						const val = input.value.trim().toLowerCase();
+
+					// Add the "Add new…" control at the end
+					const addNew = document.createElement('div');
+					addNew.className = 'location-option';
+					addNew.innerHTML = `
+						<div class="location-pin">➕</div>
+						<span class="location-option-name">Add new location…</span>
+					`;
+					addNew.addEventListener('click', () => {
+						// Replace this option with an inline text input for new value
+						const editor = document.createElement('div');
+						editor.className = 'location-option selected';
+						editor.innerHTML = `
+							<div class="location-pin">📝</div>
+							<input id="edit-album-location-inline" type="text" class="form-input" placeholder="Type new location" style="flex:1;">
+						`;
+						container.replaceChild(editor, addNew);
+						const inline = editor.querySelector('#edit-album-location-inline');
+						inline.focus();
+						inline.addEventListener('input', () => {
+							input.value = inline.value;
+						});
+						inline.addEventListener('keydown', (e) => {
+							if (e.key === 'Enter') {
+								input.value = inline.value.trim();
+							}
+						});
+
+						// Unselect other options when entering new value mode
 						container.querySelectorAll('.location-option').forEach(o => {
-							const text = (o.querySelector('.location-option-name')?.textContent || '').toLowerCase();
-							const match = val && text === val;
-							o.classList.toggle('selected', match);
-							const r = o.querySelector('input');
-							if (r) r.checked = match;
+							if (o !== editor) {
+								o.classList.remove('selected');
+								const r = o.querySelector('input');
+								if (r) r.checked = false;
+							}
 						});
 					});
+					container.appendChild(addNew);
 
 					// Pre-select current value if present
 					const current = (input.value || '').trim().toLowerCase();
