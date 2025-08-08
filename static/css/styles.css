@@ -1024,7 +1024,7 @@ nav a.active {
     display: flex;
 }
 .progress-bar-inner.crew {
-    background: linear-gradient(90deg, #03dac6, #03dac6);
+    background: #ffffff;
 }
 
 .progress-bar-inner.skills {
@@ -1066,7 +1066,7 @@ nav a.active {
     margin: 0 0.5em;
     font-weight: 600;
 }
-.progress-breakdown .crew { color: #03dac6; }
+.progress-breakdown .crew { color: #ffffff; }
 .progress-breakdown .locations { color: #03dac6; }
 .progress-breakdown .skills { color: #bb86fc; }
 .progress-breakdown .climbs { color: #ffae52; }
