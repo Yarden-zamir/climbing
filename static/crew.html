@@ -798,6 +798,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         const crewW = (1 / total) * 100;
         const skillsW = (c.level_from_skills / total) * 100;
         const climbsW = (c.level_from_climbs / total) * 100;
+        const locationsW = ((c.level_from_locations || 0) / total) * 100;
         const achievementsW = ((c.level_from_achievements || 0) / total) * 100;
         const climbsInCurrent = c.climbs % 5;
         const climbsToNext = 5 - climbsInCurrent;
@@ -843,6 +844,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             progressContent.querySelector('.progress-bar-inner.crew').style.width = `${crewW}%`;
             progressContent.querySelector('.progress-bar-inner.skills').style.width = `${skillsW}%`;
             progressContent.querySelector('.progress-bar-inner.climbs').style.width = `${climbsW}%`;
+            const locationsBar = progressContent.querySelector('.progress-bar-inner.locations');
+            if (locationsBar) locationsBar.style.width = `${locationsW}%`;
             const achievementsBar = progressContent.querySelector('.progress-bar-inner.achievements');
             if (achievementsBar) achievementsBar.style.width = `${achievementsW}%`;
         }, 50);
