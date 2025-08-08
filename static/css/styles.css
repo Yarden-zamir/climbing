@@ -1650,8 +1650,8 @@ nav a.active {
 }
 
 .achievement-badge {
-    background: #f3646e;
-    color: #1a1a1a;
+    background: #333; /* match skills background */
+    color: #f3646e; /* red text */
 }
 
 .location-badge {
