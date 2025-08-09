@@ -1034,7 +1034,7 @@ nav a.active {
     background: #ff7a3d;
 }
 .progress-bar-inner.achievements {
-    background: linear-gradient(90deg, #f3646e, #531c1f);
+    background: #f3646e;
 }
 .progress-bar-inner {
     height: 100%;
