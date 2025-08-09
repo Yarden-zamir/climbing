@@ -179,6 +179,22 @@ document.addEventListener('DOMContentLoaded', () => {
     return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
   }
 
+  // Scroll a location section so its top edge is visible beneath the fixed nav
+  function scrollSectionIntoViewTop(section) {
+    try {
+      const nav = document.querySelector('nav');
+      const navHeight = nav ? nav.getBoundingClientRect().height : 0;
+      const top = window.scrollY + section.getBoundingClientRect().top - navHeight - 8;
+      // Use rAF to ensure layout is settled before scrolling
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      });
+    } catch (_) {
+      // Fallback
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
   function ensureLoadingStyles() {
     if (document.getElementById('locations-loading-styles')) return;
     const style = document.createElement('style');
@@ -577,7 +593,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Expose map initializer to run after the element is in the DOM
     section._initMap = function initLeaflet() {
       // Initialize leaflet map; avoid showing a wrong default like London when coords are missing
-      const map = L.map(mapViewport, { zoomControl: true });
+      const map = L.map(mapViewport, { zoomControl: false, attributionControl: false });
       const hasCoords = Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude);
       let marker = null;
       let tilesAdded = false;
@@ -776,8 +792,8 @@ document.addEventListener('DOMContentLoaded', () => {
     section.classList.add('selected');
     url.searchParams.set('highlight', name);
     history.pushState({}, '', url.toString());
-    // Center into view
-    requestAnimationFrame(() => section.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    // Bring the section's top into view (accounting for fixed nav)
+    scrollSectionIntoViewTop(section);
   }
 
   function applySelectionFromUrl() {
@@ -791,7 +807,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (normalizeName(name) === norm) {
           clearAllSelections();
           sec.classList.add('selected');
-          requestAnimationFrame(() => sec.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+          scrollSectionIntoViewTop(sec);
           return;
         }
       }
@@ -810,7 +826,7 @@ document.addEventListener('DOMContentLoaded', () => {
           url.hash = '';
           url.searchParams.set('highlight', name);
           history.replaceState({}, '', url.toString());
-          requestAnimationFrame(() => sec.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+          scrollSectionIntoViewTop(sec);
         }
       }
     }
