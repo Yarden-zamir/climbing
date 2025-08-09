@@ -6,7 +6,12 @@ class AuthManager {
     constructor() {
         this.currentUser = null;
         this.isAuthenticated = false;
-        this.init();
+        // Eager initialize for instant header render
+        this.loadCachedUser();
+        this.setupEventListeners();
+        this.updateUI();
+        // Refresh in background
+        this.refreshAuthStatus();
     }
 
     // Helper method to get profile picture URL
@@ -26,9 +31,8 @@ class AuthManager {
     }
 
     async init() {
-        await this.checkAuthStatus();
-        this.setupEventListeners();
-        this.updateUI();
+        // No-op: constructor performs eager init and background refresh
+        return;
     }
 
     async checkAuthStatus() {
@@ -40,10 +44,12 @@ class AuthManager {
             this.currentUser = data.user;
             
             console.log('Auth status:', { authenticated: this.isAuthenticated, user: this.currentUser });
+            this.saveCachedUser();
         } catch (error) {
             console.error('Error checking auth status:', error);
             this.isAuthenticated = false;
             this.currentUser = null;
+            this.clearCachedUser();
         }
     }
 
@@ -211,16 +217,24 @@ class AuthManager {
         const nav = document.querySelector('nav');
         if (!nav) return;
 
-        // Remove existing auth elements
-        const existingAuthElements = nav.querySelectorAll('.auth-element');
-        existingAuthElements.forEach(el => el.remove());
+        const existingDropdown = nav.querySelector('.user-profile-dropdown.auth-element');
+        const existingLogin = nav.querySelector('.login-btn.auth-element');
 
         if (this.isAuthenticated && this.currentUser) {
-            // Add user profile dropdown
-            this.addUserProfileDropdown(nav);
+            if (existingDropdown) {
+                // Update in place to avoid jarring transition
+                this.updateUserProfileDropdown(existingDropdown);
+            } else {
+                // Ensure login button is removed
+                if (existingLogin) existingLogin.remove();
+                // Create and append dropdown once
+                const dropdown = this.createUserProfileDropdown();
+                nav.appendChild(dropdown);
+            }
         } else {
-            // Add login button
-            this.addLoginButton(nav);
+            // Not authenticated: ensure dropdown removed and login button present
+            if (existingDropdown) existingDropdown.remove();
+            if (!existingLogin) this.addLoginButton(nav);
         }
     }
 
@@ -243,52 +257,51 @@ class AuthManager {
     }
 
     addUserProfileDropdown(nav) {
+        const dropdown = this.createUserProfileDropdown();
+        nav.appendChild(dropdown);
+    }
+
+    createUserProfileDropdown() {
         const userDropdown = document.createElement('div');
         userDropdown.className = 'user-profile-dropdown auth-element';
-        
-        // Extract first name for cleaner display
-        const firstName = this.currentUser.name.split(' ')[0];
-        
-        // Check if user is admin
-        const isAdmin = this.currentUser.role === 'admin' || 
-                       (this.currentUser.permissions && this.currentUser.permissions.can_manage_users);
-        
-        // Generate admin panel link if user is admin
+        userDropdown.innerHTML = this.buildUserProfileDropdownHTML();
+        return userDropdown;
+    }
+
+    buildUserProfileDropdownHTML() {
+        const firstName = (this.currentUser?.name || '').split(' ')[0] || '';
+        const isAdmin = this.currentUser && (this.currentUser.role === 'admin' || (this.currentUser.permissions && this.currentUser.permissions.can_manage_users));
         const adminPanelLink = isAdmin ? `
             <a href="/admin" class="dropdown-item">
                 <span>🛠️</span> Admin Panel
             </a>
             <hr class="dropdown-divider">
         ` : '';
-
-        // Generate pending approval item if user is pending
-        const pendingApprovalItem = this.currentUser.role === 'pending' ? `
+        const pendingApprovalItem = this.currentUser && this.currentUser.role === 'pending' ? `
             <div class="dropdown-item pending-status-item">
                 <span>⏳</span> Account Pending Approval
             </div>
             <hr class="dropdown-divider">
         ` : '';
-
-        // Generate install app item if PWA can be installed
         const installAppItem = (window.pwaManager && window.pwaManager.canInstall()) ? `
             <button class="install-app-btn dropdown-item">
                 <span>📱</span> Install App
             </button>
             <hr class="dropdown-divider">
         ` : '';
-        
-        userDropdown.innerHTML = `
+
+        return `
             <button class="user-profile-btn">
                 <img src="${this.getProfilePictureUrl(this.currentUser)}" 
-                     alt="${this.currentUser.name}" 
-                     class="user-avatar">
+                     alt="${this.currentUser?.name || ''}" 
+                     class="user-avatar" loading="eager" decoding="async">
                 <span class="user-name">${firstName}</span>
                 <span class="dropdown-arrow">▼</span>
             </button>
             <div class="profile-dropdown-menu">
                 <div class="profile-info">
-                    <div class="profile-name">${this.currentUser.name}</div>
-                    <div class="profile-email">${this.currentUser.email}</div>
+                    <div class="profile-name">${this.currentUser?.name || ''}</div>
+                    <div class="profile-email">${this.currentUser?.email || ''}</div>
                 </div>
                 <hr class="dropdown-divider">
                 ${pendingApprovalItem}
@@ -318,7 +331,34 @@ class AuthManager {
                 </a>
             </div>
         `;
-        nav.appendChild(userDropdown);
+    }
+
+    updateUserProfileDropdown(dropdownContainer) {
+        try {
+            // Update simple fields in place without rebuilding container
+            const firstName = (this.currentUser?.name || '').split(' ')[0] || '';
+            const avatar = dropdownContainer.querySelector('.user-avatar');
+            const nameShort = dropdownContainer.querySelector('.user-name');
+            const nameFull = dropdownContainer.querySelector('.profile-name');
+            const email = dropdownContainer.querySelector('.profile-email');
+            const newSrc = this.getProfilePictureUrl(this.currentUser);
+
+            if (avatar && avatar.src !== newSrc) {
+                avatar.src = newSrc;
+            }
+            if (nameShort && nameShort.textContent !== firstName) {
+                nameShort.textContent = firstName;
+            }
+            if (nameFull && nameFull.textContent !== (this.currentUser?.name || '')) {
+                nameFull.textContent = this.currentUser?.name || '';
+            }
+            if (email && email.textContent !== (this.currentUser?.email || '')) {
+                email.textContent = this.currentUser?.email || '';
+            }
+
+            // Optionally refresh admin/pending/install section by replacing the menu content if role/install state changed significantly
+            // Keep it minimal to avoid reflow/animations
+        } catch (_) { /* noop */ }
     }
 
     updateAuthContent() {
@@ -429,6 +469,47 @@ class AuthManager {
     // Get current user data
     getCurrentUser() {
         return this.currentUser;
+    }
+
+    // Cache helpers for fast initial paint
+    loadCachedUser() {
+        try {
+            const raw = localStorage.getItem('auth_user_cache_v1');
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            const ts = typeof parsed.ts === 'number' ? parsed.ts : 0;
+            // Fresh for 10 minutes
+            if (Date.now() - ts < 10 * 60 * 1000) {
+                this.isAuthenticated = !!parsed.authenticated && !!parsed.user;
+                this.currentUser = parsed.user || null;
+            }
+        } catch (_) {}
+    }
+
+    saveCachedUser() {
+        try {
+            if (this.isAuthenticated && this.currentUser) {
+                const snapshot = {
+                    authenticated: true,
+                    user: {
+                        id: this.currentUser.id,
+                        email: this.currentUser.email,
+                        name: this.currentUser.name,
+                        picture: this.currentUser.picture,
+                        role: this.currentUser.role,
+                        permissions: this.currentUser.permissions || {}
+                    },
+                    ts: Date.now()
+                };
+                localStorage.setItem('auth_user_cache_v1', JSON.stringify(snapshot));
+            } else {
+                this.clearCachedUser();
+            }
+        } catch (_) {}
+    }
+
+    clearCachedUser() {
+        try { localStorage.removeItem('auth_user_cache_v1'); } catch (_) {}
     }
 
     // Method to refresh auth status (useful after login/logout)
@@ -2406,10 +2487,14 @@ input:checked + .slider:before {
     }
 }
 
-// Initialize auth manager when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize auth manager as early as possible
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        window.authManager = new AuthManager();
+    });
+} else {
     window.authManager = new AuthManager();
-});
+}
 
 // Handle URL parameters for auth errors
 document.addEventListener('DOMContentLoaded', () => {

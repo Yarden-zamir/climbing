@@ -15,6 +15,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/styles.css" />
+  <link rel="preload" href="/static/js/auth.js" as="script">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <style>
     /* Page scaffold */
@@ -192,6 +193,8 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Load auth early so the user header renders ASAP -->
+  <script src="/static/js/auth.js"></script>
   <script src="/static/js/locations.js"></script>
   <!-- PWA and Notification Management -->
   <script src="/static/js/pwa-manager.js"></script>
@@ -199,7 +202,6 @@
   <script src="/static/js/notifications.js"></script>
   <script src="/static/js/cache-manager.js"></script>
   <script src="/static/js/update-notifier.js"></script>
-  <script src="/static/js/auth.js"></script>
   <a href="/privacy" class="privacy-link" title="Privacy Policy">
     <span class="privacy-link-icon">🔒</span>
     <span class="privacy-link-text">Privacy</span>
