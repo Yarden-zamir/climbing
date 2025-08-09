@@ -72,9 +72,10 @@
     .location-section { border: 1px solid #2f2f2f; border-radius: 16px; padding: 1rem; margin: 0 0 1rem; background: linear-gradient(135deg, #161616 0%, #1f1f1f 100%); }
     .location-section.selected { border-color: #bb86fc; box-shadow: 0 0 0 2px rgba(187,134,252,0.18) inset; }
     .location-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-    .location-title { display: flex; gap: 0.5rem; align-items: center; color: #fff; font-weight: 700; }
+    .location-title { display: flex; gap: 0.5rem; align-items: center; color: #fff; font-weight: 700; flex: 1; min-width: 0; }
+    .location-title input[type="text"] { max-width: 100%; width: min(100%, 26ch); box-sizing: border-box; }
     .location-title .pin { font-size: 1.2rem; }
-    .location-actions { display: flex; gap: 0.5rem; }
+    .location-actions { display: flex; gap: 0.5rem; flex: 0 0 auto; }
     .location-btn { background: #333; border: 1px solid #444; color: #ddd; padding: 0.4rem 0.7rem; border-radius: 10px; cursor: pointer; font-size: 0.75rem; }
     .location-btn:hover { border-color: #bb86fc; }
     /* Icon-only variant for nav apps */

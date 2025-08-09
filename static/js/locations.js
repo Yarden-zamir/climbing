@@ -447,6 +447,12 @@ document.addEventListener('DOMContentLoaded', () => {
       isEditing = true;
       if (editBtn) editBtn.textContent = '💾';
       if (cancelBtn) cancelBtn.style.display = '';
+      // Hide albums counter/link while editing to reduce header clutter on mobile
+      const albumsLinkEl = title.querySelector('[data-role="albums-link"]');
+      if (albumsLinkEl) {
+        albumsLinkEl.dataset.prevDisplay = albumsLinkEl.style.display || '';
+        albumsLinkEl.style.display = 'none';
+      }
       // Replace name with input and text with textareas (re-query current read-only nodes each time)
       const nameTextEl = title.querySelector('[data-role="name-text"]');
       if (nameTextEl && nameTextEl.parentNode) {
@@ -457,7 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
         nameInput.spellcheck = true;
         nameInput.value = loc.name;
         nameInput.placeholder = 'Location name';
-        nameInput.style.cssText = 'padding:0.35rem 0.5rem; border-radius:8px; border:1px solid #444; background:#1b1b1b; color:#fff; min-width:10ch;';
+        nameInput.style.cssText = 'padding:0.35rem 0.5rem; border-radius:8px; border:1px solid #444; background:#1b1b1b; color:#fff; min-width:10ch; max-width:26ch; width:min(100%, 26ch); flex:0 1 auto;';
         nameTextEl.replaceWith(nameInput);
       }
       const descTextEl = description.querySelector('.description-text');
@@ -546,6 +552,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function exitEditMode() {
       // Restore read-only view
+      // Restore name input back to static span if still present
+      if (nameInput && nameInput.parentNode) {
+        const nameHolder = document.createElement('span');
+        nameHolder.setAttribute('data-role', 'name-text');
+        nameHolder.textContent = loc.name;
+        nameInput.replaceWith(nameHolder);
+      }
       const newDesc = document.createElement('div');
       newDesc.className = 'description-text';
       newDesc.setAttribute('dir', 'auto');
@@ -565,6 +578,12 @@ document.addEventListener('DOMContentLoaded', () => {
       isEditing = false;
       if (editBtn) editBtn.textContent = 'Edit';
       if (cancelBtn) cancelBtn.style.display = 'none';
+      // Restore albums counter/link visibility
+      const albumsLinkEl = title.querySelector('[data-role="albums-link"]');
+      if (albumsLinkEl) {
+        albumsLinkEl.style.display = albumsLinkEl.dataset.prevDisplay ?? '';
+        delete albumsLinkEl.dataset.prevDisplay;
+      }
       if (typeof section._setMarkerDraggable === 'function') {
         section._setMarkerDraggable(false);
       }
