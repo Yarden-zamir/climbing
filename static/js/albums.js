@@ -238,11 +238,17 @@ const populateCard = async (card, meta) => {
 
   // Set date (no animation)
   dateEl.textContent = meta.date || "";
-  // Append location inline next to date (smaller font)
+  // Append location inline next to date (smaller font) with link to locations page
   if (meta.location) {
     const locSpan = document.createElement('span');
     locSpan.className = 'album-location-inline';
-    locSpan.textContent = (meta.date ? ' · ' : '') + '📍 ' + meta.location;
+    const prefix = document.createTextNode((meta.date ? ' · ' : '') + '📍 ');
+    const locLink = document.createElement('a');
+    locLink.className = 'album-location-link';
+    locLink.href = `/locations?highlight=${encodeURIComponent(meta.location)}`;
+    locLink.textContent = meta.location;
+    locSpan.appendChild(prefix);
+    locSpan.appendChild(locLink);
     dateEl.appendChild(locSpan);
   }
 

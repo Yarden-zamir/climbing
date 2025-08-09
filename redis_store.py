@@ -982,20 +982,30 @@ class RedisDataStore:
         locations.sort(key=lambda x: x.get("name", ""))
         return locations
 
-    async def add_location(self, name: str, description: Optional[str] = None) -> None:
+    async def add_location(
+            self, name: str, description: Optional[str] = None, latitude: Optional[float] = None, longitude:
+            Optional[float] = None, approach: Optional[str] = None) -> None:
         name = self._validate_name(name)
         key = f"location:{name}"
         if self.redis.exists(key):
             # Update description if provided
+            mapping = {"updated_at": datetime.now().isoformat()}
             if description is not None:
-                self.redis.hset(key, mapping={
-                    "description": description,
-                    "updated_at": datetime.now().isoformat()
-                })
+                mapping["description"] = description
+            if latitude is not None and longitude is not None:
+                mapping["latitude"] = str(latitude)
+                mapping["longitude"] = str(longitude)
+            if approach is not None:
+                mapping["approach"] = approach
+            if len(mapping) > 1:
+                self.redis.hset(key, mapping=mapping)
             return
         mapping = {
             "name": name,
             "description": description or "",
+            "latitude": str(latitude) if latitude is not None else "",
+            "longitude": str(longitude) if longitude is not None else "",
+            "approach": approach or "",
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat()
         }
@@ -1003,6 +1013,207 @@ class RedisDataStore:
         pipe.hset(key, mapping=mapping)
         pipe.sadd("index:locations:all", name)
         pipe.execute()
+
+    async def update_location(
+            self, name: str, description: Optional[str] = None, latitude: Optional[float] = None, longitude:
+            Optional[float] = None, approach: Optional[str] = None) -> bool:
+        """Update existing location fields. Returns True if updated, False if not found."""
+        name = self._validate_name(name)
+        key = f"location:{name}"
+        if not self.redis.exists(key):
+            return False
+        mapping = {"updated_at": datetime.now().isoformat()}
+        if description is not None:
+            mapping["description"] = description
+        if latitude is not None:
+            mapping["latitude"] = str(latitude)
+        if longitude is not None:
+            mapping["longitude"] = str(longitude)
+        if approach is not None:
+            mapping["approach"] = approach
+        self.redis.hset(key, mapping=mapping)
+        return True
+
+    async def rename_location(self, old_name: str, new_name: str) -> bool:
+        """Rename a canonical location and propagate the change everywhere.
+
+        Steps:
+        - Copy `location:{old}` hash to `location:{new}` with updated `name` and `updated_at`
+        - Update `index:locations:all` membership
+        - Migrate ownership set `ownership:location:{old}` to `ownership:location:{new}`
+          and update each owner's `index:user_resources:{uid}:location` set
+        - Update all albums tagged with the old location:
+          - album hash field `location`
+          - reverse index sets `index:albums:location:{old}` -> `{new}`
+        - Delete old location hash and old reverse index set
+
+        Returns True if rename succeeded, False if old did not exist. Raises ValidationError if new exists.
+        """
+        old_name = self._validate_name(old_name)
+        new_name = self._validate_name(new_name)
+
+        if old_name == new_name:
+            return True
+
+        old_key = f"location:{old_name}"
+        new_key = f"location:{new_name}"
+
+        if not self.redis.exists(old_key):
+            return False
+        if self.redis.exists(new_key):
+            raise ValidationError(f"Location already exists: {new_name}")
+
+        # Copy hash data
+        old_data = self.redis.hgetall(old_key) or {}
+        # Prepare new mapping preserving created_at but updating name/updated_at
+        new_data = dict(old_data)
+        new_data["name"] = new_name
+        new_data["updated_at"] = datetime.now().isoformat()
+
+        pipe = self.redis.pipeline()
+        pipe.hset(new_key, mapping=new_data)
+        pipe.sadd("index:locations:all", new_name)
+        pipe.srem("index:locations:all", old_name)
+        # Do not delete old hash yet; update references first to avoid inconsistent reads
+        pipe.execute()
+
+        # Migrate ownership
+        try:
+            old_ownership_key = f"ownership:location:{old_name}"
+            new_ownership_key = f"ownership:location:{new_name}"
+            owner_ids = list(self.redis.smembers(old_ownership_key))
+            if owner_ids:
+                pipe = self.redis.pipeline()
+                pipe.sadd(new_ownership_key, *owner_ids)
+                for user_id in owner_ids:
+                    pipe.srem(f"index:user_resources:{user_id}:location", old_name)
+                    pipe.sadd(f"index:user_resources:{user_id}:location", new_name)
+                pipe.delete(old_ownership_key)
+                pipe.execute()
+        except Exception:
+            # Ownership migration should not abort the whole operation
+            pass
+
+        # Update albums reverse index and album hashes
+        old_album_index_key = f"index:albums:location:{old_name}"
+        album_urls = list(self.redis.smembers(old_album_index_key))
+        if album_urls:
+            for url in album_urls:
+                album_key = f"album:{url}"
+                # Only touch location and updated_at
+                self.redis.hset(album_key, mapping={
+                    "location": new_name,
+                    "updated_at": datetime.now().isoformat()
+                })
+                # Move reverse index membership
+                self.redis.srem(f"index:albums:location:{old_name}", url)
+                self.redis.sadd(f"index:albums:location:{new_name}", url)
+        # Cleanup: delete old hash and any now-empty reverse index set
+        pipe = self.redis.pipeline()
+        pipe.delete(old_key)
+        # Deleting the old index key is safe even if already emptied
+        pipe.delete(old_album_index_key)
+        pipe.execute()
+
+        return True
+
+    async def delete_location(self, name: str, force_clear: bool = False, reassign_to: Optional[str] = None) -> Dict[str, Any]:
+        """Delete a canonical location and handle all ties.
+
+        Behavior:
+        - If there are albums tagged with this location and neither force_clear nor reassign_to is provided,
+          return a result indicating the operation is blocked with the number of dependent albums.
+        - If reassign_to is provided, ensure the target location exists and move all album location references
+          and reverse index memberships to the target.
+        - If force_clear is True, remove the location tag from all dependent albums and clean up reverse indexes.
+
+        Also cleans up:
+        - `location:{name}` hash, `index:locations:all` membership
+        - `ownership:location:{name}` set and associated `index:user_resources:{uid}:location` memberships
+        - `index:albums:location:{name}` reverse index set
+
+        Returns a dict with keys:
+        - deleted: bool
+        - affected_albums: int
+        - reassigned_to: Optional[str]
+        - blocked_by_albums: Optional[int] (when deleted == False and operation requires action)
+        """
+        # Validate inputs
+        loc_name = self._validate_name(name)
+        key = f"location:{loc_name}"
+        if not self.redis.exists(key):
+            return {"deleted": False, "affected_albums": 0}
+
+        # Gather dependent albums
+        album_index_key = f"index:albums:location:{loc_name}"
+        album_urls = list(self.redis.smembers(album_index_key))
+        dependent_count = len(album_urls)
+
+        # Early block if there are dependencies and no action specified
+        if dependent_count > 0 and not force_clear and not reassign_to:
+            return {
+                "deleted": False,
+                "affected_albums": 0,
+                "blocked_by_albums": dependent_count,
+            }
+
+        # If reassigning, validate/create target and migrate references
+        target_name: Optional[str] = None
+        if reassign_to:
+            target_name = self._validate_name(reassign_to)
+            if target_name == loc_name:
+                # No-op reassignment; treat as no-op and proceed to deletion without moving
+                target_name = None
+            else:
+                await self.ensure_location_exists(target_name)
+
+        # Update albums if needed
+        if dependent_count > 0:
+            for url in album_urls:
+                album_key = f"album:{url}"
+                if target_name:
+                    # Move location tag to target
+                    self.redis.hset(album_key, mapping={
+                        "location": target_name,
+                        "updated_at": datetime.now().isoformat(),
+                    })
+                    # Move reverse index membership
+                    self.redis.srem(f"index:albums:location:{loc_name}", url)
+                    self.redis.sadd(f"index:albums:location:{target_name}", url)
+                else:
+                    # Clear location tag
+                    self.redis.hset(album_key, mapping={
+                        "location": "",
+                        "updated_at": datetime.now().isoformat(),
+                    })
+                    self.redis.srem(f"index:albums:location:{loc_name}", url)
+
+        # Clean up ownership ties
+        try:
+            ownership_key = f"ownership:location:{loc_name}"
+            owner_ids = list(self.redis.smembers(ownership_key))
+            if owner_ids:
+                pipe = self.redis.pipeline()
+                for user_id in owner_ids:
+                    pipe.srem(f"index:user_resources:{user_id}:location", loc_name)
+                pipe.delete(ownership_key)
+                pipe.execute()
+        except Exception:
+            # Do not block deletion on ownership cleanup issues
+            pass
+
+        # Delete location hash, remove from index, and drop old reverse index set
+        pipe = self.redis.pipeline()
+        pipe.delete(key)
+        pipe.srem("index:locations:all", loc_name)
+        pipe.delete(album_index_key)
+        pipe.execute()
+
+        return {
+            "deleted": True,
+            "affected_albums": dependent_count,
+            "reassigned_to": target_name,
+        }
 
     async def get_all_albums(self) -> List[Dict]:
         """Get all albums - backward compatible"""

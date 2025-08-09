@@ -22,11 +22,11 @@
     <nav>
         <a href="/crew" class="active">Crew</a>
         <a href="/albums">Albums</a>
+        <a href="/locations">Locations</a>
         <a href="/knowledge">Knowledge</a>
         <a href="/memes">Memes</a>
     </nav>
     <main class="page-fade">
-        <h1>Crew Progress</h1>
         <div id="crew-table-container"></div>
         
         <!-- Add Crew FAB -->
@@ -636,7 +636,7 @@
                 </div>
             </td>
             <td data-label="Name">${c.name}</td>
-            <td data-label="Location"><span class="address">${c.location.join(", ")}</span></td>
+            <td data-label="Location"><a class="address" href="/locations?q=${encodeURIComponent(c.location.join(', '))}">${c.location.join(", ")}</a></td>
             <td data-label="Skills">
                 ${[
                     ...skillOrder.map(skill =>
@@ -655,7 +655,7 @@
                             : ""
                     ),
                     ...(Array.isArray(c.locations_visited) && c.locations_visited.length > 0 ?
-                        c.locations_visited.map(loc => `<span class="location-badge">${loc}</span>`) : [])
+                        c.locations_visited.map(loc => `<a class="location-badge" href="/locations?highlight=${encodeURIComponent(loc)}">${loc}</a>`) : [])
                 ].filter(badge => badge !== "").join("")}
                 <span class="skill-add-badge" data-crew-name="${encodeURIComponent(c.name)}" title="Add skill" style="display: none;">+</span>
             </td>

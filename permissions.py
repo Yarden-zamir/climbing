@@ -21,6 +21,7 @@ class ResourceType(Enum):
     ALBUM = "album"
     CREW_MEMBER = "crew_member"
     MEME = "meme"
+    LOCATION = "location"
 
 
 @dataclass
@@ -421,6 +422,14 @@ class PermissionsManager:
                 owners = await self.get_resource_owners(resource_type, crew_name)
                 if not owners:
                     unowned.append(crew_name)
+            return unowned
+        elif resource_type == ResourceType.LOCATION:
+            all_locations = self.redis_store.redis.smembers("index:locations:all")
+            unowned = []
+            for loc_name in all_locations:
+                owners = await self.get_resource_owners(resource_type, loc_name)
+                if not owners:
+                    unowned.append(loc_name)
             return unowned
 
         return []

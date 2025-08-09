@@ -358,9 +358,88 @@ class AdminPanel {
                             onclick="adminPanel.openAddOwnerModal('${resource.type}', '${resource.id}')">
                         Add Owner
                     </button>
+                    <button class="action-btn btn-danger" 
+                            onclick="adminPanel.deleteResource('${resource.type}', '${resource.id}', '${(resource.title || resource.name || '').replace(/'/g, '&#39;')}')">
+                        Delete
+                    </button>
                 </td>
             </tr>
         `).join('');
+    }
+
+    async deleteResource(type, id, label) {
+        const pretty = label || id;
+        if (!confirm(`Delete ${type} \"${pretty}\"? This cannot be undone.`)) return;
+        try {
+            if (type === 'album') {
+                await this.deleteAlbum(id, pretty);
+            } else if (type === 'crew_member') {
+                await this.deleteCrew(id, pretty);
+            } else if (type === 'location') {
+                await this.deleteLocation(id, pretty);
+            } else if (type === 'meme') {
+                await this.deleteMeme(id, pretty);
+            } else {
+                throw new Error('Unsupported resource type');
+            }
+            // Refresh lists
+            await this.loadAllResources();
+            await this.loadDashboardStats();
+            this.showSuccess(`${this.getResourceTypeLabel(type)} "${pretty}" deleted`);
+        } catch (e) {
+            this.showError(e.message || `Failed to delete ${type}`);
+        }
+    }
+
+    async deleteAlbum(albumUrl, pretty) {
+        const res = await fetch(`/api/albums/delete?album_url=${encodeURIComponent(albumUrl)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete album'));
+    }
+
+    async deleteCrew(name, pretty) {
+        const res = await fetch(`/api/crew/delete?crew_name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete crew member'));
+    }
+
+    async deleteMeme(memeId, pretty) {
+        const res = await fetch(`/api/memes/${encodeURIComponent(memeId)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete meme'));
+    }
+
+    async deleteLocation(name, pretty) {
+        const baseUrl = `/api/locations?name=${encodeURIComponent(name)}`;
+        let res = await fetch(baseUrl, { method: 'DELETE' });
+        if (res.ok) return;
+        if (res.status === 409) {
+            let detail;
+            try { detail = await res.json(); } catch { detail = null; }
+            const blocked = detail?.detail?.blocked_by_albums ?? detail?.blocked_by_albums ?? 0;
+            const answer = window.prompt(
+                `There are ${blocked} album(s) tagged to this location.\n` +
+                `- Type 'clear' to remove the location tag from those albums, OR\n` +
+                `- Type another existing location name to reassign those albums, OR\n` +
+                `- Leave blank to cancel.`,
+                'clear'
+            );
+            if (!answer) throw new Error('Deletion cancelled');
+            let finalUrl = baseUrl;
+            if (answer.trim().toLowerCase() === 'clear') {
+                finalUrl += `&force_clear=true`;
+            } else {
+                // Ensure we have locations list; load if missing
+                if (!this.locations || !Array.isArray(this.locations)) {
+                    await this.loadLocations();
+                }
+                const target = (this.locations || []).find(l => String(l.name || '').toLowerCase() === answer.trim().toLowerCase());
+                if (!target) throw new Error('Target location not found');
+                if (target.name === name) throw new Error('Cannot reassign to the same location');
+                finalUrl += `&reassign_to=${encodeURIComponent(target.name)}`;
+            }
+            res = await fetch(finalUrl, { method: 'DELETE' });
+            if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete location'));
+            return;
+        }
+        throw new Error(await res.text().catch(() => 'Failed to delete location'));
     }
 
     generateOwnersDisplay(owners, resourceType, resourceId) {

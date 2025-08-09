@@ -1,3 +1,8 @@
+/* Ensure horizontal scrollers work well on mobile */
+.albums-scroller {
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Import Google Font */
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap");
 
@@ -343,7 +348,7 @@ nav a.active {
         padding: 0.6rem 0.1rem;
     }
     nav a {
-        font-size: 0.93em;
+        font-size: 0.85em;
         padding: 3px 0.3em;
         margin: 0 0.05em;
     }
@@ -644,6 +649,21 @@ nav a.active {
 .album-date .album-location-inline {
     color: #9adbbd;
     font-size: 0.8rem;
+}
+
+/* Make inline album location links match previous color and remove underline */
+.album-date .album-location-inline a,
+.album-location-link {
+    color: inherit;
+    text-decoration: none;
+}
+.album-date .album-location-inline a:visited {
+    color: inherit;
+}
+/* Underline album location link on hover */
+.album-date .album-location-inline a:hover,
+.album-location-link:hover {
+    text-decoration: underline;
 }
 
 .page-fade {
@@ -1660,6 +1680,12 @@ nav a.active {
     color: #00b894; /* teal text */
 }
 
+/* Remove underline for clickable location badges while preserving color */
+a.location-badge { text-decoration: none; color: #00b894; }
+a.location-badge:visited { color: #00b894; }
+/* Underline clickable location badges on hover */
+a.location-badge:hover { text-decoration: underline; }
+
 /* Level breakdown bars */
 .progress-bar-inner.locations {
     background: #00b894 !important; /* teal to represent locations */
@@ -1700,6 +1726,12 @@ nav a.active {
     color: #03dac6;
     font-size: 1.05em;
 }
+
+/* Ensure address links keep color and no underline */
+a.address { text-decoration: none; }
+a.address:visited { color: #03dac6; }
+/* Underline address link on hover */
+a.address:hover { text-decoration: underline; }
 
 .climbs-link {
     color: #ff7a3d;

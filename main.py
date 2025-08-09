@@ -348,6 +348,17 @@ async def read_memes():
     return response
 
 
+@app.get("/locations", response_class=HTMLResponse, include_in_schema=False)
+async def read_locations():
+    """Serve the locations page."""
+    content = inject_css_version("static/locations.html")
+    response = HTMLResponse(content=content, status_code=200)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @app.get("/knowledge", response_class=HTMLResponse, include_in_schema=False)
 async def read_knowledge():
     """Serve the knowledge base page."""

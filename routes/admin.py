@@ -1,13 +1,11 @@
 import logging
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Form, UploadFile, File
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import json
 from datetime import datetime
-import base64
 import hashlib
-import os
 from PIL import Image
 import io
 
@@ -61,10 +59,12 @@ async def get_admin_stats(user: dict = Depends(get_current_user)):
         # Get resource counts
         all_albums = redis_store.redis.smembers("index:albums:all")
         all_crew = redis_store.redis.smembers("index:climbers:all")
+        all_locations = redis_store.redis.smembers("index:locations:all")
 
         # Get unowned resources
         unowned_albums = await permissions_manager.get_unowned_resources(ResourceType.ALBUM)
         unowned_crew = await permissions_manager.get_unowned_resources(ResourceType.CREW_MEMBER)
+        unowned_locations = await permissions_manager.get_unowned_resources(ResourceType.LOCATION)
 
         return JSONResponse({
             "users": {
@@ -81,6 +81,10 @@ async def get_admin_stats(user: dict = Depends(get_current_user)):
                 "crew_members": {
                     "total": len(all_crew),
                     "unowned": len(unowned_crew)
+                },
+                "locations": {
+                    "total": len(all_locations),
+                    "unowned": len(unowned_locations)
                 }
             }
         })
@@ -251,9 +255,10 @@ async def get_all_resources_with_owners(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     try:
-        # Get all albums and crew members
+        # Get all albums, crew members, and locations
         all_albums = redis_store.redis.smembers("index:albums:all")
         all_crew = redis_store.redis.smembers("index:climbers:all")
+        all_locations = redis_store.redis.smembers("index:locations:all")
 
         # Get album details with owners
         album_details = []
@@ -311,15 +316,40 @@ async def get_all_resources_with_owners(user: dict = Depends(get_current_user)):
                     "owners": owners_info
                 })
 
+        # Get locations with owners
+        location_details = []
+        for loc_name in all_locations:
+            loc_data = redis_store.redis.hgetall(f"location:{loc_name}") or {}
+            # Get owner information (multiple owners)
+            owner_ids = await permissions_manager.get_resource_owners(ResourceType.LOCATION, loc_name)
+            owners_info = []
+            for owner_id in owner_ids:
+                owner_user = await permissions_manager.get_user(owner_id)
+                if owner_user:
+                    owners_info.append({
+                        "id": owner_id,
+                        "name": owner_user.get("name", "Unknown"),
+                        "email": owner_user.get("email", ""),
+                        "picture": owner_user.get("picture", "")
+                    })
+            location_details.append({
+                "type": "location",
+                "id": loc_name,
+                "name": loc_name,
+                "created_at": loc_data.get("created_at", ""),
+                "owners": owners_info
+            })
+
         # Sort by creation date (newest first)
-        all_resources = album_details + crew_details
+        all_resources = album_details + crew_details + location_details
         all_resources.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
         return JSONResponse({
             "resources": all_resources,
             "total": len(all_resources),
             "albums": len(album_details),
-            "crew_members": len(crew_details)
+            "crew_members": len(crew_details),
+            "locations": len(location_details)
         })
 
     except Exception as e:
@@ -356,6 +386,7 @@ async def get_unowned_resources(user: dict = Depends(get_current_user)):
     try:
         unowned_albums = await permissions_manager.get_unowned_resources(ResourceType.ALBUM)
         unowned_crew = await permissions_manager.get_unowned_resources(ResourceType.CREW_MEMBER)
+        unowned_locations = await permissions_manager.get_unowned_resources(ResourceType.LOCATION)
 
         # Get details for unowned resources
         album_details = []
@@ -382,10 +413,22 @@ async def get_unowned_resources(user: dict = Depends(get_current_user)):
                     "created_at": crew_data.get("created_at", "")
                 })
 
+        # Unowned locations list
+        location_details = []
+        for loc_name in unowned_locations:
+            loc_data = redis_store.redis.hgetall(f"location:{loc_name}") or {}
+            location_details.append({
+                "type": "location",
+                "id": loc_name,
+                "name": loc_name,
+                "created_at": loc_data.get("created_at", "")
+            })
+
         return JSONResponse({
             "albums": album_details,
             "crew_members": crew_details,
-            "total": len(album_details) + len(crew_details)
+            "locations": location_details,
+            "total": len(album_details) + len(crew_details) + len(location_details)
         })
 
     except Exception as e:
@@ -425,6 +468,8 @@ async def assign_resource_owner(
             resource_type_enum = ResourceType.ALBUM
         elif resource_type == "crew_member":
             resource_type_enum = ResourceType.CREW_MEMBER
+        elif resource_type == "location":
+            resource_type_enum = ResourceType.LOCATION
         else:
             raise HTTPException(status_code=400, detail=f"Invalid resource type: {resource_type}")
 
@@ -478,6 +523,8 @@ async def remove_resource_owner(
             resource_type_enum = ResourceType.ALBUM
         elif resource_type == "crew_member":
             resource_type_enum = ResourceType.CREW_MEMBER
+        elif resource_type == "location":
+            resource_type_enum = ResourceType.LOCATION
         else:
             raise HTTPException(status_code=400, detail=f"Invalid resource type: {resource_type}")
 
@@ -561,7 +608,7 @@ async def refresh_album_metadata_admin(user: dict = Depends(get_current_user)):
 
         return JSONResponse({
             "success": True,
-            "message": f"Album metadata refresh completed",
+            "message": "Album metadata refresh completed",
             "refreshed_albums": refreshed_count
         })
 
