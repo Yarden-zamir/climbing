@@ -192,18 +192,20 @@
       .map-col > .location-approach { margin-top: 0.6rem; }
       /* Allow album glow to extend beyond the left/right edges without shifting layout */
       .albums-scroller {
-        /* Desktop: full-bleed to the right only */
-        width: calc(100% + 2rem); /* extend past section + page padding (1rem + 1rem) */
-        margin-right: -2rem;       /* pull to the right edge of the viewport */
-        padding-right: 2rem;       /* safe area so hover/glow aren't clipped */
-        margin-left: 0;
-        padding-left: 0;
+        /* Desktop: full-bleed to the right, with safe glow space on the left */
+        width: calc(100% + 3rem);  /* +2rem on right, +1rem on left */
+        margin-right: -2rem;        /* bleed to viewport edge (page 1rem + section 1rem) */
+        padding-right: 2rem;        /* keep hover/glow visible at viewport edge */
+        margin-left: -1rem;         /* offset left by section padding */
+        padding-left: 1rem;         /* allow glow on first card without clipping */
       }
       /* If only one album card, keep inline with content (no bleed) */
       .albums-scroller.single {
         width: 100%;
         margin-right: 0;
         padding-right: 0;
+        margin-left: 0;
+        padding-left: 0;
       }
     }
 
