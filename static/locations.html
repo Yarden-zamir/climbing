@@ -205,19 +205,19 @@
     .attributes-list { display: flex; flex-wrap: wrap; gap: 0.25rem; contain: layout paint; will-change: transform; }
     .attribute-badge {
       display: inline-flex; align-items: center; gap: 0;
-      background: linear-gradient(180deg, #1b1b1b, #222);
-      color: #e9e9e9;
-      border: 1px solid #2f2f2f; border-radius: 4px;
+      background: #333;
+      color: #e0e0e0;
+      border: 1px solid #444; border-radius: 6px;
       padding: 0.2em 0.55em; font-size: 0.85em; font-weight: 600; line-height: 1;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-      transition: transform 90ms ease;
+      box-shadow: none;
+      transition: background 120ms ease, border-color 120ms ease;
       position: relative;
     }
     .attribute-badge .attr-content { display: inline-flex; align-items: center; gap: 0.35rem; }
-    .attribute-badge:hover { transform: translateY(-0.5px); }
-    .attribute-badge .attr-key { color: #f0f0f0; letter-spacing: 0.1px; }
+    .attribute-badge:hover { background: #3a3a3a; border-color: #555; }
+    .attribute-badge .attr-key { color: #e0e0e0; letter-spacing: 0.1px; }
     .attribute-badge .attr-sep { display: none; }
-    .attribute-badge .attr-value { color: #03dac6; background: rgba(3,218,198,0.12); border: 1px solid rgba(3,218,198,0.35); border-radius: 999px; padding: 0.08em 0.35em; font-weight: 600; }
+    .attribute-badge .attr-value { color: #00b894; background: rgba(0,184,148,0.15); border: 1px solid rgba(0,184,148,0.4); border-radius: 6px; padding: 0.06em 0.28em; font-weight: 600; }
     .attribute-badge .attr-value.count { background: linear-gradient(135deg, rgba(3,218,198,0.22), rgba(0,184,148,0.18)); }
 
     /* Remove chip for edit mode (inline at left, expands on hover to push content) */
