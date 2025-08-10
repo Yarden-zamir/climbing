@@ -13,16 +13,19 @@ document.addEventListener('DOMContentLoaded', () => {
   let locations = [];
   let albumsByLocation = new Map();
   let currentUser = null;
+  let allLocationAttributes = [];
+  let keysUsedWithValues = new Set();
 
   init();
 
   async function init() {
     try {
       // Load canonical locations and enriched albums
-      const [userRes, locRes, albumsRes] = await Promise.all([
+      const [userRes, locRes, albumsRes, attrsRes] = await Promise.all([
         fetch('/api/auth/user?_t=' + Date.now()),
         fetch('/api/locations?_t=' + Date.now()),
         fetch('/api/albums/enriched?_t=' + Date.now()),
+        fetch('/api/location-attributes?_t=' + Date.now()),
       ]);
       if (userRes.ok) {
         const u = await userRes.json();
@@ -30,9 +33,11 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (!locRes.ok) throw new Error('Failed to load locations');
       if (!albumsRes.ok) throw new Error('Failed to load albums');
+      if (!attrsRes.ok) throw new Error('Failed to load location attributes');
 
       const locs = await locRes.json();
       const enrichedAlbums = await albumsRes.json();
+      allLocationAttributes = await attrsRes.json();
 
       // Normalize locations: [{ name, description }]
       locations = (Array.isArray(locs) ? locs : []).map(l => ({
@@ -42,7 +47,23 @@ document.addEventListener('DOMContentLoaded', () => {
         latitude: parseFloat(l.latitude || ''),
         longitude: parseFloat(l.longitude || ''),
         owners: Array.isArray(l.owners) ? l.owners : [],
+        attributes: Array.isArray(l.attributes) ? l.attributes : [],
+        custom_markers: Array.isArray(l.custom_markers) ? l.custom_markers : [],
       })).filter(l => l.name);
+
+      // Build a set of attribute keys that have ever been used with a value (kv style)
+      try {
+        keysUsedWithValues = new Set();
+        (locations || []).forEach(loc => {
+          (loc.attributes || []).forEach(a => {
+            if (a && typeof a === 'object') {
+              const k = String(a.key || '');
+              const v = String(a.value || '');
+              if (k && v.trim() !== '') keysUsedWithValues.add(k);
+            }
+          });
+        });
+      } catch (_) { keysUsedWithValues = new Set(); }
 
       // Group albums by metadata.location (exact match on canonical name)
       albumsByLocation = buildAlbumsByLocation(enrichedAlbums);
@@ -231,6 +252,19 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   window.addEventListener('resize', debounce(updateAllAlbumsScrollers, 120));
+  
+  // Click outside to unselect location cards
+  document.addEventListener('click', (e) => {
+    // Check if click is outside all location sections
+    if (!e.target.closest('.location-section')) {
+      clearAllSelections();
+      // Also clear URL highlight parameter
+      const url = new URL(window.location);
+      url.searchParams.delete('highlight');
+      url.searchParams.delete('selected_map_icon');
+      history.pushState({}, '', url.toString());
+    }
+  });
 
   function createLocationSection(loc) {
     const section = document.createElement('section');
@@ -303,6 +337,68 @@ document.addEventListener('DOMContentLoaded', () => {
     infoDiv.appendChild(description);
     // Approach placement handled below
     infoDiv.appendChild(scroller);
+
+    // Attributes view and editor
+    const attributesPanel = document.createElement('div');
+    attributesPanel.className = 'location-attributes';
+    const attributesList = document.createElement('div');
+    attributesList.className = 'attributes-list';
+    function renderAttributesList() {
+      attributesList.innerHTML = '';
+      const items = Array.isArray(loc.attributes) ? loc.attributes : [];
+      if (items.length === 0) {
+        attributesList.innerHTML = `<span style="color:#888;">No attributes yet.</span>`;
+        return;
+      }
+      // items may be strings (legacy) or objects {key, value}
+      const norm = items.map(it => {
+        if (typeof it === 'string') return { key: it, value: '' };
+        return { key: String(it.key || ''), value: String(it.value || '') };
+      }).filter(it => it.key);
+      norm.sort((a,b)=>a.key.localeCompare(b.key)).forEach(({key, value}) => {
+        const badge = document.createElement('span');
+        badge.className = 'attribute-badge';
+        // Hint to GPU for smoother hover on heavy pages
+        badge.style.willChange = 'transform';
+        const content = document.createElement('span');
+        content.className = 'attr-content';
+        const keyEl = document.createElement('span'); keyEl.className = 'attr-key'; keyEl.textContent = key;
+        content.appendChild(keyEl);
+        if (value) {
+          const valueEl = document.createElement('span'); valueEl.className = 'attr-value';
+          // If numeric-ish, add count styling
+          if (!isNaN(Number(value))) valueEl.classList.add('count');
+          valueEl.textContent = String(value);
+          content.appendChild(valueEl);
+        }
+        // Remove button in edit mode
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'attr-remove';
+        removeBtn.type = 'button';
+        removeBtn.title = 'Remove';
+        removeBtn.textContent = '×';
+        removeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const list = Array.isArray(loc.attributes) ? loc.attributes : [];
+          const idx = list.findIndex(it => (typeof it === 'string' ? it : String(it.key || '')) === key);
+          if (idx >= 0) {
+            list.splice(idx, 1);
+            loc.attributes = list;
+            // Particle effect
+            try { createRemovalParticles(badge); } catch(_) {}
+            renderAttributesList();
+            renderAttributeBadges && renderAttributeBadges();
+          }
+        });
+        // Place remove button before content so it visually sits on the left
+        badge.appendChild(removeBtn);
+        badge.appendChild(content);
+        attributesList.appendChild(badge);
+      });
+    }
+    renderAttributesList();
+    attributesPanel.appendChild(attributesList);
+    infoDiv.appendChild(attributesPanel);
 
     // Navigation app buttons under the map
     mapCol.appendChild(mapDiv);
@@ -441,10 +537,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const deleteBtn = title.querySelector('[data-action="delete"]');
     // claim button removed
     let descTextarea, approachTextarea, nameInput;
+    let attributesEditorEl, attributesBadgesEl, addAttributeInputEl;
+    let valueRowEl, valueLabelEl, valueInputEl, valueSaveBtnEl, valueSkipBtnEl;
+    let pendingValueKey = null;
+    // Markers editor state
+    let markersEditorEl, markersListEl, addMarkerBtn, markerLabelInput;
+    let extraMarkers = Array.isArray(loc.custom_markers) ? JSON.parse(JSON.stringify(loc.custom_markers)) : [];
+    let placeIconArmed = false;
+    let pendingMarkerPos = null;
+    let pendingEmoji = '📍';
+    let pendingLabelValue = '';
+    let selectedIndex = 0;
+    let dragSrcIndex = null;
+    let currentEmojiChoice = '📍';
 
     function enterEditMode() {
       if (isEditing) return;
       isEditing = true;
+      try { section.classList.add('editing'); } catch(_) {}
       if (editBtn) editBtn.textContent = '💾';
       if (cancelBtn) cancelBtn.style.display = '';
       // Hide albums counter/link while editing to reduce header clutter on mobile
@@ -454,6 +564,7 @@ document.addEventListener('DOMContentLoaded', () => {
         albumsLinkEl.style.display = 'none';
       }
       // Replace name with input and text with textareas (re-query current read-only nodes each time)
+      section.classList.add('editing');
       const nameTextEl = title.querySelector('[data-role="name-text"]');
       if (nameTextEl && nameTextEl.parentNode) {
         nameInput = document.createElement('input');
@@ -493,29 +604,472 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof section._setMarkerDraggable === 'function') {
         section._setMarkerDraggable(true);
       }
+      // Ensure map is interactive for placing/dragging extra icons
+      try {
+        mapViewport.style.pointerEvents = 'auto';
+        mapViewport.style.touchAction = 'auto';
+        if (mapOverlay) {
+          mapOverlay.style.pointerEvents = 'none';
+          mapOverlay.style.opacity = '0';
+        }
+      } catch(_) {}
+      // Make existing emoji markers draggable now
+      try { if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers); } catch(_) {}
+
+      // Attributes editor
+      if (isLocationEditableByCurrentUser(loc)) {
+        attributesEditorEl = document.createElement('div');
+        attributesEditorEl.className = 'attributes-editor';
+        const editorLabel = document.createElement('div');
+        editorLabel.className = 'heading';
+        editorLabel.textContent = 'Edit Attributes';
+        attributesEditorEl.appendChild(editorLabel);
+
+        attributesBadgesEl = document.createElement('div');
+        attributesBadgesEl.className = 'attributes-badges-container';
+
+        function currentKeys() {
+          return (Array.isArray(loc.attributes) ? loc.attributes : []).map(it => typeof it === 'string' ? it : String(it.key || '')).filter(Boolean);
+        }
+        function ensureKVArray() {
+          if (!Array.isArray(loc.attributes)) loc.attributes = [];
+          // Normalize to objects
+          loc.attributes = loc.attributes.map(it => typeof it === 'string' ? { key: it, value: '' } : { key: String(it.key || ''), value: String(it.value || '') }).filter(it => it.key);
+        }
+        function renderAttributeBadges() {
+          ensureKVArray();
+          const selectedKeys = new Set(currentKeys());
+          const all = Array.isArray(allLocationAttributes) ? allLocationAttributes.slice() : [];
+          // Ensure selected missing from global are still shown
+          currentKeys().forEach(a => { if (!all.includes(a)) all.push(a); });
+          all.sort((a,b)=>a.localeCompare(b));
+          attributesBadgesEl.innerHTML = all.map(a => {
+            const sel = selectedKeys.has(a) ? 'selected' : '';
+            return `<div class="attribute-badge-toggleable ${sel}" data-attr="${escapeHtml(a)}">${escapeHtml(a)}</div>`;
+          }).join('');
+        }
+        renderAttributeBadges();
+
+        attributesBadgesEl.addEventListener('click', (e) => {
+          const el = e.target.closest('.attribute-badge-toggleable');
+          if (!el) return;
+          const attr = el.getAttribute('data-attr') || '';
+          ensureKVArray();
+          const idx = loc.attributes.findIndex(it => it.key === attr);
+          if (idx >= 0) {
+            loc.attributes.splice(idx, 1);
+            // If removing the pending one, reset inline editor
+            if (pendingValueKey === attr) hideInlineValueEditor();
+          } else {
+            loc.attributes.push({ key: attr, value: '' });
+            // If this key is commonly used with values, prompt inline input
+            if (keysUsedWithValues && keysUsedWithValues.has(attr)) {
+              showInlineValueEditor(attr);
+            }
+          }
+          renderAttributeBadges();
+          renderAttributesList();
+        });
+
+        const addRow = document.createElement('div');
+        addRow.style.display = 'flex';
+        addRow.style.gap = '0.5rem';
+        addRow.style.alignItems = 'center';
+        addAttributeInputEl = document.createElement('input');
+        addAttributeInputEl.className = 'add-attribute-input';
+        addAttributeInputEl.placeholder = 'Add new attribute (e.g., "sport routes" or "sport routes:26")';
+        const addBtn = document.createElement('button');
+        addBtn.className = 'location-btn';
+        addBtn.textContent = 'Add';
+        function handleAddFromInput() {
+          const val = (addAttributeInputEl.value || '').trim();
+          if (!val) return;
+          // Parse potential key:value
+          let key = val;
+          let value = '';
+          const colon = val.indexOf(':');
+          if (colon > 0) {
+            key = val.slice(0, colon).trim();
+            value = val.slice(colon + 1).trim();
+          }
+          if (!key) return;
+          // async fire-and-forget register globally
+          try { fetch('/api/location-attributes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: key }) }); } catch (_) {}
+          if (!allLocationAttributes.includes(key)) allLocationAttributes.push(key);
+          ensureKVArray();
+          if (!loc.attributes.some(it => it.key === key)) loc.attributes.push({ key, value });
+          if (value && value.trim() !== '') keysUsedWithValues.add(key);
+          addAttributeInputEl.value = '';
+          renderAttributeBadges();
+          renderAttributesList();
+        }
+        addBtn.addEventListener('click', handleAddFromInput);
+        addAttributeInputEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAddFromInput();
+          }
+        });
+        addRow.appendChild(addAttributeInputEl);
+        addRow.appendChild(addBtn);
+
+        attributesEditorEl.appendChild(attributesBadgesEl);
+        attributesEditorEl.appendChild(addRow);
+
+        // Inline value editor for kv attributes
+        valueRowEl = document.createElement('div');
+        valueRowEl.style.display = 'none';
+        valueRowEl.style.gap = '0.5rem';
+        valueRowEl.style.alignItems = 'center';
+        valueRowEl.style.marginTop = '0.25rem';
+        valueRowEl.style.display = 'none';
+        valueLabelEl = document.createElement('div');
+        valueLabelEl.style.color = '#bbb';
+        valueLabelEl.style.fontSize = '0.85rem';
+        valueLabelEl.textContent = '';
+        valueInputEl = document.createElement('input');
+        valueInputEl.className = 'add-attribute-input';
+        valueInputEl.placeholder = 'Enter value';
+        valueSaveBtnEl = document.createElement('button');
+        valueSaveBtnEl.className = 'location-btn';
+        valueSaveBtnEl.textContent = 'Save';
+        valueSkipBtnEl = document.createElement('button');
+        valueSkipBtnEl.className = 'location-btn';
+        valueSkipBtnEl.textContent = 'Skip';
+        valueRowEl.appendChild(valueLabelEl);
+        valueRowEl.appendChild(valueInputEl);
+        valueRowEl.appendChild(valueSaveBtnEl);
+        valueRowEl.appendChild(valueSkipBtnEl);
+        attributesEditorEl.appendChild(valueRowEl);
+
+        function showInlineValueEditor(key) {
+          pendingValueKey = key;
+          valueLabelEl.textContent = `Value for "${key}"`;
+          const existing = (loc.attributes || []).find(it => it.key === key);
+          valueInputEl.value = existing ? (existing.value || '') : '';
+          valueRowEl.style.display = 'flex';
+          try { valueInputEl.focus(); valueInputEl.select(); } catch(_) {}
+        }
+        function hideInlineValueEditor() {
+          pendingValueKey = null;
+          valueRowEl.style.display = 'none';
+        }
+        function commitInlineValue() {
+          if (!pendingValueKey) return;
+          ensureKVArray();
+          const idx = loc.attributes.findIndex(it => it.key === pendingValueKey);
+          if (idx >= 0) {
+            const newVal = String(valueInputEl.value || '');
+            loc.attributes[idx].value = newVal;
+            if (newVal.trim() !== '') keysUsedWithValues.add(pendingValueKey);
+          }
+          hideInlineValueEditor();
+          renderAttributesList();
+        }
+        valueSaveBtnEl.addEventListener('click', commitInlineValue);
+        valueSkipBtnEl.addEventListener('click', () => hideInlineValueEditor());
+        valueInputEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commitInlineValue(); }
+          if (e.key === 'Escape') { e.preventDefault(); hideInlineValueEditor(); }
+        });
+        
+        // --- Custom markers (emoji) editor ---
+        const markersHeading = document.createElement('div');
+        markersHeading.className = 'heading';
+        markersHeading.textContent = 'Map Icons';
+        markersEditorEl = document.createElement('div');
+        markersEditorEl.className = 'markers-editor';
+        markersListEl = document.createElement('div');
+        markersListEl.className = 'markers-list';
+        const addRowMarkers = document.createElement('div');
+        addRowMarkers.className = 'markers-add-row';
+        // Emoji selector button opens a fast searchable picker
+        const emojiButton = document.createElement('button');
+        emojiButton.className = 'location-btn emoji-picker-btn';
+        emojiButton.title = 'Choose icon';
+        emojiButton.textContent = currentEmojiChoice;
+        emojiButton.addEventListener('click', async (e) => {
+          e.preventDefault();
+          try {
+            if (window.EmojiPicker && typeof window.EmojiPicker.open === 'function') {
+              const chosen = await window.EmojiPicker.open(emojiButton, { initial: currentEmojiChoice });
+              if (chosen) {
+                currentEmojiChoice = chosen;
+                emojiButton.textContent = currentEmojiChoice;
+                // Update preview if present
+                try {
+                  if (map && map._tempPlaceMarker && map.hasLayer(map._tempPlaceMarker)) {
+                    const html = `<div class=\"emoji-marker\">${escapeHtml(currentEmojiChoice)}</div>`;
+                    const icon = L.divIcon({ html, className: 'emoji-marker-wrapper', iconSize: [24, 24], iconAnchor: [12, 12] });
+                    map._tempPlaceMarker.setIcon(icon);
+                  }
+                  if (placeIconArmed) pendingEmoji = currentEmojiChoice;
+                } catch(_) {}
+              }
+            } else {
+              // Fallback: cycle common icons if picker not loaded
+              const choices = ['📍','🅿️','🧗','🚰','🚻','🔥','⛺','📷','⚠️'];
+              const idx = (choices.indexOf(currentEmojiChoice) + 1) % choices.length;
+              currentEmojiChoice = choices[idx];
+              emojiButton.textContent = currentEmojiChoice;
+            }
+          } catch(_) {}
+        });
+        markerLabelInput = document.createElement('input');
+        markerLabelInput.placeholder = 'Hover text';
+        markerLabelInput.className = 'add-attribute-input';
+        // Replace manual lat/lng inputs with a map-click workflow
+        const placeBtn = document.createElement('button');
+        placeBtn.className = 'location-btn';
+        placeBtn.textContent = 'Place on map';
+        // No explicit Add button; adding happens on map click
+        addMarkerBtn = null;
+        addRowMarkers.appendChild(emojiButton);
+        addRowMarkers.appendChild(markerLabelInput);
+        addRowMarkers.appendChild(placeBtn);
+
+        function renderMarkersList() {
+          markersListEl.innerHTML = '';
+          (extraMarkers || []).forEach((m, idx) => {
+            const row = document.createElement('div');
+            row.className = 'marker-row';
+            row.innerHTML = `
+              <span class="marker-emoji" title="${escapeHtml(m.label || '')}">${escapeHtml(m.emoji || '📍')}</span>
+              <span class="marker-label" dir="auto">${escapeHtml(m.label || '')}</span>
+              <button class="location-btn marker-remove">×</button>
+            `;
+            // selection highlight and click selection (view and edit modes)
+            try { row.classList.toggle('selected', idx === selectedIndex); } catch(_) {}
+            row.addEventListener('click', () => {
+              selectedIndex = idx;
+              renderMarkersList();
+              if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+              try { createNavChangeParticles(navRow, 12); } catch(_) {}
+            });
+            // drag-and-drop reorder
+            row.setAttribute('draggable', 'true');
+            row.dataset.index = String(idx);
+            row.addEventListener('dragstart', (e) => {
+              dragSrcIndex = idx;
+              try { if (e.dataTransfer) { e.dataTransfer.setData('text/plain', String(idx)); e.dataTransfer.effectAllowed = 'move'; } } catch(_) {}
+              row.classList.add('dragging');
+            });
+            row.addEventListener('dragend', () => { row.classList.remove('dragging'); dragSrcIndex = null; });
+            row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag-over'); });
+            row.addEventListener('dragleave', () => { row.classList.remove('drag-over'); });
+            row.addEventListener('drop', (e) => {
+              e.preventDefault();
+              row.classList.remove('drag-over');
+              const destAttr = row.dataset.index;
+              const destIndex = destAttr ? parseInt(destAttr, 10) : -1;
+              if (dragSrcIndex === null || destIndex < 0 || destIndex >= extraMarkers.length) return;
+              const src = dragSrcIndex;
+              let dest = destIndex;
+              const [moved] = extraMarkers.splice(src, 1);
+              if (dest > src) dest -= 1;
+              extraMarkers.splice(dest, 0, moved);
+              // ensure first is primary for compatibility
+              try { extraMarkers = extraMarkers.map((it, i) => ({ ...it, primary: i === 0 })); } catch(_) {}
+              if (typeof section._onMarkersChanged === 'function') section._onMarkersChanged(); else {
+                renderMarkersList();
+                if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+              }
+            });
+            row.querySelector('.marker-remove').addEventListener('click', () => {
+              extraMarkers.splice(idx, 1);
+              renderMarkersList();
+              if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+            });
+            markersListEl.appendChild(row);
+          });
+          // Clear temp preview after list changes
+          try { if (map._tempPlaceMarker && map.hasLayer(map._tempPlaceMarker)) map.removeLayer(map._tempPlaceMarker); } catch(_) {}
+        }
+        function addMarkerFromInputs() {
+          const emoji = pendingEmoji || currentEmojiChoice || '📍';
+          const label = (pendingLabelValue || '').trim();
+          if (!pendingMarkerPos) { alert('Click "Place on map" then tap the map to set a position.'); return; }
+          extraMarkers.push({ emoji, label, lat: pendingMarkerPos.lat, lng: pendingMarkerPos.lng });
+          markerLabelInput.value = '';
+          pendingMarkerPos = null;
+          pendingLabelValue = '';
+          try { placeBtn.classList.remove('armed'); placeIconArmed = false; } catch(_) {}
+          if (typeof section._onMarkersChanged === 'function') section._onMarkersChanged(); else {
+            renderMarkersList();
+            if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+          }
+          // select newly added and hint nav change
+          try { selectedIndex = Math.max(0, (extraMarkers?.length || 1) - 1); createNavChangeParticles(navRow, 14); } catch(_) {}
+        }
+        // Expose handlers so map click (defined elsewhere) can call them
+        section._onMarkersChanged = function() {
+          renderMarkersList();
+          if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+        };
+        section._addMarkerFromInputs = addMarkerFromInputs;
+        placeBtn.addEventListener('click', () => {
+          placeIconArmed = true;
+          placeBtn.classList.add('armed');
+          // Capture current inputs at the time of arming placement
+          try {
+            pendingLabelValue = (markerLabelInput.value || '').trim();
+            pendingEmoji = currentEmojiChoice || '📍';
+          } catch(_) {}
+          // Ensure the map can receive clicks even if activation overlay is present
+          try {
+            mapViewport.style.pointerEvents = 'auto';
+            mapViewport.style.touchAction = 'auto';
+            if (mapOverlay) {
+              mapOverlay.style.pointerEvents = 'none';
+              mapOverlay.style.opacity = '0';
+            }
+          } catch(_) {}
+        });
+        // No add button; automatic add after map click (see map click handler)
+        markersEditorEl.appendChild(markersHeading);
+        markersEditorEl.appendChild(markersListEl);
+        markersEditorEl.appendChild(addRowMarkers);
+        renderMarkersList();
+        // Mount the markers editor next to the map (under the map in the same column)
+        try {
+          mapCol.appendChild(markersEditorEl);
+        } catch(_) { infoDiv.appendChild(markersEditorEl); }
+        // Mount the attributes editor panel into the info column
+        try {
+          if (!attributesEditorEl.parentNode) infoDiv.appendChild(attributesEditorEl);
+        } catch(_) {}
+      }
+    }
+    
+    function createNavChangeParticles(navRow, count = 12) {
+      // Animate navigation buttons to show they've updated
+      try {
+        const buttons = navRow.querySelectorAll('.icon-btn');
+        buttons.forEach((btn, idx) => {
+          // Stagger the animation slightly for each button
+          setTimeout(() => {
+            btn.style.transform = 'scale(1.15)';
+            btn.style.transition = 'transform 200ms ease-out';
+            setTimeout(() => {
+              btn.style.transform = 'scale(1)';
+            }, 150);
+            
+            // Create particles from each button individually
+            const btnRect = btn.getBoundingClientRect();
+            const btnCx = btnRect.left + btnRect.width * 0.5;
+            const btnCy = btnRect.top + btnRect.height * 0.5;
+            const particlesPerButton = Math.max(2, Math.floor(count / buttons.length));
+            
+            for (let i = 0; i < particlesPerButton; i++) {
+              const p = document.createElement('div');
+              p.style.position = 'fixed';
+              p.style.left = btnCx + 'px';
+              p.style.top = btnCy + 'px';
+              p.style.width = '4px';
+              p.style.height = '4px';
+              p.style.borderRadius = '50%';
+              p.style.background = '#03dac6';
+              p.style.pointerEvents = 'none';
+              p.style.zIndex = '9999';
+              p.style.opacity = '0.8';
+              
+              const ang = Math.random() * Math.PI * 2;
+              const dist = 12 + Math.random() * 15;
+              const dx = Math.cos(ang) * dist;
+              const dy = Math.sin(ang) * dist;
+              
+              p.style.transform = 'translate(-50%, -50%) scale(1)';
+              p.style.transition = 'transform 350ms ease-out, opacity 350ms ease-out';
+              
+              document.body.appendChild(p);
+              
+              // Slight delay for particles to create a burst effect
+              setTimeout(() => {
+                requestAnimationFrame(() => {
+                  p.style.transform = `translate(${dx - 2}px, ${dy - 2}px) scale(0.2)`;
+                  p.style.opacity = '0';
+                });
+              }, i * 20);
+              
+              setTimeout(() => { 
+                if (p.parentNode) p.parentNode.removeChild(p); 
+              }, 400);
+            }
+          }, idx * 30);
+        });
+      } catch(_) {}
     }
 
-    async function saveEdit() {
+    function createRemovalParticles(container) {
+      const rect = container.getBoundingClientRect();
+      const cx = rect.width * 0.15; // left side burst
+      const cy = rect.height * 0.5;
+      const count = 10;
+      
+      // Create particles relative to viewport, not container
+      for (let i = 0; i < count; i++) {
+        const p = document.createElement('div');
+        p.style.position = 'fixed';
+        p.style.left = (rect.left + cx) + 'px';
+        p.style.top = (rect.top + cy) + 'px';
+        p.style.width = '8px';
+        p.style.height = '8px';
+        p.style.borderRadius = '50%';
+        p.style.background = i % 2 ? '#ff4757' : '#ff6b6b';
+        p.style.boxShadow = '0 0 12px rgba(255,71,87,0.9)';
+        p.style.pointerEvents = 'none';
+        p.style.zIndex = '9999';
+        p.style.opacity = '1';
+        
+        const ang = Math.random() * Math.PI * 2;
+        const dist = 20 + Math.random() * 25;
+        const dx = Math.cos(ang) * dist;
+        const dy = Math.sin(ang) * dist;
+        
+        p.style.transform = 'translate(-50%, -50%) scale(1)';
+        p.style.transition = 'transform 300ms ease-out, opacity 300ms ease-out';
+        
+        document.body.appendChild(p);
+        
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            p.style.transform = `translate(${dx - 4}px, ${dy - 4}px) scale(0.3)`;
+            p.style.opacity = '0';
+          });
+        });
+        
+        setTimeout(() => { 
+          if (p.parentNode) p.parentNode.removeChild(p); 
+        }, 350);
+      }
+    }
+
+      async function saveEdit() {
       const desc = (descTextarea?.value || '').trim();
       const approachVal = (approachTextarea?.value || '').trim();
-      const payload = { description: desc, approach: approachVal };
+        const payload = { description: desc, approach: approachVal, custom_markers: extraMarkers };
       const trimmedNewName = (nameInput?.value || '').trim();
       const isRenaming = !!trimmedNewName && trimmedNewName !== loc.name;
       if (isRenaming) {
         payload.new_name = trimmedNewName;
       }
-      if (typeof section._getMarkerLatLng === 'function') {
-        const pos = section._getMarkerLatLng();
-        if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
-          payload.latitude = pos.lat;
-          payload.longitude = pos.lng;
-        }
-      }
+        // latitude/longitude are now derived from primary emoji marker; do not send separately
       const targetName = encodeURIComponent(loc.name);
       const res = await fetch(`/api/locations?name=${targetName}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error('Failed to save');
+      // Save attributes if changed
+      try {
+        if (Array.isArray(loc.attributes)) {
+          // Ensure normalized payload as [{key,value}]
+          const payloadAttrs = (loc.attributes || []).map(it => typeof it === 'string' ? { key: it, value: '' } : { key: String(it.key || ''), value: String(it.value || '') }).filter(it => it.key);
+          const attrsTarget = isRenaming ? trimmedNewName : loc.name;
+          await fetch(`/api/locations/attributes?name=${encodeURIComponent(attrsTarget)}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attributes: payloadAttrs })
+          });
+        }
+      } catch (_) {}
       // Update local and UI
       if (isRenaming) {
         const oldName = loc.name;
@@ -543,10 +1097,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       loc.description = desc;
       loc.approach = approachVal;
-      if (typeof payload.latitude === 'number' && typeof payload.longitude === 'number') {
-        loc.latitude = payload.latitude;
-        loc.longitude = payload.longitude;
-      }
+      loc.custom_markers = Array.isArray(extraMarkers) ? JSON.parse(JSON.stringify(extraMarkers)) : [];
+        // sync local primary coords for any consumers
+        try {
+          const p = section._getMarkerLatLng?.();
+          if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) { loc.latitude = p.lat; loc.longitude = p.lng; }
+        } catch(_) {}
       exitEditMode();
     }
 
@@ -578,6 +1134,16 @@ document.addEventListener('DOMContentLoaded', () => {
       isEditing = false;
       if (editBtn) editBtn.textContent = 'Edit';
       if (cancelBtn) cancelBtn.style.display = 'none';
+      section.classList.remove('editing');
+      // Remove attributes editor UI if present
+      if (attributesEditorEl && attributesEditorEl.parentNode) {
+        attributesEditorEl.parentNode.removeChild(attributesEditorEl);
+      }
+      // Ensure stray markers editor is removed if it was moved elsewhere
+      if (markersEditorEl && markersEditorEl.parentNode) {
+        markersEditorEl.parentNode.removeChild(markersEditorEl);
+      }
+      renderAttributesList();
       // Restore albums counter/link visibility
       const albumsLinkEl = title.querySelector('[data-role="albums-link"]');
       if (albumsLinkEl) {
@@ -587,6 +1153,18 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof section._setMarkerDraggable === 'function') {
         section._setMarkerDraggable(false);
       }
+      // Cleanup edit-only state: remove preview, reset pending/armed, clear selection to primary
+      try {
+        if (map && map._tempPlaceMarker && map.hasLayer(map._tempPlaceMarker)) {
+          map.removeLayer(map._tempPlaceMarker);
+          map._tempPlaceMarker = null;
+        }
+      } catch(_) {}
+      placeIconArmed = false; pendingMarkerPos = null; pendingLabelValue = ''; pendingEmoji = '📍';
+      try {
+        selectedIndex = 0;
+        if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(loc.custom_markers || []);
+      } catch(_) {}
     }
 
     if (editBtn) {
@@ -613,11 +1191,163 @@ document.addEventListener('DOMContentLoaded', () => {
     section._initMap = function initLeaflet() {
       // Initialize leaflet map; avoid showing a wrong default like London when coords are missing
       const map = L.map(mapViewport, { zoomControl: false, attributionControl: false });
-      const hasCoords = Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude);
-      let marker = null;
+      // Define marker refresh early so initial calls render markers in view mode too
+      section._refreshExtraMarkers = function(markers) {
+        try {
+          // Clear only our emoji markers by tracking className on the icon
+          map.eachLayer(layer => {
+            try {
+              if (layer instanceof L.Marker && layer.getIcon && layer.getIcon().options && layer.getIcon().options.className && layer.getIcon().options.className.includes('emoji-marker-wrapper')) {
+                map.removeLayer(layer);
+              }
+            } catch(_) {}
+          });
+          const list = Array.isArray(markers) ? markers : [];
+          list.forEach((m, idx) => {
+            if (!Number.isFinite(m.lat) || !Number.isFinite(m.lng)) return;
+            const isSelected = idx === selectedIndex;
+            const html = `<div class="emoji-marker" title="${escapeHtml(m.label || '')}">${escapeHtml(m.emoji || '📍')}</div>`;
+            const icon = L.divIcon({ html, className: 'emoji-marker-wrapper' + (isSelected ? ' selected' : ''), iconSize: [24, 24], iconAnchor: [12, 12] });
+            const layer = L.marker([m.lat, m.lng], { icon, draggable: section.classList.contains('editing'), riseOnHover: true }).addTo(map);
+            try {
+              if (layer.dragging) {
+                if (section.classList.contains('editing')) layer.dragging.enable(); else layer.dragging.disable();
+              }
+            } catch(_) {}
+            layer._extraIdx = idx;
+            if (m.label) layer.bindTooltip(m.label, { direction: 'top', offset: [0, -6] });
+            layer.on('click', (ev) => {
+              try {
+                // Prevent bubbling to any global click handlers that might clear selection
+                if (ev && ev.originalEvent && typeof ev.originalEvent.stopPropagation === 'function') {
+                  ev.originalEvent.stopPropagation();
+                }
+                if (typeof L !== 'undefined' && L.DomEvent && typeof L.DomEvent.stopPropagation === 'function') {
+                  L.DomEvent.stopPropagation(ev);
+                }
+              } catch(_) {}
+              selectedIndex = idx;
+              // Update both the editor list and map markers to show new selection
+              if (typeof renderMarkersList === 'function') renderMarkersList();
+              const currentList = (Array.isArray(extraMarkers) && extraMarkers.length) ? extraMarkers : (loc.custom_markers || []);
+              if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(currentList);
+              try { createNavChangeParticles(navRow, 14); } catch(_) {}
+              
+              // Select the location card and sync URL with both location and selected icon
+              clearAllSelections();
+              section.classList.add('selected');
+              const url = new URL(window.location);
+              url.searchParams.set('highlight', loc.name);
+              if (m.label && m.label.trim()) {
+                url.searchParams.set('selected_map_icon', m.label.trim());
+              } else if (m.emoji) {
+                url.searchParams.set('selected_map_icon', m.emoji);
+              }
+              history.pushState({}, '', url.toString());
+              scrollSectionIntoViewTop(section);
+            });
+            layer.on('dragend', () => {
+              try {
+                const pos = layer.getLatLng();
+                if (Array.isArray(extraMarkers) && typeof layer._extraIdx === 'number') {
+                  if (!extraMarkers[layer._extraIdx]) return;
+                  extraMarkers[layer._extraIdx].lat = pos.lat;
+                  extraMarkers[layer._extraIdx].lng = pos.lng;
+                  // Re-render to update tooltips/positions
+                  if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+                }
+              } catch(_) {}
+            });
+          });
+        } catch (_) { /* ignore */ }
+      };
+      // Improve mobile scrolling: two-finger pan/zoom for map, single-finger scrolls page
+      (function setupTouchGestureHandling() {
+        try {
+          const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+          if (!isTouch) return;
+          // Make map viewport allow vertical page scroll by default
+          mapViewport.style.touchAction = 'pan-y';
+          mapViewport.style.pointerEvents = 'auto';
+          // Disable overlay on touch devices; keep non-blocking hint if desired
+          if (mapOverlay) {
+            mapOverlay.style.pointerEvents = 'none';
+            mapOverlay.style.opacity = '0';
+          }
+          // Disable map interactions until two fingers are used
+          try { map.dragging.disable(); } catch(_) {}
+          try { if (map.touchZoom) map.touchZoom.disable(); } catch(_) {}
+          try { map.scrollWheelZoom.disable(); } catch(_) {}
+          try { map.doubleClickZoom.disable(); } catch(_) {}
+          // Toggle dragging/zoom on two-finger gesture
+          const onTouchChange = (e) => {
+            try {
+              const touches = e.touches ? e.touches.length : 0;
+              if (touches >= 2) {
+                if (isLocationEditableByCurrentUser(loc)) {
+                  // When editing we still respect emoji marker drag toggles, but allow map pan/zoom with two fingers
+                  if (map.dragging && !map.dragging.enabled()) map.dragging.enable();
+                  if (map.touchZoom && !map.touchZoom.enabled()) map.touchZoom.enable();
+                } else {
+                  if (map.dragging && !map.dragging.enabled()) map.dragging.enable();
+                  if (map.touchZoom && !map.touchZoom.enabled()) map.touchZoom.enable();
+                }
+              } else {
+                if (map.dragging && map.dragging.enabled()) map.dragging.disable();
+                if (map.touchZoom && map.touchZoom.enabled()) map.touchZoom.disable();
+              }
+            } catch(_) {}
+          };
+          mapViewport.addEventListener('touchstart', onTouchChange, { passive: true });
+          mapViewport.addEventListener('touchend', onTouchChange, { passive: true });
+          mapViewport.addEventListener('touchcancel', onTouchChange, { passive: true });
+        } catch(_) {}
+      })();
+      function getPrimaryMarkerIndex(list) {
+        if (!Array.isArray(list)) return -1;
+        let idx = list.findIndex(m => m && m.primary === true);
+        if (idx >= 0) return idx;
+        // Fallback: if any markers exist, treat first as primary
+        return list.length > 0 ? 0 : -1;
+      }
+      function ensurePrimaryMarker(list, lat, lng) {
+        if (!Array.isArray(list)) return [];
+        const result = list.slice();
+        let idx = getPrimaryMarkerIndex(result);
+        if (idx === -1 && Number.isFinite(lat) && Number.isFinite(lng)) {
+          result.push({ emoji: '🅿️', label: 'Parking', lat, lng, primary: true });
+          idx = result.length - 1;
+        } else if (idx >= 0) {
+          // Backfill a sensible default label for primary if missing
+          try {
+            if (!result[idx].label || String(result[idx].label).trim() === '') {
+              result[idx].label = 'Parking';
+            }
+          } catch(_) {}
+        }
+        return result;
+      }
+      function getStartLatLng() {
+        const list = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
+        const pidx = getPrimaryMarkerIndex(list);
+        if (pidx >= 0) {
+          const pm = list[pidx];
+          if (Number.isFinite(pm.lat) && Number.isFinite(pm.lng)) return { lat: pm.lat, lng: pm.lng };
+        }
+        if (Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) return { lat: loc.latitude, lng: loc.longitude };
+        return null;
+      }
+      const startPos = getStartLatLng();
+      const hasCoords = !!startPos;
+      // initialize selection to primary/top on load only if markers exist
+      try {
+        const listForInit = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
+        selectedIndex = listForInit.length > 0 ? 0 : -1;
+      } catch(_) {}
+      let marker = null; // legacy main marker not used anymore
       let tilesAdded = false;
       if (hasCoords) {
-        const start = [loc.latitude, loc.longitude];
+        const start = [startPos.lat, startPos.lng];
         const zoom = 13;
         map.setView(start, zoom);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -625,24 +1355,24 @@ document.addEventListener('DOMContentLoaded', () => {
           attribution: '&copy; OpenStreetMap'
         }).addTo(map);
         tilesAdded = true;
-        marker = L.marker(start, { draggable: false }).addTo(map);
-        marker.bindPopup(`<b>${escapeHtml(loc.name)}</b>`);
-        if (isLocationEditableByCurrentUser(loc)) {
-          const updateInputs = () => {
-            const { lat, lng } = marker.getLatLng();
-            const latInput = document.getElementById(`lat-${cssId(loc.name)}`);
-            const lngInput = document.getElementById(`lng-${cssId(loc.name)}`);
-            if (latInput) latInput.value = lat.toFixed(6);
-            if (lngInput) lngInput.value = lng.toFixed(6);
-          };
-          marker.on('drag', updateInputs);
-          marker.on('dragend', updateInputs);
-        }
-      } else {
-        // Show cooler loading animation until geocoding resolves
+        // Ensure a primary emoji marker exists at start position if none
         try {
-          ensureLoadingStyles();
-          if (mapOverlay) mapOverlay.innerHTML = '<div class="loading-container"><div class="spinner"></div></div>';
+          const current = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
+          loc.custom_markers = ensurePrimaryMarker(current, startPos.lat, startPos.lng);
+          extraMarkers = JSON.parse(JSON.stringify(loc.custom_markers));
+          if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+        } catch(_) {}
+      } else {
+        // No coords yet: initialize tiles immediately so the map is visible
+        try {
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap'
+          }).addTo(map);
+          tilesAdded = true;
+          // Neutral world view until geocode resolves
+          map.setView([0, 0], 2);
+          if (mapOverlay) mapOverlay.innerHTML = '<div class="hint">Tap to interact</div>';
         } catch(_) {}
       }
       // Provide a toggler and getter to control dragging only during edit
@@ -651,23 +1381,124 @@ document.addEventListener('DOMContentLoaded', () => {
           if (marker && marker.dragging) {
             if (enabled && isLocationEditableByCurrentUser(loc)) marker.dragging.enable(); else marker.dragging.disable();
           }
+          // Sync emoji markers' dragging as well
+          map.eachLayer(layer => {
+            try {
+              const isEmoji = (layer instanceof L.Marker) && layer.getIcon && layer.getIcon().options && String(layer.getIcon().options.className || '').includes('emoji-marker-wrapper');
+              if (isEmoji && layer.dragging) {
+                if (enabled && isLocationEditableByCurrentUser(loc)) layer.dragging.enable(); else layer.dragging.disable();
+              }
+            } catch(_) {}
+          });
+          // Keep selection visible in both modes
+          if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
         } catch (_) {}
       };
       section._getMarkerLatLng = function() {
-        try { return marker && marker.getLatLng ? marker.getLatLng() : null; } catch (_) { return null; }
+        try {
+          const list = Array.isArray(extraMarkers) ? extraMarkers : (Array.isArray(loc.custom_markers) ? loc.custom_markers : []);
+          const idx = Number.isFinite(selectedIndex) ? selectedIndex : getPrimaryMarkerIndex(list);
+          if (idx >= 0 && idx < list.length) {
+            const pm = list[idx];
+            if (Number.isFinite(pm.lat) && Number.isFinite(pm.lng)) return { lat: pm.lat, lng: pm.lng };
+          }
+          return null;
+        } catch (_) { return null; }
       };
+      // Click-to-place for extra markers while editing
+      map.on('click', (e) => {
+        if (!section.classList.contains('editing')) return;
+        if (!placeIconArmed) return;
+        pendingMarkerPos = { lat: e.latlng.lat, lng: e.latlng.lng };
+        try { placeIconArmed = false; } catch(_) {}
+        // Give user visual feedback: drop a temporary preview marker
+        try {
+          const html = `<div class=\"emoji-marker\">${escapeHtml((pendingEmoji || currentEmojiChoice || '📍'))}</div>`;
+          const icon = L.divIcon({ html, className: 'emoji-marker-wrapper', iconSize: [24, 24], iconAnchor: [12, 12] });
+          // Remove previous temp if exists
+          if (map._tempPlaceMarker && map.hasLayer(map._tempPlaceMarker)) map.removeLayer(map._tempPlaceMarker);
+          map._tempPlaceMarker = L.marker([pendingMarkerPos.lat, pendingMarkerPos.lng], { icon, draggable: true, riseOnHover: true }).addTo(map);
+          // Allow dragging preview to fine-tune
+          if (map._tempPlaceMarker.dragging) map._tempPlaceMarker.dragging.enable();
+          map._tempPlaceMarker.on('drag', () => {
+            try {
+              const p = map._tempPlaceMarker.getLatLng();
+              pendingMarkerPos = { lat: p.lat, lng: p.lng };
+            } catch(_) {}
+          });
+        } catch(_) {}
+        // Automatically add the icon now that it has been placed
+        try { if (typeof section._addMarkerFromInputs === 'function') section._addMarkerFromInputs(); else addMarkerFromInputs(); } catch(_) {}
+      });
       section._setMarkerDraggable(false);
+      // Ensure markers render (with selection) for current mode
+      try {
+        const list = (Array.isArray(extraMarkers) && extraMarkers.length) ? extraMarkers : (loc.custom_markers || []);
+        if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(list);
+      } catch(_) {}
       // Resize map when section becomes visible
       setTimeout(() => map.invalidateSize(), 200);
       window.addEventListener('resize', () => map.invalidateSize());
 
-      // If no coords present, geocode by name and set view & inputs (no incorrect default view)
+      // Geocoding utilities (must be defined before first use)
+      const geocodeCache = (window.__geocodeCache ||= new Map());
+      const geocodeFailures = (window.__geocodeFailures ||= new Map());
+      let geocodeInFlight = 0;
+      const GEOCODE_MAX_CONCURRENCY = 5;
+      const GEOCODE_TIMEOUT_MS = 13000;
+      const GEOCODE_RETRY_AFTER_MS = 20 * 1000; // shorter negative cache (20s)
+      async function geocodeByName(name, opts = {}) {
+        const key = String(name || '').trim();
+        if (!key) return null;
+        if (geocodeCache.has(key)) return geocodeCache.get(key);
+        const ignoreFailureCache = !!opts.ignoreFailureCache;
+        const failedAt = geocodeFailures.get(key);
+        if (!ignoreFailureCache) {
+          const GEOCODE_RETRY_AFTER_MS = 20000;
+          if (failedAt && (Date.now() - failedAt) < GEOCODE_RETRY_AFTER_MS) {
+            return null;
+          }
+        }
+        // Build fallback queries similar to stage
+        const queries = [];
+        queries.push(key);
+        if (!/\bIsrael\b/i.test(key)) queries.push(`${key} Israel`);
+        if (/gilabon/i.test(key)) queries.push(key.replace(/gilabon/ig, 'Gilbon'));
+        if (/gilbon/i.test(key)) queries.push(key.replace(/gilbon/ig, 'Gilabon'));
+        const seenQ = new Set();
+        const toTry = queries.filter(q => { const s = q.trim(); if (!s || seenQ.has(s.toLowerCase())) return false; seenQ.add(s.toLowerCase()); return true; });
+
+        while (geocodeInFlight >= GEOCODE_MAX_CONCURRENCY) {
+          await new Promise(r => setTimeout(r, 100));
+        }
+        geocodeInFlight++;
+        try {
+          for (const q of toTry) {
+            try {
+              const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), GEOCODE_TIMEOUT_MS);
+              const res = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store', signal: controller.signal });
+              clearTimeout(timeoutId);
+              if (!res.ok) continue;
+              const arr = await res.json();
+              const result = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
+              if (result) { geocodeCache.set(key, result); return result; }
+            } catch (err) {
+              // Timeout/abort or transient failure; try next fallback query
+              continue;
+            }
+          }
+          geocodeFailures.set(key, Date.now());
+          return null;
+        } finally {
+          geocodeInFlight = Math.max(0, geocodeInFlight - 1);
+        }
+      }
+
+      // If no coords present, geocode by name and set view & inputs (with timeout fallback)
       if (!hasCoords) {
-        geocodeByName(loc.name).then(result => {
-          if (!result) return;
-          const lat = parseFloat(result.lat), lon = parseFloat(result.lon);
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-          // Add tiles if not already added
+        const ensureTiles = () => {
           if (!tilesAdded) {
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
               maxZoom: 19,
@@ -675,51 +1506,88 @@ document.addEventListener('DOMContentLoaded', () => {
             }).addTo(map);
             tilesAdded = true;
           }
+        };
+        const fallbackTimer = setTimeout(() => {
+          try {
+            ensureTiles();
+            // Set a gentle world view to avoid an empty container
+            const z = map.getZoom();
+            if (!Number.isFinite(z) || z <= 1) map.setView([0, 0], 2);
+            if (mapOverlay) mapOverlay.innerHTML = '<div class="hint">Tap to interact</div>';
+          } catch(_) {}
+        }, 2000);
+        geocodeByName(loc.name).then(result => {
+          if (!result) return;
+          const lat = parseFloat(result.lat), lon = parseFloat(result.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          ensureTiles();
           map.setView([lat, lon], 13);
-          if (marker) map.removeLayer(marker);
-          marker = L.marker([lat, lon], { draggable: false }).addTo(map);
-          marker.bindPopup(`<b>${escapeHtml(loc.name)}</b>`);
-          if (isLocationEditableByCurrentUser(loc)) {
-            const latInput = document.getElementById(`lat-${cssId(loc.name)}`);
-            const lngInput = document.getElementById(`lng-${cssId(loc.name)}`);
-            if (latInput) latInput.value = lat.toFixed(6);
-            if (lngInput) lngInput.value = lon.toFixed(6);
-            const updateInputs = () => {
-              const { lat: dlat, lng: dlng } = marker.getLatLng();
-              if (latInput) latInput.value = dlat.toFixed(6);
-              if (lngInput) lngInput.value = dlng.toFixed(6);
-            };
-            marker.on('drag', updateInputs);
-            marker.on('dragend', updateInputs);
-          }
+          // Ensure we have a primary emoji marker at geocoded position
+          try {
+            const current = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
+            loc.custom_markers = ensurePrimaryMarker(current, lat, lon);
+            extraMarkers = JSON.parse(JSON.stringify(loc.custom_markers));
+            if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+          } catch(_) {}
           section._setMarkerDraggable = function(enabled) {
             try {
-              if (marker && marker.dragging) {
-                if (enabled && isLocationEditableByCurrentUser(loc)) marker.dragging.enable(); else marker.dragging.disable();
-              }
+              // Toggle emoji marker dragging in edit mode
+              map.eachLayer(layer => {
+                try {
+                  const isEmoji = (layer instanceof L.Marker) && layer.getIcon && layer.getIcon().options && String(layer.getIcon().options.className || '').includes('emoji-marker-wrapper');
+                  if (isEmoji && layer.dragging) {
+                    if (enabled && isLocationEditableByCurrentUser(loc)) layer.dragging.enable(); else layer.dragging.disable();
+                  }
+                } catch(_) {}
+              });
             } catch (_) {}
           };
           section._getMarkerLatLng = function() {
-            try { return marker.getLatLng(); } catch (_) { return null; }
+            try {
+              const list = Array.isArray(extraMarkers) ? extraMarkers : (Array.isArray(loc.custom_markers) ? loc.custom_markers : []);
+              const pidx = getPrimaryMarkerIndex(list);
+              if (pidx >= 0) {
+                const pm = list[pidx];
+                if (Number.isFinite(pm.lat) && Number.isFinite(pm.lng)) return { lat: pm.lat, lng: pm.lng };
+              }
+              return null;
+            } catch (_) { return null; }
           };
           section._setMarkerDraggable(false);
-          // Switch overlay back to interaction hint
-          try { if (mapOverlay) mapOverlay.innerHTML = '<div class="hint">Tap to interact</div>'; } catch(_) {}
-        }).catch(() => {});
+        }).catch(() => {}).finally(() => { try { clearTimeout(fallbackTimer); } catch(_) {} });
+        // After initial pass completes across all sections, schedule a re-try for misses
+        try {
+          const RETRY_DELAY_MS = 16000;
+          setTimeout(async () => {
+            try {
+              const current = section._getMarkerLatLng?.();
+              if (!current) {
+                const again = await geocodeByName(loc.name, { ignoreFailureCache: true });
+                if (again && Number.isFinite(parseFloat(again.lat)) && Number.isFinite(parseFloat(again.lon))) {
+                  const lat = parseFloat(again.lat), lon = parseFloat(again.lon);
+                  if (!tilesAdded) {
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                      maxZoom: 19,
+                      attribution: '&copy; OpenStreetMap'
+                    }).addTo(map);
+                    tilesAdded = true;
+                  }
+                  map.setView([lat, lon], 13);
+                  try {
+                    const curr = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
+                    loc.custom_markers = ensurePrimaryMarker(curr, lat, lon);
+                    extraMarkers = JSON.parse(JSON.stringify(loc.custom_markers));
+                    if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+                  } catch(_) {}
+                }
+              }
+            } catch(_) {}
+          }, RETRY_DELAY_MS);
+        } catch(_) {}
       }
 
-      async function geocodeByName(name) {
-        try {
-          const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(name)}`;
-          const res = await fetch(url, { headers: { 'Accept': 'application/json', 'User-Agent': 'ClimbingApp/1.0 (locations page)' } });
-          if (!res.ok) return null;
-          const arr = await res.json();
-          return Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
-        } catch {
-          return null;
-        }
-      }
-      // Map activation: require tap/click to enable panning/zooming
+      // (geocoding helpers declared earlier in this function)
+      // Map activation (desktop): require tap/click to enable panning/zooming
       let mapActive = false;
       function activateMap() {
         if (mapActive) return;
@@ -730,8 +1598,9 @@ document.addEventListener('DOMContentLoaded', () => {
         mapActive = true;
         mapViewport.style.pointerEvents = 'auto';
         mapViewport.style.touchAction = 'auto';
-        
-        if (mapOverlay && mapOverlay.parentNode) {
+        // On touch devices we already handle gestures; skip overlay removal animation
+        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        if (!isTouch && mapOverlay && mapOverlay.parentNode) {
           // Start fade out immediately but don't remove yet
           mapOverlay.style.pointerEvents = 'none';
           mapOverlay.style.transition = 'opacity 300ms ease-out';
@@ -751,8 +1620,12 @@ document.addEventListener('DOMContentLoaded', () => {
           createBurstParticles(mapDiv, 18);
         }
       }
-      mapOverlay.addEventListener('click', activateMap);
-      mapOverlay.addEventListener('touchstart', activateMap, { passive: true });
+      try {
+        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        if (!isTouch) {
+          mapOverlay.addEventListener('click', activateMap);
+        }
+      } catch(_) {}
 
       function createBurstParticles(container, count = 12) {
         const rect = container.getBoundingClientRect();
@@ -785,6 +1658,34 @@ document.addEventListener('DOMContentLoaded', () => {
           setTimeout(() => { if (p.parentNode) p.parentNode.removeChild(p); }, 600);
         }
       }
+      // Initial markers render now happens via earlier-defined _refreshExtraMarkers when called above
+      
+      // Function to restore icon selection from URL
+      section._restoreIconSelection = function(iconIdentifier) {
+        try {
+          const currentMarkers = (Array.isArray(extraMarkers) && extraMarkers.length) ? extraMarkers : (loc.custom_markers || []);
+          let foundIndex = -1;
+          
+          // Try to find marker by label first, then by emoji
+          for (let i = 0; i < currentMarkers.length; i++) {
+            const marker = currentMarkers[i];
+            if ((marker.label && marker.label.trim() === iconIdentifier) || 
+                (marker.emoji === iconIdentifier)) {
+              foundIndex = i;
+              break;
+            }
+          }
+          
+          if (foundIndex >= 0) {
+            selectedIndex = foundIndex;
+            // Update both visual displays
+            if (typeof renderMarkersList === 'function') renderMarkersList();
+            if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(currentMarkers);
+            // Trigger navigation button animation
+            try { createNavChangeParticles(navRow, 14); } catch(_) {}
+          }
+        } catch(_) {}
+      };
     }
     return section;
   }
@@ -801,12 +1702,14 @@ document.addEventListener('DOMContentLoaded', () => {
   function toggleSelection(section, name) {
     const isSelected = section.classList.contains('selected');
     const url = new URL(window.location);
+    
+    // Don't unselect if clicking the same card - just ensure it stays selected
     if (isSelected) {
-      section.classList.remove('selected');
-      url.searchParams.delete('highlight');
-      history.pushState({}, '', url.toString());
+      // Already selected, keep it selected
       return;
     }
+    
+    // Clear other selections and select this one
     clearAllSelections();
     section.classList.add('selected');
     url.searchParams.set('highlight', name);
@@ -818,6 +1721,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function applySelectionFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const highlight = params.get('highlight');
+    const selectedMapIcon = params.get('selected_map_icon');
+    
     if (highlight) {
       const norm = normalizeName(highlight);
       const sections = Array.from(container.querySelectorAll('.location-section'));
@@ -826,6 +1731,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (normalizeName(name) === norm) {
           clearAllSelections();
           sec.classList.add('selected');
+          
+          // If there's a selected map icon, try to restore that selection too
+          if (selectedMapIcon && typeof sec._initMap === 'function') {
+            // Wait for map to be initialized, then find and select the matching icon
+            setTimeout(() => {
+              try {
+                if (typeof sec._restoreIconSelection === 'function') {
+                  sec._restoreIconSelection(selectedMapIcon);
+                }
+              } catch(_) {}
+            }, 100);
+          }
+          
           scrollSectionIntoViewTop(sec);
           return;
         }
@@ -891,46 +1809,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return owners.includes(currentUser.id);
   }
 
-  async function saveLocation(loc) {
-    try {
-      const desc = document.getElementById(`desc-${cssId(loc.name)}`)?.value || '';
-      const approachVal = document.getElementById(`approach-${cssId(loc.name)}`)?.value || '';
-      const latVal = document.getElementById(`lat-${cssId(loc.name)}`)?.value;
-      const lngVal = document.getElementById(`lng-${cssId(loc.name)}`)?.value;
-      const payload = { description: desc, approach: approachVal };
-      if (latVal !== '' && lngVal !== '') {
-        payload.latitude = parseFloat(latVal);
-        payload.longitude = parseFloat(lngVal);
-      }
-      const res = await fetch(`/api/locations?name=${encodeURIComponent(loc.name)}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-      });
-      if (!res.ok) throw new Error('Failed to save');
-      // Soft refresh UI
-      loc.description = desc;
-      loc.approach = approachVal;
-      const approachEl = section.querySelector('.approach-text');
-      if (approachEl) {
-        const text = (approachVal && approachVal.trim()) || `No approach info yet for ${loc.name}. Add a note when you tag albums here.`;
-        approachEl.textContent = text;
-      }
-      if (payload.latitude && payload.longitude) {
-        loc.latitude = payload.latitude;
-        loc.longitude = payload.longitude;
-      }
-    } catch (e) { alert(e.message || 'Failed to save'); }
-  }
-
-  async function claimLocation(loc) {
-    try {
-      const res = await fetch('/api/locations/claim', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: loc.name })
-      });
-      if (!res.ok) throw new Error('Failed to claim');
-      if (!Array.isArray(loc.owners)) loc.owners = [];
-      if (currentUser && !loc.owners.includes(currentUser.id)) loc.owners.push(currentUser.id);
-    } catch (e) { alert(e.message || 'Failed to claim'); }
-  }
+  // Removed legacy saveLocation/claimLocation helpers (edit flow uses inline save and owner claim via API elsewhere)
 
   function cssId(name) { return String(name).replace(/[^a-z0-9]+/gi, '-').toLowerCase(); }
 

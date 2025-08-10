@@ -137,6 +137,24 @@ footer {
 	margin-top: 4rem;
 	text-align: center;
 }
+/* Emoji marker styling for Leaflet divIcons on locations maps */
+.emoji-marker-wrapper { background: transparent; border: none; }
+.emoji-marker { font-size: 20px; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); user-select: none; }
+.emoji-marker-wrapper.selected .emoji-marker { filter: drop-shadow(0 0 12px rgba(3,218,198,1)) drop-shadow(0 0 4px rgba(3,218,198,0.8)); }
+
+/* Locations markers editor UI */
+.markers-editor { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.25rem; }
+.markers-list { display: flex; flex-direction: column; gap: 0.25rem; }
+.marker-row { display: grid; grid-template-columns: 28px 1fr auto auto; align-items: center; gap: 0.5rem; border: 1px solid #2b2b2b; border-radius: 8px; padding: 4px 6px; cursor: pointer; }
+.marker-row.dragging { opacity: 0.6; }
+.marker-row.drag-over { outline: 2px dashed #03dac6; }
+.marker-row.selected { border-color: #03dac6; box-shadow: 0 0 0 1px rgba(3,218,198,0.35) inset; }
+.marker-emoji { font-size: 18px; }
+.marker-label { color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.marker-coords { color: #9aa; font-size: 0.8rem; }
+.marker-remove { padding: 0.25rem 0.5rem; }
+.markers-add-row { display: grid; grid-template-columns: 90px 1fr 140px auto; gap: 0.4rem; }
+.markers-add-row .armed { border-color: #03dac6; box-shadow: 0 0 0 1px rgba(3,218,198,0.35) inset; }
 
 footer p {
 	color: #888;
@@ -3963,6 +3981,69 @@ button.dropdown-item {
         transform: translateY(0);
         opacity: 1;
     }
+}
+
+/* === Performance: fast, transform-only hover across interactive cards/badges/buttons === */
+/* Keep hover responsive by relying on GPU-friendly transforms only and avoiding animated shadows/borders */
+.album-card,
+.meme-card,
+.mini-album-card,
+.level-badge,
+.climbs-badge,
+.btn-primary,
+.btn-danger,
+.dialog-btn,
+.confirmation-btn,
+.action-btn,
+.crew-table tbody tr,
+.refresh-banner,
+.card,
+.resource-card {
+  transition: transform 90ms ease !important;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Subtle, consistent hover lift without animating box-shadow/border */
+.album-card:hover,
+.meme-card:hover,
+.level-badge:hover,
+.climbs-badge:hover,
+.btn-primary:hover,
+.btn-danger:hover,
+.dialog-btn:hover,
+.confirmation-btn:hover,
+.action-btn:hover,
+.crew-table tbody tr:hover,
+.resource-card:hover {
+  transform: translateY(-2px) !important;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .album-card,
+  .meme-card,
+  .mini-album-card,
+  .level-badge,
+  .climbs-badge,
+  .btn-primary,
+  .btn-danger,
+  .dialog-btn,
+  .confirmation-btn,
+  .action-btn,
+  .crew-table tbody tr,
+  .resource-card { transition: none !important; }
+  .album-card:hover,
+  .meme-card:hover,
+  .level-badge:hover,
+  .climbs-badge:hover,
+  .btn-primary:hover,
+  .btn-danger:hover,
+  .dialog-btn:hover,
+  .confirmation-btn:hover,
+  .action-btn:hover,
+  .crew-table tbody tr:hover,
+  .resource-card:hover { transform: none !important; }
 }
 
 .pending-notification-content {

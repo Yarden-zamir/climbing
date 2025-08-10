@@ -147,6 +147,153 @@ async def get_locations(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Failed to get locations")
 
 
+# === LOCATION ATTRIBUTES MANAGEMENT ===
+
+@router.get("/location-attributes")
+async def get_location_attributes():
+    """Get all unique location attributes from Redis"""
+    redis_store = get_redis_store()
+
+    if not redis_store:
+        logger.error("Redis store not available")
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        attributes = await redis_store.get_all_location_attributes()
+        return JSONResponse(attributes)
+    except Exception as e:
+        logger.error(f"Error getting location attributes: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get location attributes")
+
+
+@router.post("/location-attributes")
+async def add_location_attribute(request: dict, user: dict = Depends(get_current_user)):
+    """Add a new location attribute (admin only)."""
+    redis_store = get_redis_store()
+    permissions_manager = get_permissions_manager()
+
+    if not redis_store:
+        logger.error("Redis store not available")
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Admin-only for creating new attribute types to keep taxonomy clean
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_permission(user_id, "manage_users")
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="Admin permissions required")
+
+        attribute_name = (request.get("name") or "").strip()
+        if not attribute_name:
+            raise HTTPException(status_code=400, detail="Attribute name is required")
+
+        # Add to global index
+        redis_store.redis.sadd("index:location_attributes:all", attribute_name)
+        logger.info(f"Added location attribute: {attribute_name} by user: {user_id}")
+        return JSONResponse({"success": True, "message": f"Attribute '{attribute_name}' added successfully"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding location attribute: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add location attribute")
+
+
+@router.delete("/location-attributes/{attribute_name}")
+async def delete_location_attribute(attribute_name: str, user: dict = Depends(get_current_user)):
+    """Delete a location attribute globally (admin only)."""
+    redis_store = get_redis_store()
+    permissions_manager = get_permissions_manager()
+
+    if not redis_store:
+        logger.error("Redis store not available")
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Admin-only for global delete
+        if permissions_manager is not None:
+            try:
+                await permissions_manager.require_permission(user_id, "manage_users")
+            except Exception as e:
+                logger.error(f"Permission check failed: {e}")
+                raise HTTPException(status_code=403, detail="Admin permissions required")
+
+        ok = await redis_store.delete_location_attribute_global(attribute_name)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Invalid attribute name")
+        return JSONResponse({"success": True, "message": f"Attribute '{attribute_name}' deleted successfully"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting location attribute: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete location attribute")
+
+
+@router.put("/locations/attributes")
+async def set_attributes_for_location(
+    name: str = Query(..., description="Location name"),
+    request: dict | None = None,
+    user: dict = Depends(get_current_user)
+):
+    """Replace the attributes list for a given location (owner or admin)."""
+    redis_store = get_redis_store()
+    permissions_manager = get_permissions_manager()
+
+    if not redis_store:
+        logger.error("Redis store not available")
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        user_id = user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Verify location exists
+        all_locations = await redis_store.get_all_locations()
+        target = next((loc for loc in all_locations if loc.get("name") == name), None)
+        if not target:
+            raise HTTPException(status_code=404, detail="Location not found")
+
+        # Enforce owner or admin
+        if permissions_manager is not None:
+            try:
+                from permissions import ResourceType
+                is_owner = await permissions_manager.is_resource_owner(ResourceType.LOCATION, name, user_id)
+                if not is_owner:
+                    user_perms = permissions_manager.get_user_permissions(user.get("role", "user"))
+                    if not user_perms.can_edit_all_resources:
+                        raise HTTPException(
+                            status_code=403, detail="You don't have permission to edit attributes for this location.")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(
+                    status_code=403, detail="You don't have permission to edit attributes for this location.")
+
+        attributes = (request or {}).get("attributes")
+        if attributes is None or not isinstance(attributes, list):
+            raise HTTPException(status_code=400, detail="Attributes must be a list of strings or {key,value} objects")
+
+        ok = await redis_store.set_location_attributes(name, attributes)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Location not found")
+
+        return JSONResponse({"success": True, "name": name, "attributes": attributes})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting location attributes: {e}")
+        raise HTTPException(status_code=500, detail="Failed to set location attributes")
+
 @router.post("/locations")
 async def create_location(request: dict, user: dict = Depends(get_current_user)):
     """Create a new canonical location (idempotent by name)."""
@@ -180,7 +327,12 @@ async def create_location(request: dict, user: dict = Depends(get_current_user))
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid latitude/longitude")
 
-        await redis_store.add_location(name, description, latitude, longitude, approach)
+        # Optional custom markers array
+        custom_markers = request.get("custom_markers") if request else None
+        if custom_markers is not None and not isinstance(custom_markers, list):
+            raise HTTPException(status_code=400, detail="custom_markers must be a list")
+
+        await redis_store.add_location(name, description, latitude, longitude, approach, custom_markers)
 
         # Claim ownership for creator
         if permissions_manager is not None:
@@ -246,6 +398,11 @@ async def update_location(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid latitude/longitude")
 
+        # Optional custom markers list
+        custom_markers = request.get("custom_markers") if request else None
+        if custom_markers is not None and not isinstance(custom_markers, list):
+            raise HTTPException(status_code=400, detail="custom_markers must be a list")
+
         # If renaming, handle that first (it also preserves and updates fields)
         if new_name and new_name != name:
             try:
@@ -253,8 +410,8 @@ async def update_location(
                 if not renamed:
                     raise HTTPException(status_code=404, detail="Location not found")
                 # After rename, optionally apply field updates to the new key
-                if any(v is not None for v in (description, latitude, longitude, approach)):
-                    await redis_store.update_location(new_name, description, latitude, longitude, approach)
+                if any(v is not None for v in (description, latitude, longitude, approach, custom_markers)):
+                    await redis_store.update_location(new_name, description, latitude, longitude, approach, custom_markers)
                 return JSONResponse({"success": True, "name": new_name})
             except Exception as e:
                 if isinstance(e, HTTPException):
@@ -262,7 +419,7 @@ async def update_location(
                 # Validation error or other failure
                 raise HTTPException(status_code=400, detail=str(e))
         else:
-            updated = await redis_store.update_location(name, description, latitude, longitude, approach)
+            updated = await redis_store.update_location(name, description, latitude, longitude, approach, custom_markers)
             if not updated:
                 raise HTTPException(status_code=404, detail="Location not found")
             return JSONResponse({"success": True, "name": name})
@@ -292,7 +449,7 @@ async def claim_location(request: dict, user: dict = Depends(get_current_user)):
         target_name = (request.get("name") or "").strip()
         if not target_name:
             raise HTTPException(status_code=400, detail="Location name is required")
-        names = [l.get("name") for l in await redis_store.get_all_locations()]
+        names = [loc.get("name") for loc in await redis_store.get_all_locations()]
         if target_name not in names:
             raise HTTPException(status_code=404, detail="Location not found")
 

@@ -80,6 +80,13 @@ self.addEventListener('fetch', (event) => {
         return;
     }
     
+    // Bypass caching and offline fallback for external geocoding (Nominatim)
+    if (url.hostname.includes('nominatim.openstreetmap.org')) {
+        // Network-only for geocoding; do not cache and do not serve stale
+        event.respondWith(fetch(request));
+        return;
+    }
+
     // Determine caching strategy based on request type
     if (url.pathname.startsWith('/api/')) {
         // API: Network-first (always try to get fresh data)

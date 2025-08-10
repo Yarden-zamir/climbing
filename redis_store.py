@@ -119,6 +119,23 @@ class RedisDataStore:
 
         return url
 
+    def _validate_attributes(self, attributes: List[str]) -> List[str]:
+        """Validate generic attributes list for locations."""
+        if not attributes:
+            return []
+
+        validated_attributes: List[str] = []
+        for attribute in attributes:
+            if not isinstance(attribute, str):
+                raise ValidationError(f"Attribute must be a string: {attribute}")
+            attribute = attribute.strip()
+            if not attribute:
+                raise ValidationError("Attribute cannot be empty")
+            if attribute not in validated_attributes:  # Remove duplicates
+                validated_attributes.append(attribute)
+
+        return validated_attributes
+
     # === ENHANCED CLIMBER METHODS ===
 
     async def add_climber(
@@ -971,24 +988,58 @@ class RedisDataStore:
         names = list(self.redis.smembers("index:locations:all"))
         if not names:
             return []
+        # Fetch hashes
         pipe = self.redis.pipeline()
         for nm in names:
             pipe.hgetall(f"location:{nm}")
-        results = pipe.execute()
+        hash_results = pipe.execute()
+
+        # Fetch attributes sets and maps
+        pipe = self.redis.pipeline()
+        for nm in names:
+            pipe.smembers(f"location:{nm}:attributes")
+            pipe.hgetall(f"location:{nm}:attributes_map")
+        attrs_mixed_results = pipe.execute()
+
         locations: List[Dict] = []
-        for nm, data in zip(names, results):
-            if data:
-                locations.append(data)
+        # attrs_mixed_results is [set, map, set, map, ...]
+        for idx, (nm, data) in enumerate(zip(names, hash_results)):
+            if data is None or data == {}:
+                continue
+            set_idx = idx * 2
+            attrs_set = attrs_mixed_results[set_idx] if set_idx < len(attrs_mixed_results) else set()
+            attrs_map = attrs_mixed_results[set_idx + 1] if (set_idx + 1) < len(attrs_mixed_results) else {}
+            # Merge to unified list of objects
+            merged: Dict[str, str] = {}
+            try:
+                for k in (attrs_set or []):
+                    merged[str(k)] = ""
+                for k, v in (attrs_map or {}).items():
+                    merged[str(k)] = str(v or "")
+            except Exception:
+                merged = {}
+            # Convert to list of {key, value}
+            data["attributes"] = [{"key": k, "value": merged[k]} for k in sorted(merged.keys())]
+            # Parse optional custom markers json if present
+            try:
+                raw_markers = data.get("custom_markers", "")
+                if raw_markers:
+                    data["custom_markers"] = json.loads(raw_markers)
+                else:
+                    data["custom_markers"] = []
+            except Exception:
+                data["custom_markers"] = []
+            locations.append(data)
         locations.sort(key=lambda x: x.get("name", ""))
         return locations
 
     async def add_location(
             self, name: str, description: Optional[str] = None, latitude: Optional[float] = None, longitude:
-            Optional[float] = None, approach: Optional[str] = None) -> None:
+            Optional[float] = None, approach: Optional[str] = None, custom_markers: Optional[List[Dict[str, Any]]] = None) -> None:
         name = self._validate_name(name)
         key = f"location:{name}"
         if self.redis.exists(key):
-            # Update description if provided
+            # Update fields if provided (idempotent create)
             mapping = {"updated_at": datetime.now().isoformat()}
             if description is not None:
                 mapping["description"] = description
@@ -997,15 +1048,21 @@ class RedisDataStore:
                 mapping["longitude"] = str(longitude)
             if approach is not None:
                 mapping["approach"] = approach
+            if custom_markers is not None:
+                try:
+                    mapping["custom_markers"] = json.dumps(custom_markers)
+                except Exception:
+                    pass
             if len(mapping) > 1:
                 self.redis.hset(key, mapping=mapping)
             return
-        mapping = {
+            mapping = {
             "name": name,
             "description": description or "",
             "latitude": str(latitude) if latitude is not None else "",
             "longitude": str(longitude) if longitude is not None else "",
             "approach": approach or "",
+                "custom_markers": json.dumps(custom_markers or []),
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat()
         }
@@ -1016,7 +1073,7 @@ class RedisDataStore:
 
     async def update_location(
             self, name: str, description: Optional[str] = None, latitude: Optional[float] = None, longitude:
-            Optional[float] = None, approach: Optional[str] = None) -> bool:
+            Optional[float] = None, approach: Optional[str] = None, custom_markers: Optional[List[Dict[str, Any]]] = None) -> bool:
         """Update existing location fields. Returns True if updated, False if not found."""
         name = self._validate_name(name)
         key = f"location:{name}"
@@ -1031,7 +1088,122 @@ class RedisDataStore:
             mapping["longitude"] = str(longitude)
         if approach is not None:
             mapping["approach"] = approach
+        if custom_markers is not None:
+            try:
+                mapping["custom_markers"] = json.dumps(custom_markers)
+                # If a primary is present, also sync latitude/longitude fields for compatibility
+                try:
+                    primary = None
+                    for m in (custom_markers or []):
+                        if isinstance(m, dict) and m.get("primary"):
+                            primary = m
+                            break
+                    if primary and isinstance(
+                            primary.get("lat"),
+                            (int, float)) and isinstance(
+                            primary.get("lng"),
+                            (int, float)):
+                        mapping["latitude"] = str(primary["lat"])
+                        mapping["longitude"] = str(primary["lng"])
+                except Exception:
+                    pass
+            except Exception:
+                # Ignore bad markers payloads silently
+                pass
         self.redis.hset(key, mapping=mapping)
+        return True
+
+    async def set_location_attributes(self, name: str, attributes: Union[List[str], List[Dict[str, str]]]) -> bool:
+        """Replace attributes for a location (supports list of strings or list of {key,value})."""
+        loc_name = self._validate_name(name)
+        key = f"location:{loc_name}"
+        if not self.redis.exists(key):
+            return False
+
+        # Normalize input to a dict of key->value (value may be empty string)
+        desired_map: Dict[str, str] = {}
+        if not attributes:
+            attributes = []
+        for item in attributes:
+            if isinstance(item, str):
+                normalized_key = item.strip()
+                if not normalized_key:
+                    continue
+                desired_map[normalized_key] = ""
+            elif isinstance(item, dict):
+                k = str(item.get("key") or "").strip()
+                if not k:
+                    continue
+                v = item.get("value")
+                v = "" if v is None else str(v)
+                desired_map[k] = v
+            else:
+                raise ValidationError("Attributes must be a list of strings or {key,value} objects")
+
+        # Validate keys via attribute validation (reusing _validate_attributes for keys)
+        valid_keys = set(self._validate_attributes(list(desired_map.keys())))
+        # Coerce map to validated keys
+        desired_map = {k: desired_map[k] for k in valid_keys}
+
+        # Current attributes from set and map
+        current_set: Set[str] = set(self.redis.smembers(f"location:{loc_name}:attributes"))
+        current_map: Dict[str, str] = self.redis.hgetall(f"location:{loc_name}:attributes_map") or {}
+        current_keys: Set[str] = set(current_set) | set(current_map.keys())
+        desired_keys: Set[str] = set(desired_map.keys())
+
+        to_add_keys = list(desired_keys - current_keys)
+        to_remove_keys = list(current_keys - desired_keys)
+        to_update_values = {k: desired_map[k] for k in desired_keys}
+
+        pipe = self.redis.pipeline()
+        # Additions to set and map, and indexes
+        if to_add_keys:
+            pipe.sadd(f"location:{loc_name}:attributes", *to_add_keys)
+            for k in to_add_keys:
+                pipe.sadd("index:location_attributes:all", k)
+                pipe.sadd(f"index:locations:attribute:{k}", loc_name)
+        # Ensure keys that already existed in set but not map are still present in set after replacements
+
+        # Synchronize removals from set, map, and indexes
+        for k in to_remove_keys:
+            pipe.srem(f"location:{loc_name}:attributes", k)
+            pipe.hdel(f"location:{loc_name}:attributes_map", k)
+            pipe.srem(f"index:locations:attribute:{k}", loc_name)
+
+        # Write the attributes_map hash values for all desired keys
+        for k, v in to_update_values.items():
+            pipe.hset(f"location:{loc_name}:attributes_map", k, v)
+
+        # Touch updated_at on the location
+        pipe.hset(key, "updated_at", datetime.now().isoformat())
+        pipe.execute()
+        return True
+
+    async def get_all_location_attributes(self) -> List[str]:
+        """Return all known location attributes (global index)."""
+        return sorted(list(self.redis.smembers("index:location_attributes:all")))
+
+    async def delete_location_attribute_global(self, attribute: str) -> bool:
+        """Delete an attribute globally and remove from all locations and indexes."""
+        if not attribute or not isinstance(attribute, str):
+            return False
+        attr = attribute.strip()
+        if not attr:
+            return False
+
+        # Find all locations that reference this attribute via reverse index set
+        reverse_key = f"index:locations:attribute:{attr}"
+        affected_locations = list(self.redis.smembers(reverse_key))
+
+        pipe = self.redis.pipeline()
+        # Remove from each location set and hash
+        for loc_name in affected_locations:
+            pipe.srem(f"location:{loc_name}:attributes", attr)
+            pipe.hdel(f"location:{loc_name}:attributes_map", attr)
+        # Remove reverse index and global index entry
+        pipe.delete(reverse_key)
+        pipe.srem("index:location_attributes:all", attr)
+        pipe.execute()
         return True
 
     async def rename_location(self, old_name: str, new_name: str) -> bool:
@@ -1114,6 +1286,28 @@ class RedisDataStore:
         # Deleting the old index key is safe even if already emptied
         pipe.delete(old_album_index_key)
         pipe.execute()
+
+        # Move attributes set and update reverse indexes
+        try:
+            # Read attributes before renaming set/hash
+            existing_attrs = list(self.redis.smembers(f"location:{old_name}:attributes"))
+            existing_attr_map = self.redis.hgetall(f"location:{old_name}:attributes_map") or {}
+            if self.redis.exists(f"location:{old_name}:attributes"):
+                # Rename the attributes set to the new key
+                self.redis.rename(f"location:{old_name}:attributes", f"location:{new_name}:attributes")
+            if self.redis.exists(f"location:{old_name}:attributes_map"):
+                self.redis.rename(f"location:{old_name}:attributes_map", f"location:{new_name}:attributes_map")
+            # Update reverse index memberships from old -> new
+            if existing_attrs or existing_attr_map:
+                keys = set(existing_attrs) | set(existing_attr_map.keys())
+                pipe = self.redis.pipeline()
+                for attr in keys:
+                    pipe.srem(f"index:locations:attribute:{attr}", old_name)
+                    pipe.sadd(f"index:locations:attribute:{attr}", new_name)
+                pipe.execute()
+        except Exception:
+            # Do not fail rename if attribute migration has issues
+            pass
 
         return True
 
@@ -1200,6 +1394,21 @@ class RedisDataStore:
                 pipe.execute()
         except Exception:
             # Do not block deletion on ownership cleanup issues
+            pass
+
+        # Clean up attributes: remove reverse index memberships and delete set/hash
+        try:
+            attrs = list(self.redis.smembers(f"location:{loc_name}:attributes"))
+            attr_map = self.redis.hgetall(f"location:{loc_name}:attributes_map") or {}
+            keys = set(attrs) | set(attr_map.keys())
+            if keys:
+                pipe = self.redis.pipeline()
+                for attr in keys:
+                    pipe.srem(f"index:locations:attribute:{attr}", loc_name)
+                pipe.delete(f"location:{loc_name}:attributes")
+                pipe.delete(f"location:{loc_name}:attributes_map")
+                pipe.execute()
+        except Exception:
             pass
 
         # Delete location hash, remove from index, and drop old reverse index set
