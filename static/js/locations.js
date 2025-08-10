@@ -76,6 +76,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Parse an album date string into a comparable timestamp (ms since epoch)
+  // Falls back to 0 when parsing fails so those items naturally sink to the end
+  function parseAlbumDateToTs(dateStr) {
+    try {
+      const s = String(dateStr || '');
+      // Remove camera emoji section and extra spaces
+      const cleaned = s.replace(/📸.*$/u, '').trim();
+      // Extract Month and Day like "Jun 10" (optionally with leading weekday and/or range)
+      // If a range like "Jun 10 – Jun 12" appears, use the last date (end of trip)
+      const rangeParts = cleaned.split(/[–-]/).map(x => x.trim()).filter(Boolean);
+      const target = rangeParts.length > 1 ? rangeParts[rangeParts.length - 1] : cleaned;
+      const m = target.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})/);
+      if (!m) return 0;
+      const month = m[1];
+      const day = parseInt(m[2], 10);
+      if (!day || day < 1 || day > 31) return 0;
+      const year = new Date().getFullYear();
+      const d = new Date(`${month} ${day}, ${year}`);
+      if (isNaN(d.getTime())) return 0;
+      return d.getTime();
+    } catch (_) { return 0; }
+  }
+
   function buildAlbumsByLocation(enrichedAlbums) {
     const map = new Map();
     (Array.isArray(enrichedAlbums) ? enrichedAlbums : []).forEach(item => {
@@ -85,9 +108,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!map.has(loc)) map.set(loc, []);
       map.get(loc).push(meta);
     });
-    // Sort each location's albums newest first if date present
+    // Sort each location's albums newest first using parsed dates
     for (const [loc, arr] of map.entries()) {
-      arr.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      arr.sort((a, b) => {
+        const tb = parseAlbumDateToTs(b.date);
+        const ta = parseAlbumDateToTs(a.date);
+        if (tb !== ta) return tb - ta; // descending by timestamp
+        // Tie-breaker: fallback to title to keep stable order
+        return String((b.title||'')).localeCompare(String((a.title||'')));
+      });
     }
     return map;
   }
@@ -338,7 +367,15 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const sections = locations.map((loc) => createLocationSection(loc));
+    // Sort locations by number of albums (desc), then by name asc
+    const sortedLocations = (locations || []).slice().sort((a, b) => {
+      const countA = (albumsByLocation.get(a.name) || []).length;
+      const countB = (albumsByLocation.get(b.name) || []).length;
+      if (countB !== countA) return countB - countA;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+
+    const sections = sortedLocations.map((loc) => createLocationSection(loc));
     container.innerHTML = '';
     sections.forEach(sec => container.appendChild(sec));
     // Initialize maps after insertion
@@ -1192,6 +1229,7 @@ document.addEventListener('DOMContentLoaded', () => {
         section._onMarkersChanged = function() {
           renderMarkersList();
           if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+          try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
         };
         section._addMarkerFromInputs = addMarkerFromInputs;
         placeBtn.addEventListener('click', () => {
@@ -1481,11 +1519,35 @@ document.addEventListener('DOMContentLoaded', () => {
     // Expose map initializer to run after the element is in the DOM
     section._initMap = function initLeaflet() {
       // Initialize leaflet map; avoid showing a wrong default like London when coords are missing
+      const DEFAULT_ZOOM = 15;
+      const MIN_ZOOM = Math.floor(DEFAULT_ZOOM / 3);
       const map = L.map(mapViewport, {
         zoomControl: false,
-        attributionControl: false
+        attributionControl: false,
+        minZoom: MIN_ZOOM,
+        maxZoom: 30
       });
       section._leafletMap = map;
+      function fitMapToAllPoints() {
+        try {
+          const list = (Array.isArray(extraMarkers) && extraMarkers.length) ? extraMarkers : (loc.custom_markers || []);
+          const latlngs = [];
+          for (const m of list) {
+            const lat = parseFloat(m?.lat); const lng = parseFloat(m?.lng);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) latlngs.push([lat, lng]);
+          }
+          if (latlngs.length === 0 && hasCoords && Number.isFinite(startPos.lat) && Number.isFinite(startPos.lng)) {
+            latlngs.push([startPos.lat, startPos.lng]);
+          }
+          if (latlngs.length === 0) return;
+          if (latlngs.length === 1) {
+            map.setView(latlngs[0], DEFAULT_ZOOM);
+          } else {
+            const b = L.latLngBounds(latlngs);
+            map.fitBounds(b, { padding: [28, 28] });
+          }
+        } catch(_) {}
+      }
       // Define marker refresh early so initial calls render markers in view mode too
       section._refreshExtraMarkers = function(markers) {
         try {
@@ -1614,11 +1676,9 @@ document.addEventListener('DOMContentLoaded', () => {
       let marker = null; // legacy main marker not used anymore
       let tilesAdded = false;
       if (hasCoords) {
-        const start = [startPos.lat, startPos.lng];
-        const zoom = 15; // default closer by ~2x
-        map.setView(start, zoom);
+        // Add tiles first; view will be fit to points after markers render
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
+          maxNativeZoom: 19,
           attribution: '&copy; OpenStreetMap'
         }).addTo(map);
         tilesAdded = true;
@@ -1633,12 +1693,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // No coords yet: initialize tiles immediately so the map is visible
         try {
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
+            maxNativeZoom: 19,
             attribution: '&copy; OpenStreetMap'
           }).addTo(map);
           tilesAdded = true;
           // Neutral world view until geocode resolves
-          map.setView([0, 0], 2);
+          map.setView([0, 0], Math.floor(15 / 3));
         } catch(_) {}
       }
       // Provide a toggler and getter to control dragging only during edit
@@ -1747,10 +1807,11 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const list = (Array.isArray(extraMarkers) && extraMarkers.length) ? extraMarkers : (loc.custom_markers || []);
         if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(list);
+        try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
       } catch(_) {}
-      // Resize map when section becomes visible
-      setTimeout(() => map.invalidateSize(), 200);
-      window.addEventListener('resize', () => map.invalidateSize());
+      // Resize map when section becomes visible and fit to points
+      setTimeout(() => { try { map.invalidateSize(); } finally { try { fitMapToAllPoints(); } catch(_) {} } }, 200);
+      window.addEventListener('resize', () => { try { map.invalidateSize(); } finally { try { fitMapToAllPoints(); } catch(_) {} } });
 
       // Geocoding utilities (must be defined before first use)
       const geocodeCache = (window.__geocodeCache ||= new Map());
@@ -1813,7 +1874,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const ensureTiles = () => {
           if (!tilesAdded) {
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-              maxZoom: 19,
+              maxNativeZoom: 19,
               attribution: '&copy; OpenStreetMap'
             }).addTo(map);
             tilesAdded = true;
@@ -1824,7 +1885,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ensureTiles();
             // Set a gentle world view to avoid an empty container
             const z = map.getZoom();
-            if (!Number.isFinite(z) || z <= 1) map.setView([0, 0], 2);
+            if (!Number.isFinite(z) || z <= Math.floor(15 / 3)) map.setView([0, 0], Math.floor(15 / 3));
           } catch(_) {}
         }, 2000);
         geocodeByName(loc.name).then(result => {
@@ -1832,7 +1893,6 @@ document.addEventListener('DOMContentLoaded', () => {
           const lat = parseFloat(result.lat), lon = parseFloat(result.lon);
           if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
           ensureTiles();
-          map.setView([lat, lon], 15);
           // Ensure we have a primary emoji marker at geocoded position
           try {
             const current = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
@@ -1840,6 +1900,8 @@ document.addEventListener('DOMContentLoaded', () => {
             extraMarkers = JSON.parse(JSON.stringify(loc.custom_markers));
             if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
           } catch(_) {}
+          // After markers render, fit to all points
+          try { if (typeof fitMapToAllPoints === 'function') fitMapToAllPoints(); } catch(_) {}
           section._setMarkerDraggable = function(enabled) {
             try {
               // Toggle emoji marker dragging in edit mode
@@ -1878,17 +1940,19 @@ document.addEventListener('DOMContentLoaded', () => {
                   const lat = parseFloat(again.lat), lon = parseFloat(again.lon);
                   if (!tilesAdded) {
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                      maxZoom: 19,
+                      maxNativeZoom: 19,
                       attribution: '&copy; OpenStreetMap'
                     }).addTo(map);
                     tilesAdded = true;
                   }
-                  map.setView([lat, lon], 15);
+                  // Do not force a zoom; fit to points will handle view
                   try {
                     const curr = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
                     loc.custom_markers = ensurePrimaryMarker(curr, lat, lon);
                     extraMarkers = JSON.parse(JSON.stringify(loc.custom_markers));
                     if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+                    try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
+                    try { if (typeof fitMapToAllPoints === 'function') fitMapToAllPoints(); } catch(_) {}
                   } catch(_) {}
                 }
               }
@@ -2052,6 +2116,19 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="mini-album-sub" dir="auto">${escapeHtml(meta.date || '')}</div>
       </div>
     `;
+
+    // Apply "new album" badge logic like on albums page (<= 3 days old)
+    try {
+      const match = (meta.date || '').match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s(\d{1,2})/);
+      if (match) {
+        const MS_PER_DAY = 1000 * 60 * 60 * 24;
+        const albumDate = new Date(`${match[1]} ${match[2]}, ${new Date().getFullYear()}`);
+        const diffDays = (Date.now() - albumDate.getTime()) / MS_PER_DAY;
+        if (diffDays >= 0 && diffDays <= 3) {
+          a.classList.add('new-album');
+        }
+      }
+    } catch (_) {}
     return a;
   }
 

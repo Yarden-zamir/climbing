@@ -776,7 +776,8 @@ nav a.active {
 /* --- Add these new styles at the end of your CSS file --- */
 
 /* "NEW" Badge Styling */
-.album-card.new-album::before {
+.album-card.new-album::before,
+.mini-album-card.new-album::before {
 	content: "NEW";
 	position: absolute;
 	top: 12px;
@@ -796,7 +797,8 @@ nav a.active {
 }
 
 /* Glowing Border Animation */
-.album-card.new-album {
+.album-card.new-album,
+.mini-album-card.new-album {
 	/* The animation will be applied to the box-shadow */
 	animation: new-glow 2s infinite alternate ease-in-out;
 }
