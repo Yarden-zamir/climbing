@@ -153,6 +153,8 @@
       will-change: transform; transform: translateZ(0);
       position: relative; /* Needed for NEW badge positioning */
     }
+    /* Ensure hover/glow effects are never clipped by the card box */
+    .mini-album-card { overflow: visible; }
     .mini-album-card:hover { transform: translateY(-2px); z-index: 2; }
     .mini-album-card:focus-visible { outline: none; transform: translateY(-2px); }
     .mini-album-img { width: 100%; height: 220px; object-fit: cover; border-radius: 12px 12px 0 0; display: block; }
