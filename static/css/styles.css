@@ -801,20 +801,21 @@ nav a.active {
 .mini-album-card.new-album {
 	/* The animation will be applied to the box-shadow */
 	animation: new-glow 2s infinite alternate ease-in-out;
+	overflow: visible;
 }
 
 /* Keyframes for the glowing border */
 @keyframes new-glow {
-	from {
-		box-shadow: 0 0 5px rgba(3, 218, 198, 0.2),
-			0 0 10px rgba(3, 218, 198, 0.2),
-			0 4px 15px rgba(0, 0, 0, 0.5);
-	}
-	to {
-		box-shadow: 0 0 15px rgba(3, 218, 198, 0.6),
-			0 0 25px rgba(3, 218, 198, 0.4),
-			0 4px 15px rgba(0, 0, 0, 0.5);
-	}
+    from {
+        box-shadow: 0 0 2px rgba(3, 218, 198, 0.18),
+            0 0 4px rgba(3, 218, 198, 0.16),
+            0 2px 8px rgba(0, 0, 0, 0.45);
+    }
+    to {
+        box-shadow: 0 0 6px rgba(3, 218, 198, 0.45),
+            0 0 10px rgba(3, 218, 198, 0.28),
+            0 3px 10px rgba(0, 0, 0, 0.5);
+    }
 }
 
 /* Keyframes for the badge fade-in */

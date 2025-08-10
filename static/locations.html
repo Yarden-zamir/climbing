@@ -130,7 +130,8 @@
       overflow-x: auto;
       overflow-y: visible;
       padding-bottom: 0.25rem;
-      contain: layout paint; /* isolate hover paints */
+      padding-top: 0.5rem; /* Add top padding for glow effect + hover movement */
+      contain: layout; /* Remove paint containment to allow glow effects */
       /* Hide scrollbar (Firefox) */
       scrollbar-width: none;
       /* Hide scrollbar (IE/Edge legacy) */
