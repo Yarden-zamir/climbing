@@ -238,6 +238,17 @@
     .attribute-badge-toggleable:hover { transform: translateY(-0.5px); }
     .attribute-badge-toggleable.selected { background: linear-gradient(135deg, #1f2a29, #1c222b); color: #03dac6; border-color: #03dac6; box-shadow: 0 0 0 1px rgba(3,218,198,0.35) inset, 0 4px 14px rgba(3,218,198,0.12); }
     .add-attribute-input { width: 100%; padding: 0.55rem 0.7rem; border-radius: 10px; border: 1px solid #444; background: #1b1b1b; color: #fff; }
+
+    /* Markers editor minor UI tweaks */
+    .markers-add-row { display: flex; gap: 0.5rem; align-items: stretch; }
+    /* Match input vertical padding for equal height */
+    .markers-add-row .emoji-picker-btn,
+    .markers-add-row .place-btn { padding: 0.55rem 0.6rem; }
+    .emoji-picker-btn { min-width: 2.2rem; display: inline-flex; align-items: center; justify-content: center; }
+    .place-btn { letter-spacing: 0.2px; }
+    .markers-list .marker-row { display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: 0.4rem; }
+    .markers-list .marker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .markers-list .marker-count { background: rgba(3,218,198,0.22); color: #03dac6; border: 1px solid rgba(3,218,198,0.4); border-radius: 999px; padding: 0.1rem 0.4rem; font-size: 0.72rem; white-space: nowrap; }
   </style>
 </head>
 <body>

@@ -168,12 +168,19 @@ document.addEventListener('DOMContentLoaded', () => {
     picker.style.position = 'absolute';
     picker.style.zIndex = '3000';
     picker.style.width = 'min(360px, 92vw)';
-    picker.style.maxHeight = '320px';
-    // Stick to anchor: compute absolute coords based on page scroll and anchor rect
+    picker.style.maxHeight = '360px';
+    // Position to keep fully on screen: prefer below anchor; if not enough room, place above
     const pageX = window.scrollX + r.left;
-    const pageY = window.scrollY + r.bottom + 8;
+    const belowY = window.scrollY + r.bottom + 8;
+    const pickerHeight = 360; // match maxHeight
+    const viewportBottom = window.scrollY + window.innerHeight;
+    let topY = belowY;
+    if ((belowY + pickerHeight + 8) > viewportBottom) {
+      // Place above anchor if below would overflow
+      topY = Math.max(window.scrollY + 8, window.scrollY + r.top - 8 - pickerHeight);
+    }
     picker.style.left = Math.min(document.documentElement.scrollWidth - 380, Math.max(8, pageX)) + 'px';
-    picker.style.top = Math.min(document.documentElement.scrollHeight - 340, pageY) + 'px';
+    picker.style.top = topY + 'px';
     picker.classList.add('dark');
     // Style tweaks to match app
     picker.style.border = '1px solid #333';
@@ -340,8 +347,9 @@ document.addEventListener('DOMContentLoaded', () => {
     requestAnimationFrame(updateAllAlbumsScrollers);
     updateCount(sections.length, sections.length);
 
-    // After render, apply selection from URL if present
+    // After render, apply selection from URL if present, with a retry to wait for maps to be fully ready
     applySelectionFromUrl();
+    setTimeout(() => applySelectionFromUrl(), 200);
   }
 
   function updateAllAlbumsScrollers() {
@@ -410,16 +418,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.addEventListener('resize', debounce(updateAllAlbumsScrollers, 120));
   
-  // Click outside to unselect location cards
+  // Click outside to unselect location cards (but ignore clicks on marker list rows)
   document.addEventListener('click', (e) => {
-    // Check if click is outside all location sections
-    if (!e.target.closest('.location-section')) {
+    const t = e.target;
+    // Don't clear selection if clicking on marker rows or their contents
+    if (!t.closest('.location-section') && !t.closest('.marker-row')) {
+      console.log('Global click handler clearing URL params');
       clearAllSelections();
-      // Also clear URL highlight parameter
-      const url = new URL(window.location);
-      url.searchParams.delete('highlight');
-      url.searchParams.delete('selected_map_icon');
-      history.pushState({}, '', url.toString());
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('highlight');
+        url.searchParams.delete('selected_map_icon');
+        history.replaceState({}, '', url.toString());
+      } catch(_) {}
+    } else {
+      console.log('Global click handler ignoring click on:', t.closest('.location-section') ? 'location-section' : 'marker-row');
     }
   });
 
@@ -1020,70 +1033,143 @@ document.addEventListener('DOMContentLoaded', () => {
         markerLabelInput.className = 'add-attribute-input';
         // Replace manual lat/lng inputs with a map-click workflow
         const placeBtn = document.createElement('button');
-        placeBtn.className = 'location-btn';
-        placeBtn.textContent = 'Place on map';
+        placeBtn.className = 'location-btn place-btn';
+        placeBtn.textContent = 'Place';
         // No explicit Add button; adding happens on map click
         addMarkerBtn = null;
         addRowMarkers.appendChild(emojiButton);
         addRowMarkers.appendChild(markerLabelInput);
         addRowMarkers.appendChild(placeBtn);
 
+        // Keep URL, list selection, and section selection in sync
+        function syncUrlSelection(iconIdentifier) {
+          try {
+            const iconId = iconIdentifier || '';
+            const current = new URL(window.location.href);
+            console.log('syncUrlSelection called with:', iconId, 'current URL:', current.href);
+            current.searchParams.set('highlight', loc.name);
+            if (iconId) current.searchParams.set('selected_map_icon', iconId); else current.searchParams.delete('selected_map_icon');
+            const href = current.toString();
+            console.log('New URL would be:', href);
+            
+            // Update URL immediately using both pushState and replaceState for reliability
+            history.pushState({ highlight: loc.name, selected_map_icon: iconId || null }, '', href);
+            console.log('pushState called, current URL now:', window.location.href);
+            // Ensure browser address bar updates
+            setTimeout(() => {
+              history.replaceState({ highlight: loc.name, selected_map_icon: iconId || null }, '', href);
+              console.log('replaceState called, current URL now:', window.location.href);
+            }, 10);
+            
+            // Ensure card selection remains in sync
+            clearAllSelections();
+            section.classList.add('selected');
+          } catch(e) {
+            console.error('syncUrlSelection error:', e);
+          }
+        }
+
         function renderMarkersList() {
           markersListEl.innerHTML = '';
+          // Group markers by emoji+label for display
+          const groups = new Map();
           (extraMarkers || []).forEach((m, idx) => {
+            const key = String(m.emoji || '📍') + '|' + String(m.label || '');
+            if (!groups.has(key)) groups.set(key, { emoji: m.emoji || '📍', label: m.label || '', indices: [] });
+            groups.get(key).indices.push(idx);
+          });
+          for (const [key, grp] of groups.entries()) {
             const row = document.createElement('div');
             row.className = 'marker-row';
+            const count = grp.indices.length;
+            const countBadge = count > 1 ? `<span class="marker-count" title="${count} points">${count}</span>` : '';
             row.innerHTML = `
-              <span class="marker-emoji" title="${escapeHtml(m.label || '')}">${escapeHtml(m.emoji || '📍')}</span>
-              <span class="marker-label" dir="auto">${escapeHtml(m.label || '')}</span>
+              <span class="marker-emoji" title="${escapeHtml(grp.label)}">${escapeHtml(grp.emoji)}</span>
+              <span class="marker-label" dir="auto">${escapeHtml(grp.label || '')}</span>
+              ${countBadge}
+              <button class="location-btn marker-add-point" title="Add another point">+</button>
               <button class="location-btn marker-remove">×</button>
             `;
-            // selection highlight and click selection (view and edit modes)
-            try { row.classList.toggle('selected', idx === selectedIndex); } catch(_) {}
-            row.addEventListener('click', () => {
-              selectedIndex = idx;
-              renderMarkersList();
+            // selection: highlight if group's first index matches selectedIndex
+            try { row.classList.toggle('selected', grp.indices.includes(selectedIndex)); } catch(_) {}
+            row.addEventListener('click', (e) => {
+              console.log('Marker row clicked!', grp);
+              try { e.stopPropagation(); e.preventDefault(); } catch(_) {}
+              
+              // Sync URL FIRST, before any other operations
+              const firstIdx = grp.indices[0];
+              const iconId = (grp.label && grp.label.trim()) ? grp.label.trim() : (grp.emoji || '📍');
+              console.log('About to call syncUrlSelection with iconId:', iconId);
+              try {
+                syncUrlSelection(iconId);
+              } catch(e) {
+                console.error('Error calling syncUrlSelection:', e);
+              }
+              
+              // Then update state and UI
+              selectedIndex = firstIdx;
+              // Build latlngs before re-render
+              const latlngs = grp.indices
+                .map(i => extraMarkers[i])
+                .filter(m => Number.isFinite(parseFloat(m?.lat)) && Number.isFinite(parseFloat(m?.lng)))
+                .map(m => [parseFloat(m.lat), parseFloat(m.lng)]);
+              
+              try { scrollSectionIntoViewTop(section); } catch(_) {}
+              
+              // Update list and map after URL sync
+              if (typeof renderMarkersList === 'function') renderMarkersList();
               if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
               try { createNavChangeParticles(navRow, 12); } catch(_) {}
+              try {
+                // Focus map after DOM settles
+                setTimeout(() => {
+                  try { section._leafletMap?.invalidateSize(); } catch(_) {}
+                  try {
+                    const m = section._leafletMap || map;
+                    if (latlngs.length === 1) {
+                      const z = m.getZoom();
+                      m.setView(latlngs[0], Math.max(15, Number.isFinite(z) ? z : 15), { animate: true });
+                    } else if (latlngs.length > 1) {
+                      const b = L.latLngBounds(latlngs);
+                      m.fitBounds(b, { padding: [28, 28] });
+                    }
+                  } catch(_) {}
+                }, 50);
+              } catch(_) {}
             });
-            // drag-and-drop reorder
-            row.setAttribute('draggable', 'true');
-            row.dataset.index = String(idx);
-            row.addEventListener('dragstart', (e) => {
-              dragSrcIndex = idx;
-              try { if (e.dataTransfer) { e.dataTransfer.setData('text/plain', String(idx)); e.dataTransfer.effectAllowed = 'move'; } } catch(_) {}
-              row.classList.add('dragging');
-            });
-            row.addEventListener('dragend', () => { row.classList.remove('dragging'); dragSrcIndex = null; });
-            row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag-over'); });
-            row.addEventListener('dragleave', () => { row.classList.remove('drag-over'); });
-            row.addEventListener('drop', (e) => {
-              e.preventDefault();
-              row.classList.remove('drag-over');
-              const destAttr = row.dataset.index;
-              const destIndex = destAttr ? parseInt(destAttr, 10) : -1;
-              if (dragSrcIndex === null || destIndex < 0 || destIndex >= extraMarkers.length) return;
-              const src = dragSrcIndex;
-              let dest = destIndex;
-              const [moved] = extraMarkers.splice(src, 1);
-              if (dest > src) dest -= 1;
-              extraMarkers.splice(dest, 0, moved);
-              // ensure first is primary for compatibility
+            // Remove entire group
+            row.querySelector('.marker-remove').addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              const toRemove = new Set(grp.indices);
+              extraMarkers = (extraMarkers || []).filter((_, i) => !toRemove.has(i));
+              // Normalize primary flag: keep first as primary
               try { extraMarkers = extraMarkers.map((it, i) => ({ ...it, primary: i === 0 })); } catch(_) {}
-              if (typeof section._onMarkersChanged === 'function') section._onMarkersChanged(); else {
-                renderMarkersList();
-                if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
-              }
-            });
-            row.querySelector('.marker-remove').addEventListener('click', () => {
-              extraMarkers.splice(idx, 1);
               renderMarkersList();
               if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+              try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
+            });
+            // Add another point for this group
+            row.querySelector('.marker-add-point').addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              pendingEmoji = grp.emoji || '📍';
+              pendingLabelValue = (grp.label || '').trim();
+              placeIconArmed = true;
+              try { placeBtn.classList.add('armed'); } catch(_) {}
+              try {
+                mapViewport.style.pointerEvents = 'auto';
+                mapViewport.style.touchAction = 'auto';
+                const g1 = mapDiv.querySelector('.map-scroll-gutter.top');
+                const g2 = mapDiv.querySelector('.map-scroll-gutter.bottom');
+                g1 && g1.classList.add('hidden');
+                g2 && g2.classList.add('hidden');
+              } catch(_) {}
             });
             markersListEl.appendChild(row);
-          });
+          }
           // Clear temp preview after list changes
           try { if (map._tempPlaceMarker && map.hasLayer(map._tempPlaceMarker)) map.removeLayer(map._tempPlaceMarker); } catch(_) {}
+          // Update lines after list re-render
+          try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
         }
         function addMarkerFromInputs() {
           const emoji = pendingEmoji || currentEmojiChoice || '📍';
@@ -1100,6 +1186,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
           // select newly added and hint nav change
           try { selectedIndex = Math.max(0, (extraMarkers?.length || 1) - 1); createNavChangeParticles(navRow, 14); } catch(_) {}
+          try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
         }
         // Expose handlers so map click (defined elsewhere) can call them
         section._onMarkersChanged = function() {
@@ -1120,7 +1207,15 @@ document.addEventListener('DOMContentLoaded', () => {
             mapViewport.style.pointerEvents = 'auto';
             mapViewport.style.touchAction = 'auto';
           } catch(_) {}
+          // Hide gutters while placing
+          try {
+            const g1 = mapDiv.querySelector('.map-scroll-gutter.top');
+            const g2 = mapDiv.querySelector('.map-scroll-gutter.bottom');
+            g1 && g1.classList.add('hidden');
+            g2 && g2.classList.add('hidden');
+          } catch(_) {}
         });
+        // removed addAnotherBtn wiring (button moved to per-item rows)
         // No add button; automatic add after map click (see map click handler)
         markersEditorEl.appendChild(markersHeading);
         markersEditorEl.appendChild(markersListEl);
@@ -1390,6 +1485,7 @@ document.addEventListener('DOMContentLoaded', () => {
         zoomControl: false,
         attributionControl: false
       });
+      section._leafletMap = map;
       // Define marker refresh early so initial calls render markers in view mode too
       section._refreshExtraMarkers = function(markers) {
         try {
@@ -1445,6 +1541,18 @@ document.addEventListener('DOMContentLoaded', () => {
               history.pushState({}, '', url.toString());
               scrollSectionIntoViewTop(section);
             });
+            // Live-update lines while dragging
+            layer.on('drag', () => {
+              try {
+                const pos = layer.getLatLng();
+                if (Array.isArray(extraMarkers) && typeof layer._extraIdx === 'number') {
+                  if (!extraMarkers[layer._extraIdx]) return;
+                  extraMarkers[layer._extraIdx].lat = pos.lat;
+                  extraMarkers[layer._extraIdx].lng = pos.lng;
+                  try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
+                }
+              } catch(_) {}
+            });
             layer.on('dragend', () => {
               try {
                 const pos = layer.getLatLng();
@@ -1454,6 +1562,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   extraMarkers[layer._extraIdx].lng = pos.lng;
                   // Re-render to update tooltips/positions
                   if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+                  try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
                 }
               } catch(_) {}
             });
@@ -1562,6 +1671,44 @@ document.addEventListener('DOMContentLoaded', () => {
           return null;
         } catch (_) { return null; }
       };
+      // Build and maintain polylines connecting markers that share emoji+label
+      function updateEmojiGroupPolylines() {
+        try {
+          const list = (Array.isArray(extraMarkers) && extraMarkers.length) ? extraMarkers : (loc.custom_markers || []);
+          const groups = new Map();
+          list.forEach(m => {
+            if (!Number.isFinite(m.lat) || !Number.isFinite(m.lng)) return;
+            const key = String(m.emoji || '') + '|' + String(m.label || '');
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push([m.lat, m.lng]);
+          });
+          if (!map._emojiGroups) map._emojiGroups = new Map();
+          const existing = map._emojiGroups;
+          const newKeys = new Set();
+          for (const [key, latlngs] of groups.entries()) {
+            if (latlngs.length < 2) continue;
+            newKeys.add(key);
+            if (existing.has(key)) {
+              try { existing.get(key).setLatLngs(latlngs); } catch(_) {}
+            } else {
+              try {
+                const pl = L.polyline(latlngs, { color: '#03dac6', weight: 3, opacity: 0.9 });
+                pl.addTo(map);
+                existing.set(key, pl);
+              } catch(_) {}
+            }
+          }
+          for (const [key, pl] of Array.from(existing.entries())) {
+            if (!newKeys.has(key)) {
+              try { map.removeLayer(pl); } catch(_) {}
+              existing.delete(key);
+            }
+          }
+        } catch(_) {}
+      }
+
+
+
       // Click-to-place for extra markers while editing
       map.on('click', (e) => {
         if (!section.classList.contains('editing')) return;
@@ -1586,6 +1733,14 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(_) {}
         // Automatically add the icon now that it has been placed
         try { if (typeof section._addMarkerFromInputs === 'function') section._addMarkerFromInputs(); else addMarkerFromInputs(); } catch(_) {}
+        try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
+        // Hide gutters while placing
+        try {
+          const g1 = mapDiv.querySelector('.map-scroll-gutter.top');
+          const g2 = mapDiv.querySelector('.map-scroll-gutter.bottom');
+          g1 && g1.classList.add('hidden');
+          g2 && g2.classList.add('hidden');
+        } catch(_) {}
       });
       section._setMarkerDraggable(false);
       // Ensure markers render (with selection) for current mode
@@ -1746,31 +1901,46 @@ document.addEventListener('DOMContentLoaded', () => {
       // Map activation overlay removed; map is interactive by default
       // Initial markers render now happens via earlier-defined _refreshExtraMarkers when called above
       
-      // Function to restore icon selection from URL
+      // Function to restore icon selection from URL (does not modify URL/history)
       section._restoreIconSelection = function(iconIdentifier) {
         try {
-          const currentMarkers = (Array.isArray(extraMarkers) && extraMarkers.length) ? extraMarkers : (loc.custom_markers || []);
-          let foundIndex = -1;
-          
-          // Try to find marker by label first, then by emoji
-          for (let i = 0; i < currentMarkers.length; i++) {
-            const marker = currentMarkers[i];
-            if ((marker.label && marker.label.trim() === iconIdentifier) || 
-                (marker.emoji === iconIdentifier)) {
-              foundIndex = i;
-              break;
-            }
-          }
-          
-          if (foundIndex >= 0) {
-            selectedIndex = foundIndex;
-            // Update both visual displays
-            if (typeof renderMarkersList === 'function') renderMarkersList();
-            if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(currentMarkers);
-            // Trigger navigation button animation
-            try { createNavChangeParticles(navRow, 14); } catch(_) {}
-          }
+          const list = (Array.isArray(extraMarkers) && extraMarkers.length) ? extraMarkers : (loc.custom_markers || []);
+          // Select the first matching marker to sync selection index
+          const idx = list.findIndex(m => (m.label && m.label.trim() === iconIdentifier) || (m.emoji === iconIdentifier));
+          if (idx >= 0) selectedIndex = idx;
+          if (typeof renderMarkersList === 'function') renderMarkersList();
+          if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(list);
+          // Focus map and ensure URL/card selection remain in sync
+          try {
+            const iconId = iconIdentifier;
+            // Compute group latlngs
+            const latlngs = list
+              .filter(m => (m.label && m.label.trim() === iconId) || (m.emoji === iconId))
+              .filter(m => Number.isFinite(parseFloat(m?.lat)) && Number.isFinite(parseFloat(m?.lng)))
+              .map(m => [parseFloat(m.lat), parseFloat(m.lng)]);
+            setTimeout(() => {
+              try { section._leafletMap?.invalidateSize(); } catch(_) {}
+              const m = section._leafletMap;
+              if (m && latlngs.length) {
+                if (latlngs.length === 1) {
+                  const z = m.getZoom();
+                  m.setView(latlngs[0], Math.max(15, Number.isFinite(z) ? z : 15), { animate: true });
+                } else {
+                  const b = L.latLngBounds(latlngs);
+                  m.fitBounds(b, { padding: [28, 28] });
+                }
+              }
+            }, 50);
+          } catch(_) {}
         } catch(_) {}
+      };
+
+      // Utility: does this section contain an icon with the given identifier?
+      section._hasIcon = function(iconIdentifier) {
+        try {
+          const list = (Array.isArray(extraMarkers) && extraMarkers.length) ? extraMarkers : (loc.custom_markers || []);
+          return list.some(m => (m.label && m.label.trim() === iconIdentifier) || (m.emoji === iconIdentifier));
+        } catch(_) { return false; }
       };
     }
     return section;
@@ -1821,13 +1991,19 @@ document.addEventListener('DOMContentLoaded', () => {
           // If there's a selected map icon, try to restore that selection too
           if (selectedMapIcon && typeof sec._initMap === 'function') {
             // Wait for map to be initialized, then find and select the matching icon
-            setTimeout(() => {
+            const tryRestore = (attemptsLeft) => {
+              if (!attemptsLeft) return;
               try {
-                if (typeof sec._restoreIconSelection === 'function') {
-                  sec._restoreIconSelection(selectedMapIcon);
+                if (typeof sec._restoreIconSelection === 'function' && typeof sec._hasIcon === 'function') {
+                  if (sec._hasIcon(selectedMapIcon)) {
+                    sec._restoreIconSelection(selectedMapIcon);
+                    return;
+                  }
                 }
               } catch(_) {}
-            }, 100);
+              setTimeout(() => tryRestore(attemptsLeft - 1), 120);
+            };
+            tryRestore(8);
           }
           
           scrollSectionIntoViewTop(sec);
