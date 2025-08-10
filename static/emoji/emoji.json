@@ -1,12 +1,14 @@
 [
-  { "emoji": "🅿️", "name": "parking", "tags": ["parking","map"], "keywords": ["car","lot","park","parking"] },
-  { "emoji": "🧗", "name": "climbing area", "tags": ["climb"], "keywords": ["climb","rock","boulder","route"] },
-  { "emoji": "🚰", "name": "water", "tags": ["utility"], "keywords": ["water","drink","tap","fountain"] },
-  { "emoji": "🚻", "name": "restroom", "tags": ["utility"], "keywords": ["toilet","restroom","wc","bathroom"] },
-  { "emoji": "🔥", "name": "campfire allowed area", "tags": ["utility"], "keywords": ["fire","camp","campfire"] },
-  { "emoji": "⛺", "name": "recommended camping area", "tags": ["utility"], "keywords": ["camp","camping","tent"] },
-  { "emoji": "📷", "name": "camera", "tags": ["photo"], "keywords": ["photo","camera","view","scenic"] },
-  { "emoji": "⚠️", "name": "warning", "tags": ["warning"], "keywords": ["warning","caution","danger","hazard"] },
-  { "emoji": "🧭", "name": "compass", "tags": ["map"], "keywords": ["compass","nav"] }
+  { "emoji": "🅿️", "name": "parking", "categories": ["parking","map"], "keywords": ["car","lot","park","parking"] },
+  { "emoji": "🧗", "name": "climbing area", "categories": ["climb"], "keywords": ["climb","rock","boulder","route"] },
+  { "emoji": "🚰", "name": "water", "categories": ["utility"], "keywords": ["water","drink","tap","fountain"] },
+  { "emoji": "🚻", "name": "restroom", "categories": ["utility"], "keywords": ["toilet","restroom","wc","bathroom"] },
+  { "emoji": "🔥", "name": "campfire allowed area", "categories": ["utility"], "keywords": ["fire","camp","campfire"] },
+  { "emoji": "⛺", "name": "recommended camping area", "categories": ["utility"], "keywords": ["camp","camping","tent"] },
+  { "emoji": "📷", "name": "camera", "categories": ["photo"], "keywords": ["photo","camera","view","scenic"] },
+  { "emoji": "⚠️", "name": "warning", "categories": ["warning"], "keywords": ["warning","caution","danger","hazard"] },
+  { "emoji": "🧭", "name": "compass", "categories": ["map"], "keywords": ["compass","nav"] },
+  { "emoji": "🚗", "name": "car", "categories": ["map"], "keywords": ["auto","nav","vehicle","car", "path"] },
+  { "emoji": "📍", "name": "pin", "categories": ["map"], "keywords": ["auto","nav","vehicle","car", "path"] }
 ]
 

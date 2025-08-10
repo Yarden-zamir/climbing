@@ -10,9 +10,14 @@
   let EMOJI_DATA = getCuratedDefaults();
   let FULL_DATASET = null;
   let FULL_LOAD_PROMISE = null;
+  let CURATED_LIST = [];
+  const CURATED_INDEX = new Map(); // emoji -> index for pinning order
+  const CURATED_NAME = new Map();  // emoji -> curated name for hover text
+  const UNICODE_CACHE_KEY = 'emoji_picker_unicode_emoji_test_v1';
   let panel, input, grid, recentRow, tagRow, resolver;
   let activeIndex = -1;
   let currentItems = [];
+  let currentToneHex = null; // null => default yellow (no modifier), else '1F3FB'..'1F3FF'
 
   // Canonical tag normalization and synonyms
   const TAG_SYNONYMS = {
@@ -55,6 +60,8 @@
       .tone-panel { position: fixed; z-index: 3001; background:#1b1b1b; border:1px solid #333; border-radius:10px; padding:4px; display:flex; gap:4px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
       .tone-btn { width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:8px; border:1px solid #333; background:#222; cursor:pointer; }
       .tone-btn:hover { border-color:#03dac6; }
+      .tone-filter-btn { width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:10px; border:1px solid #3a3a3a; background:#1f1f1f; color:#eee; cursor:pointer; }
+      .tone-filter-btn:hover { border-color:#03dac6; }
     `;
     document.head.appendChild(s);
   }
@@ -146,8 +153,18 @@
 
   function renderGrid(items) {
     grid.innerHTML = '';
-    currentItems = items;
-    items.forEach(e => grid.appendChild(cell(e.emoji, e)));
+    // Apply tone filter to display if selected
+    const toneChar = currentToneHex ? String.fromCodePoint(parseInt(currentToneHex, 16)) : '';
+    currentItems = items.map(it => {
+      if (!currentToneHex) return it;
+      try {
+        if (supportsTone(it, it.emoji)) {
+          return { ...it, emoji: applyTone(it.emoji, toneChar) };
+        }
+      } catch(_) {}
+      return it;
+    });
+    currentItems.forEach(e => grid.appendChild(cell(e.emoji, e)));
     activeIndex = items.length ? 0 : -1;
     highlightActive();
   }
@@ -163,23 +180,35 @@
       const matchTag = !canonTag || normalizedTags.includes(canonTag);
       return (!query || matchText.includes(query)) && matchTag;
     });
+    // Pin curated items (from emoji.json) to the top, preserving their order
+    try {
+      result.sort((a, b) => {
+        const ia = CURATED_INDEX.has(a.emoji) ? CURATED_INDEX.get(a.emoji) : Number.POSITIVE_INFINITY;
+        const ib = CURATED_INDEX.has(b.emoji) ? CURATED_INDEX.get(b.emoji) : Number.POSITIVE_INFINITY;
+        if (ia !== ib) return ia - ib;
+        // Stable fallback by code point
+        try { return (a.emoji.codePointAt(0) || 0) - (b.emoji.codePointAt(0) || 0); } catch { return 0; }
+      });
+    } catch (_) {}
     return result.slice(0, 300); // cap for speed
   }
 
   function renderTags() {
-    const base = ['recent','map','parking','climb','water','toilet','camp','photo','warning'];
     const dyn = new Set();
     (FULL_DATASET || EMOJI_DATA).forEach(e => (e.tags || []).forEach(t => dyn.add(canonicalizeTag(t))));
-    const tags = base.concat(Array.from(dyn).filter(t => !!t && !base.includes(t)).slice(0, 24));
+    // Ensure at most 10 categories; the dataset is already normalized to <=10
+    const catTags = Array.from(dyn).filter(Boolean).slice(0, 10);
+    const tags = ['all'].concat(catTags);
     tagRow.innerHTML = '';
-    tags.forEach(t => {
+    tags.forEach((t, idx) => {
       const b = document.createElement('button');
-      b.className = 'emoji-tag';
+      b.className = 'emoji-tag' + (idx === 0 ? ' active' : '');
       b.textContent = t;
       b.addEventListener('click', () => {
-        Array.from(tagRow.children).forEach(c => c.classList.toggle('active', c === b));
-        if (t === 'recent') renderRecent(); else renderRecent(); // keep recent visible
-        renderGrid(filter(input.value, t === 'recent' ? null : t));
+        Array.from(tagRow.children).forEach(c => c.classList.remove('active'));
+        b.classList.add('active');
+        renderRecent(); // keep recent visible
+        renderGrid(filter(input.value, t === 'all' ? null : t));
       });
       tagRow.appendChild(b);
     });
@@ -191,6 +220,7 @@
     panel.innerHTML = `
       <div class="emoji-header">
         <input class="emoji-search" placeholder="Search emojis, tags..." />
+        <button class="tone-filter-btn" title="Skin tone filter">✋</button>
       </div>
       <div class="emoji-tags"></div>
       <div class="emoji-recent"></div>
@@ -202,23 +232,46 @@
     recentRow = panel.querySelector('.emoji-recent');
     tagRow = panel.querySelector('.emoji-tags');
     input.addEventListener('input', () => renderGrid(filter(input.value)));
+    const toneBtn = panel.querySelector('.tone-filter-btn');
+    toneBtn.addEventListener('click', (e) => {
+      const r = toneBtn.getBoundingClientRect();
+      openToneFilterPanel(Math.floor(r.left), Math.floor(r.bottom + 4));
+    });
     setTimeout(() => document.addEventListener('keydown', onKey), 0);
     renderTags();
     renderRecent();
+    // Default to 'all' visually selected; already set by renderTags
     renderGrid(filter('', null));
     input.value = '';
     setTimeout(() => input.focus(), 0);
     positionPanel(anchor);
     bindReposition(anchor);
 
-    // Load local dataset only; if present, use it exclusively
+    // Load curated list from local JSON and a generated full set, then merge
     try {
       if (!FULL_LOAD_PROMISE) {
-        FULL_LOAD_PROMISE = loadLocalDataset();
+        FULL_LOAD_PROMISE = Promise.all([
+          loadCuratedFromJson(),
+          loadAllEmojisJsonDataset()
+        ]).then(([curated, allSet]) => {
+          // Record curated for pinning and naming
+          CURATED_LIST = Array.isArray(curated) ? curated : [];
+          CURATED_INDEX.clear(); CURATED_NAME.clear();
+          CURATED_LIST.forEach((it, idx) => {
+            CURATED_INDEX.set(it.emoji, idx);
+            if (it && it.emoji && it.name) CURATED_NAME.set(it.emoji, it.name);
+          });
+          // Merge curated + all into one dataset without duplicates, keep curated order at front
+          const seen = new Set();
+          const merged = [];
+          CURATED_LIST.forEach(it => { if (it && it.emoji && !seen.has(it.emoji)) { merged.push(it); seen.add(it.emoji); } });
+          (Array.isArray(allSet) ? allSet : []).forEach(it => { if (it && it.emoji && !seen.has(it.emoji)) { merged.push(it); seen.add(it.emoji); } });
+          return merged;
+        });
       }
-      FULL_LOAD_PROMISE.then(full => {
-        if (full && Array.isArray(full) && full.length) {
-          FULL_DATASET = full;
+      FULL_LOAD_PROMISE.then(merged => {
+        if (Array.isArray(merged) && merged.length) {
+          FULL_DATASET = merged;
           renderTags();
           renderGrid(filter(input.value, null));
         }
@@ -226,29 +279,9 @@
     } catch(_) {}
   }
 
-  function getCuratedDefaults() {
-    // Minimal curated set used as fast-first render while full dataset loads.
-    const items = [
-      { emoji: '📍', name: 'pin', tags: ['map'], keywords: ['pin','marker','map','location'] },
-      { emoji: '🅿️', name: 'parking', tags: ['parking','map'], keywords: ['parking','car','lot'] },
-      { emoji: '🧗', name: 'climbing', tags: ['climb'], keywords: ['climb','rock','boulder'] },
-      { emoji: '🚰', name: 'potable water', tags: ['water'], keywords: ['water','drink','tap'] },
-      { emoji: '🚻', name: 'restroom', tags: ['toilet'], keywords: ['toilet','restroom','wc'] },
-      { emoji: '🔥', name: 'fire', tags: ['camp'], keywords: ['fire','campfire'] },
-      { emoji: '⛺', name: 'camping', tags: ['camp'], keywords: ['camp','tent'] },
-      { emoji: '📷', name: 'photo spot', tags: ['photo'], keywords: ['photo','camera','view'] },
-      { emoji: '⚠️', name: 'warning', tags: ['warning'], keywords: ['warning','caution','danger'] },
-      { emoji: '🧭', name: 'compass', tags: ['map'], keywords: ['compass','nav'] },
-      { emoji: '🪜', name: 'ladder', tags: ['climb'], keywords: ['ladder'] },
-      { emoji: '🏕️', name: 'camp site', tags: ['camp'], keywords: ['camp','site'] },
-    ];
-    // Expand with basic shapes and arrows quickly
-    const basics = ['⬆️','⬇️','⬅️','➡️','⭐','🏁','🎯','🏔️','🪨'];
-    basics.forEach(e => items.push({ emoji: e, name: e, tags: [], keywords: [e] }));
-    return items;
-  }
+  function getCuratedDefaults() { return []; }
 
-  async function loadLocalDataset() {
+  async function loadCuratedFromJson() {
     try {
       const res = await fetch('/static/emoji/emoji.json');
       if (!res.ok) return null;
@@ -268,6 +301,18 @@
       return mapped;
     } catch { return null; }
   }
+
+  async function loadAllEmojisJsonDataset() {
+    try {
+      const res = await fetch('/static/emoji/all-emojis.json', { cache: 'force-cache' });
+      if (!res.ok) return null;
+      const raw = await res.json();
+      const items = Array.isArray(raw) ? raw : [];
+      try { localStorage.setItem(UNICODE_CACHE_KEY, JSON.stringify(items)); } catch {}
+      return items;
+    } catch(_) { return null; }
+  }
+  
 
   function supportsTone(item, emojiChar) {
     if (item && item.supportsTones) return true;
@@ -312,12 +357,50 @@
     try { return baseEmoji + toneChar; } catch { return baseEmoji; }
   }
 
+  function openToneFilterPanel(x, y) {
+    closeTonePanel();
+    const panelEl = document.createElement('div');
+    panelEl.className = 'tone-panel';
+    const options = [
+      { hex: null, label: '✋' },
+      { hex: '1F3FB', label: String.fromCodePoint(0x270B) + String.fromCodePoint(0x1F3FB) },
+      { hex: '1F3FC', label: String.fromCodePoint(0x270B) + String.fromCodePoint(0x1F3FC) },
+      { hex: '1F3FD', label: String.fromCodePoint(0x270B) + String.fromCodePoint(0x1F3FD) },
+      { hex: '1F3FE', label: String.fromCodePoint(0x270B) + String.fromCodePoint(0x1F3FE) },
+      { hex: '1F3FF', label: String.fromCodePoint(0x270B) + String.fromCodePoint(0x1F3FF) },
+    ];
+    options.forEach(opt => {
+      const b = document.createElement('button');
+      b.className = 'tone-btn';
+      b.textContent = opt.label;
+      b.addEventListener('click', () => {
+        currentToneHex = opt.hex;
+        try {
+          const btn = panel.querySelector('.tone-filter-btn');
+          btn.textContent = opt.hex ? String.fromCodePoint(0x270B) + String.fromCodePoint(parseInt(opt.hex, 16)) : '✋';
+        } catch {}
+        renderGrid(filter(input.value));
+        closeTonePanel();
+      });
+      panelEl.appendChild(b);
+    });
+    document.body.appendChild(panelEl);
+    panelEl.style.top = Math.min(window.innerHeight - 60, y) + 'px';
+    panelEl.style.left = Math.min(window.innerWidth - 220, x) + 'px';
+    function onDoc(e) { if (!panelEl.contains(e.target)) { closeTonePanel(); document.removeEventListener('mousedown', onDoc); } }
+    setTimeout(()=>document.addEventListener('mousedown', onDoc), 0);
+    window._currentTonePanel = panelEl;
+  }
+
   window.EmojiPicker = {
     open(anchorEl, opts = {}) {
       return new Promise((resolve) => {
         resolver = resolve;
         buildPanel(anchorEl, opts.initial || '📍');
       });
+    },
+    curatedName(emojiChar) {
+      try { return CURATED_NAME.get(emojiChar) || null; } catch(_) { return null; }
     }
   };
 })();

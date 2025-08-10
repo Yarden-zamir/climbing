@@ -118,6 +118,163 @@ document.addEventListener('DOMContentLoaded', () => {
     applyFilterFromUrl();
   }
 
+  // Lightweight wrapper to open emoji-picker-element as a floating panel
+  async function openEmojiPickerPanel(anchorEl, initialEmoji, onChoose, triggerEvent) {
+    try { closeEmojiPickerPanel(); } catch(_) {}
+    const r = anchorEl.getBoundingClientRect();
+
+    // Prepare curated custom emoji & categories first
+    let custom = [];
+    let customCats = [];
+    let catEmojiMap = {};
+    try {
+      const res = await fetch('/static/emoji/emoji.json');
+      if (res.ok) {
+        const curated = await res.json();
+        const pretty = (s) => String(s || '').split(/[\s_-]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const pickCategory = (it) => {
+          const cats = Array.isArray(it.categories) ? it.categories : (Array.isArray(it.tags) ? it.tags : []);
+          return cats && cats.length ? pretty(cats[0]) : 'Custom';
+        };
+        const seenCat = new Set();
+        custom = (Array.isArray(curated) ? curated : []).map(it => {
+          const cat = pickCategory(it);
+          if (!seenCat.has(cat)) seenCat.add(cat);
+          if (!catEmojiMap[cat]) catEmojiMap[cat] = it.emoji;
+          return {
+            // Provide both unicode and emoji for maximum compatibility
+            unicode: it.emoji,
+            emoji: it.emoji,
+            name: it.name,
+            shortcodes: [String(it.name || '').toLowerCase().replace(/\s+/g, '_')],
+            category: cat,
+            tags: it.keywords || []
+          };
+        });
+        customCats = Array.from(seenCat);
+      }
+    } catch(_) {}
+
+    const picker = document.createElement('emoji-picker');
+    // Apply data and ordering before attaching to DOM to ensure tabs render initially
+    try { if (custom.length) picker.customEmoji = custom; } catch(_) {}
+    try { if (catEmojiMap && Object.keys(catEmojiMap).length) picker.categoryEmoji = catEmojiMap; } catch(_) {}
+    try {
+      const defaultOrder = ['Smileys & Emotion','People & Body','Animals & Nature','Food & Drink','Travel & Places','Activities','Objects','Symbols','Flags'];
+      const order = (customCats && customCats.length ? customCats : []).concat(defaultOrder);
+      if (order.length) picker.categoryOrder = order;
+    } catch(_) {}
+
+    picker.style.position = 'absolute';
+    picker.style.zIndex = '3000';
+    picker.style.width = 'min(360px, 92vw)';
+    picker.style.maxHeight = '320px';
+    // Stick to anchor: compute absolute coords based on page scroll and anchor rect
+    const pageX = window.scrollX + r.left;
+    const pageY = window.scrollY + r.bottom + 8;
+    picker.style.left = Math.min(document.documentElement.scrollWidth - 380, Math.max(8, pageX)) + 'px';
+    picker.style.top = Math.min(document.documentElement.scrollHeight - 340, pageY) + 'px';
+    picker.classList.add('dark');
+    // Style tweaks to match app
+    picker.style.border = '1px solid #333';
+    picker.style.borderRadius = '12px';
+    picker.style.setProperty('--border-radius', '12px');
+    picker.style.boxShadow = '0 20px 50px rgba(0,0,0,0.5)';
+    // Inner styling via CSS variables (Shadow DOM)
+    picker.style.setProperty('--background', '#1b1b1b');
+    picker.style.setProperty('--border-color', '#333');
+    picker.style.setProperty('--button-hover-background', '#262626');
+    picker.style.setProperty('--button-active-background', '#2e2e2e');
+    picker.style.setProperty('--category-font-color', '#e0e0e0');
+    picker.style.setProperty('--category-emoji-size', '20px');
+    picker.style.setProperty('--category-emoji-padding', '6px');
+    picker.style.setProperty('--emoji-font-family', 'Apple Color Emoji, "Noto Color Emoji", "Segoe UI Emoji", system-ui, sans-serif');
+    picker.style.setProperty('--font-family', 'Poppins, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
+    picker.style.setProperty('--emoji-size', '22px');
+    picker.style.setProperty('--num-columns', '8');
+    picker.style.setProperty('--input-background', '#121212');
+    picker.style.setProperty('--input-font-color', '#f0f0f0');
+    document.body.appendChild(picker);
+    // Open animation + subtle particles
+    try {
+      picker.style.opacity = '0';
+      picker.style.transform = 'translateY(6px) scale(0.98)';
+      picker.style.transition = 'opacity 140ms ease, transform 160ms ease';
+      requestAnimationFrame(() => { picker.style.opacity = '1'; picker.style.transform = 'translateY(0) scale(1)'; });
+    } catch(_) {}
+    try {
+      // Minimal particles burst near press location (fallback to button center)
+      const burst = document.createElement('div');
+      burst.style.position = 'absolute';
+      let bx = null, by = null;
+      try {
+        if (triggerEvent && typeof triggerEvent.pageX === 'number' && typeof triggerEvent.pageY === 'number') {
+          bx = triggerEvent.pageX; by = triggerEvent.pageY;
+        } else if (triggerEvent && triggerEvent.touches && triggerEvent.touches[0]) {
+          bx = triggerEvent.touches[0].pageX; by = triggerEvent.touches[0].pageY;
+        }
+      } catch(_) {}
+      if (bx == null || by == null) { bx = window.scrollX + r.left + (r.width/2); by = window.scrollY + r.top; }
+      burst.style.left = bx + 'px';
+      burst.style.top = by + 'px';
+      burst.style.pointerEvents = 'none';
+      for (let i = 0; i < 10; i++) {
+        const dot = document.createElement('div');
+        dot.style.position = 'absolute';
+        dot.style.width = '6px'; dot.style.height = '6px';
+        dot.style.borderRadius = '50%';
+        dot.style.background = i % 2 ? '#bb86fc' : '#03dac6';
+        const ang = (Math.PI * 2) * (i/10);
+        const dist = 6 + Math.random()*10;
+        dot.style.transform = `translate(${Math.cos(ang)*dist}px, ${Math.sin(ang)*dist}px)`;
+        dot.style.opacity = '0.9';
+        dot.style.transition = 'transform 380ms ease, opacity 420ms ease';
+        burst.appendChild(dot);
+        requestAnimationFrame(() => { dot.style.transform = `translate(${Math.cos(ang)*(dist+20)}px, ${Math.sin(ang)*(dist+20)}px)`; dot.style.opacity = '0'; });
+      }
+      document.body.appendChild(burst);
+      setTimeout(()=>{ try { burst.remove(); } catch(_) {} }, 500);
+    } catch(_) {}
+    function onClick(ev) {
+      try {
+        const emoji = ev?.detail?.unicode || ev?.detail?.emoji?.unicode || null;
+        if (emoji) onChoose(emoji);
+      } catch(_) {}
+      closeEmojiPickerPanel();
+    }
+    function onKeyDown(e) { if (e.key === 'Escape') { e.preventDefault(); closeEmojiPickerPanel(); } }
+    function onDoc(e) { if (!picker.contains(e.target) && e.target !== anchorEl) { closeEmojiPickerPanel(); } }
+    const onScroll = () => {
+      try {
+        const rr = anchorEl.getBoundingClientRect();
+        const px = window.scrollX + rr.left;
+        const py = window.scrollY + rr.bottom + 8;
+        picker.style.left = Math.min(document.documentElement.scrollWidth - 380, Math.max(8, px)) + 'px';
+        picker.style.top = Math.min(document.documentElement.scrollHeight - 340, py) + 'px';
+      } catch(_) {}
+    };
+    picker.addEventListener('emoji-click', onClick);
+    document.addEventListener('keydown', onKeyDown);
+    setTimeout(() => document.addEventListener('mousedown', onDoc), 0);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    picker._cleanup = () => {
+      try { picker.removeEventListener('emoji-click', onClick); } catch(_) {}
+      try { document.removeEventListener('keydown', onKeyDown); } catch(_) {}
+      try { document.removeEventListener('mousedown', onDoc); } catch(_) {}
+      try { window.removeEventListener('scroll', onScroll, true); } catch(_) {}
+      try { window.removeEventListener('resize', onScroll); } catch(_) {}
+    };
+    window._currentEmojiPickerEl = picker;
+  }
+
+  function closeEmojiPickerPanel() {
+    const el = window._currentEmojiPickerEl;
+    try { if (el && typeof el._cleanup === 'function') el._cleanup(); } catch(_) {}
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    window._currentEmojiPickerEl = null;
+  }
+
   function wireSearchPopup() {
     if (!searchFab || !searchPopup || !searchOverlay) return;
     const openPopup = () => {
@@ -307,11 +464,68 @@ document.addEventListener('DOMContentLoaded', () => {
     mapDiv.className = 'location-map';
     const mapViewport = document.createElement('div');
     mapViewport.className = 'map-viewport';
-    const mapOverlay = document.createElement('div');
-    mapOverlay.className = 'map-activation-overlay';
-    mapOverlay.innerHTML = '<div class="hint">Tap to interact</div>';
     mapDiv.appendChild(mapViewport);
-    mapDiv.appendChild(mapOverlay);
+    // Edge scroll zones: allow page scroll on mobile when starting drag near map edges
+    const topGutter = document.createElement('div');
+    topGutter.className = 'map-scroll-gutter top';
+    const bottomGutter = document.createElement('div');
+    bottomGutter.className = 'map-scroll-gutter bottom';
+    // Ensure these gutters do not forward events to the map, letting the page handle scroll
+    ['touchstart','touchmove','pointerdown','pointermove','wheel'].forEach(type => {
+      topGutter.addEventListener(type, (e) => { e.stopPropagation(); }, { passive: true });
+      bottomGutter.addEventListener(type, (e) => { e.stopPropagation(); }, { passive: true });
+    });
+    mapDiv.appendChild(topGutter);
+    mapDiv.appendChild(bottomGutter);
+
+    // Dynamic gutter visibility: fade out and disable when user interacts with the map,
+    // fade in and enable when user starts page scrolling again.
+    let gutterHideTimer = null;
+    function showGutters() {
+      try {
+        topGutter.classList.remove('hidden');
+        bottomGutter.classList.remove('hidden');
+      } catch (_) {}
+    }
+    function hideGutters() {
+      try {
+        topGutter.classList.add('hidden');
+        bottomGutter.classList.add('hidden');
+      } catch (_) {}
+    }
+    // Hide gutters when user starts interacting inside the map viewport
+    const mapInteractionEvents = ['pointerdown','touchstart','wheel','mousedown'];
+    mapInteractionEvents.forEach(t => {
+      mapViewport.addEventListener(t, () => {
+        hideGutters();
+      }, { passive: true });
+    });
+    // Hide gutters when user explicitly taps/clicks the shade itself
+    ['click','touchstart','pointerdown'].forEach(t => {
+      topGutter.addEventListener(t, (e) => { e.stopPropagation(); hideGutters(); }, { passive: true });
+      bottomGutter.addEventListener(t, (e) => { e.stopPropagation(); hideGutters(); }, { passive: true });
+    });
+    // Show gutters again when a scroll starts on the page (outside the map)
+    // Use capture to detect early; debounce slightly
+    let lastScrollAt = 0;
+    window.addEventListener('scroll', () => {
+      const now = Date.now();
+      if (now - lastScrollAt > 100) {
+        lastScrollAt = now;
+        clearTimeout(gutterHideTimer);
+        gutterHideTimer = setTimeout(() => showGutters(), 80);
+      }
+    }, { passive: true, capture: true });
+    // Also show gutters when clicking outside the map (but not when clicking icon buttons/controls)
+    document.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!target) return;
+      // Ignore clicks on map or gutters themselves
+      if (mapDiv.contains(target)) return;
+      // Ignore clicks on navigation app icon buttons row or Leaflet controls
+      if (target.closest && (target.closest('.nav-apps-row') || target.closest('.icon-btn') || target.closest('.leaflet-control'))) return;
+      showGutters();
+    }, true);
 
     const infoDiv = document.createElement('div');
     infoDiv.className = 'location-info';
@@ -504,7 +718,7 @@ document.addEventListener('DOMContentLoaded', () => {
     section.addEventListener('click', (e) => {
       // Avoid selecting when clicking interactive elements (links, buttons, map controls)
       const target = e.target;
-      if (target.closest && (target.closest('a') || target.closest('button') || target.closest('.leaflet-control') || target.closest('.map-activation-overlay'))) {
+      if (target.closest && (target.closest('a') || target.closest('button') || target.closest('.leaflet-control'))) {
         return;
       }
       toggleSelection(section, loc.name);
@@ -608,10 +822,6 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         mapViewport.style.pointerEvents = 'auto';
         mapViewport.style.touchAction = 'auto';
-        if (mapOverlay) {
-          mapOverlay.style.pointerEvents = 'none';
-          mapOverlay.style.opacity = '0';
-        }
       } catch(_) {}
       // Make existing emoji markers draggable now
       try { if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers); } catch(_) {}
@@ -783,37 +993,27 @@ document.addEventListener('DOMContentLoaded', () => {
         markersListEl.className = 'markers-list';
         const addRowMarkers = document.createElement('div');
         addRowMarkers.className = 'markers-add-row';
-        // Emoji selector button opens a fast searchable picker
+        // Emoji selector button opens a web component emoji picker
         const emojiButton = document.createElement('button');
         emojiButton.className = 'location-btn emoji-picker-btn';
         emojiButton.title = 'Choose icon';
         emojiButton.textContent = currentEmojiChoice;
         emojiButton.addEventListener('click', async (e) => {
           e.preventDefault();
-          try {
-            if (window.EmojiPicker && typeof window.EmojiPicker.open === 'function') {
-              const chosen = await window.EmojiPicker.open(emojiButton, { initial: currentEmojiChoice });
-              if (chosen) {
-                currentEmojiChoice = chosen;
-                emojiButton.textContent = currentEmojiChoice;
-                // Update preview if present
-                try {
-                  if (map && map._tempPlaceMarker && map.hasLayer(map._tempPlaceMarker)) {
-                    const html = `<div class=\"emoji-marker\">${escapeHtml(currentEmojiChoice)}</div>`;
-                    const icon = L.divIcon({ html, className: 'emoji-marker-wrapper', iconSize: [24, 24], iconAnchor: [12, 12] });
-                    map._tempPlaceMarker.setIcon(icon);
-                  }
-                  if (placeIconArmed) pendingEmoji = currentEmojiChoice;
-                } catch(_) {}
+          openEmojiPickerPanel(emojiButton, currentEmojiChoice, (selected) => {
+            if (!selected) return;
+            currentEmojiChoice = selected;
+            emojiButton.textContent = currentEmojiChoice;
+            // Update preview if present
+            try {
+              if (map && map._tempPlaceMarker && map.hasLayer(map._tempPlaceMarker)) {
+                const html = `<div class=\"emoji-marker\">${escapeHtml(currentEmojiChoice)}</div>`;
+                const icon = L.divIcon({ html, className: 'emoji-marker-wrapper', iconSize: [24, 24], iconAnchor: [12, 12] });
+                map._tempPlaceMarker.setIcon(icon);
               }
-            } else {
-              // Fallback: cycle common icons if picker not loaded
-              const choices = ['📍','🅿️','🧗','🚰','🚻','🔥','⛺','📷','⚠️'];
-              const idx = (choices.indexOf(currentEmojiChoice) + 1) % choices.length;
-              currentEmojiChoice = choices[idx];
-              emojiButton.textContent = currentEmojiChoice;
-            }
-          } catch(_) {}
+              if (placeIconArmed) pendingEmoji = currentEmojiChoice;
+            } catch(_) {}
+          }, e);
         });
         markerLabelInput = document.createElement('input');
         markerLabelInput.placeholder = 'Hover text';
@@ -919,10 +1119,6 @@ document.addEventListener('DOMContentLoaded', () => {
           try {
             mapViewport.style.pointerEvents = 'auto';
             mapViewport.style.touchAction = 'auto';
-            if (mapOverlay) {
-              mapOverlay.style.pointerEvents = 'none';
-              mapOverlay.style.opacity = '0';
-            }
           } catch(_) {}
         });
         // No add button; automatic add after map click (see map click handler)
@@ -1190,7 +1386,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Expose map initializer to run after the element is in the DOM
     section._initMap = function initLeaflet() {
       // Initialize leaflet map; avoid showing a wrong default like London when coords are missing
-      const map = L.map(mapViewport, { zoomControl: false, attributionControl: false });
+      const map = L.map(mapViewport, {
+        zoomControl: false,
+        attributionControl: false
+      });
       // Define marker refresh early so initial calls render markers in view mode too
       section._refreshExtraMarkers = function(markers) {
         try {
@@ -1261,48 +1460,7 @@ document.addEventListener('DOMContentLoaded', () => {
           });
         } catch (_) { /* ignore */ }
       };
-      // Improve mobile scrolling: two-finger pan/zoom for map, single-finger scrolls page
-      (function setupTouchGestureHandling() {
-        try {
-          const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-          if (!isTouch) return;
-          // Make map viewport allow vertical page scroll by default
-          mapViewport.style.touchAction = 'pan-y';
-          mapViewport.style.pointerEvents = 'auto';
-          // Disable overlay on touch devices; keep non-blocking hint if desired
-          if (mapOverlay) {
-            mapOverlay.style.pointerEvents = 'none';
-            mapOverlay.style.opacity = '0';
-          }
-          // Disable map interactions until two fingers are used
-          try { map.dragging.disable(); } catch(_) {}
-          try { if (map.touchZoom) map.touchZoom.disable(); } catch(_) {}
-          try { map.scrollWheelZoom.disable(); } catch(_) {}
-          try { map.doubleClickZoom.disable(); } catch(_) {}
-          // Toggle dragging/zoom on two-finger gesture
-          const onTouchChange = (e) => {
-            try {
-              const touches = e.touches ? e.touches.length : 0;
-              if (touches >= 2) {
-                if (isLocationEditableByCurrentUser(loc)) {
-                  // When editing we still respect emoji marker drag toggles, but allow map pan/zoom with two fingers
-                  if (map.dragging && !map.dragging.enabled()) map.dragging.enable();
-                  if (map.touchZoom && !map.touchZoom.enabled()) map.touchZoom.enable();
-                } else {
-                  if (map.dragging && !map.dragging.enabled()) map.dragging.enable();
-                  if (map.touchZoom && !map.touchZoom.enabled()) map.touchZoom.enable();
-                }
-              } else {
-                if (map.dragging && map.dragging.enabled()) map.dragging.disable();
-                if (map.touchZoom && map.touchZoom.enabled()) map.touchZoom.disable();
-              }
-            } catch(_) {}
-          };
-          mapViewport.addEventListener('touchstart', onTouchChange, { passive: true });
-          mapViewport.addEventListener('touchend', onTouchChange, { passive: true });
-          mapViewport.addEventListener('touchcancel', onTouchChange, { passive: true });
-        } catch(_) {}
-      })();
+      // Map is interactive by default; no mobile touch gating
       function getPrimaryMarkerIndex(list) {
         if (!Array.isArray(list)) return -1;
         let idx = list.findIndex(m => m && m.primary === true);
@@ -1348,7 +1506,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let tilesAdded = false;
       if (hasCoords) {
         const start = [startPos.lat, startPos.lng];
-        const zoom = 13;
+        const zoom = 15; // default closer by ~2x
         map.setView(start, zoom);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
@@ -1372,7 +1530,6 @@ document.addEventListener('DOMContentLoaded', () => {
           tilesAdded = true;
           // Neutral world view until geocode resolves
           map.setView([0, 0], 2);
-          if (mapOverlay) mapOverlay.innerHTML = '<div class="hint">Tap to interact</div>';
         } catch(_) {}
       }
       // Provide a toggler and getter to control dragging only during edit
@@ -1513,7 +1670,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // Set a gentle world view to avoid an empty container
             const z = map.getZoom();
             if (!Number.isFinite(z) || z <= 1) map.setView([0, 0], 2);
-            if (mapOverlay) mapOverlay.innerHTML = '<div class="hint">Tap to interact</div>';
           } catch(_) {}
         }, 2000);
         geocodeByName(loc.name).then(result => {
@@ -1521,7 +1677,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const lat = parseFloat(result.lat), lon = parseFloat(result.lon);
           if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
           ensureTiles();
-          map.setView([lat, lon], 13);
+          map.setView([lat, lon], 15);
           // Ensure we have a primary emoji marker at geocoded position
           try {
             const current = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
@@ -1572,7 +1728,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }).addTo(map);
                     tilesAdded = true;
                   }
-                  map.setView([lat, lon], 13);
+                  map.setView([lat, lon], 15);
                   try {
                     const curr = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
                     loc.custom_markers = ensurePrimaryMarker(curr, lat, lon);
@@ -1587,77 +1743,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // (geocoding helpers declared earlier in this function)
-      // Map activation (desktop): require tap/click to enable panning/zooming
-      let mapActive = false;
-      function activateMap() {
-        if (mapActive) return;
-        // If still loading geocode, ignore activation clicks
-        try {
-          if (mapOverlay && mapOverlay.querySelector('.loading-container')) return;
-        } catch(_) {}
-        mapActive = true;
-        mapViewport.style.pointerEvents = 'auto';
-        mapViewport.style.touchAction = 'auto';
-        // On touch devices we already handle gestures; skip overlay removal animation
-        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-        if (!isTouch && mapOverlay && mapOverlay.parentNode) {
-          // Start fade out immediately but don't remove yet
-          mapOverlay.style.pointerEvents = 'none';
-          mapOverlay.style.transition = 'opacity 300ms ease-out';
-          mapOverlay.style.opacity = '0';
-          
-          // Create burst particles after starting the fade, with higher z-index
-          setTimeout(() => {
-            createBurstParticles(mapDiv, 18);
-          }, 50);
-          
-          // Remove overlay after burst animation completes
-          setTimeout(() => { 
-            if (mapOverlay && mapOverlay.parentNode) mapOverlay.remove(); 
-          }, 700);
-        } else {
-          // No overlay, just create burst
-          createBurstParticles(mapDiv, 18);
-        }
-      }
-      try {
-        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-        if (!isTouch) {
-          mapOverlay.addEventListener('click', activateMap);
-        }
-      } catch(_) {}
-
-      function createBurstParticles(container, count = 12) {
-        const rect = container.getBoundingClientRect();
-        const cx = rect.width / 2, cy = rect.height / 2;
-        for (let i = 0; i < count; i++) {
-          const p = document.createElement('div');
-          p.style.position = 'absolute';
-          p.style.left = cx + 'px';
-          p.style.top = cy + 'px';
-          p.style.width = '12px'; 
-          p.style.height = '12px'; 
-          p.style.borderRadius = '50%';
-          p.style.background = i % 2 ? '#bb86fc' : '#03dac6';
-          p.style.boxShadow = '0 0 12px rgba(187,134,252,0.9)';
-          p.style.zIndex = '999'; // Much higher z-index to ensure visibility
-          p.style.pointerEvents = 'none';
-          const ang = Math.random() * Math.PI * 2;
-          const dist = 40 + Math.random() * 60;
-          const dx = Math.cos(ang) * dist;
-          const dy = Math.sin(ang) * dist;
-          p.style.transform = `translate(-50%, -50%)`;
-          p.style.transition = 'transform 500ms ease-out, opacity 500ms ease-out';
-          container.appendChild(p);
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              p.style.transform = `translate(${dx}px, ${dy}px)`;
-              p.style.opacity = '0';
-            });
-          });
-          setTimeout(() => { if (p.parentNode) p.parentNode.removeChild(p); }, 600);
-        }
-      }
+      // Map activation overlay removed; map is interactive by default
       // Initial markers render now happens via earlier-defined _refreshExtraMarkers when called above
       
       // Function to restore icon selection from URL

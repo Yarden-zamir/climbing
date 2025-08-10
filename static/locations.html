@@ -18,6 +18,24 @@
   <link rel="preload" href="/static/js/auth.js" as="script">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <style>
+    /* Emoji picker component theming (Shadow DOM via CSS vars) */
+    emoji-picker {
+      --background: #1b1b1b;
+      --border-color: #333;
+      --border-size: 1px;
+      --border-radius: 12px; /* match app radius */
+      --button-hover-background: #262626;
+      --button-active-background: #2e2e2e;
+      --category-font-color: #e0e0e0;
+      --category-emoji-size: 20px;
+      --category-emoji-padding: 6px;
+      --emoji-size: 22px;
+      --num-columns: 8;
+      --input-background: #121212;
+      --input-font-color: #f0f0f0;
+      --font-family: 'Poppins', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      --emoji-font-family: Apple Color Emoji, 'Noto Color Emoji', 'Segoe UI Emoji', system-ui, sans-serif;
+    }
     /* Page scaffold */
     .locations-page { padding: 1rem; }
     .locations-header { display: flex; gap: 0.75rem; align-items: center; margin: 0.5rem 0 1rem; justify-content: space-between; }
@@ -88,13 +106,16 @@
     /* Two-column responsive: map + details */
     .location-body { display: grid; grid-template-columns: 360px 1fr; gap: 0.5rem; align-items: start; }
     .location-map { position: relative; width: 100%; aspect-ratio: 4 / 3; border: 1px solid #333; border-radius: 12px; overflow: hidden; background: #111; }
-    .location-map .map-viewport { width: 100%; height: 100%; pointer-events: none; touch-action: pan-y; }
-    .map-activation-overlay {
-      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: linear-gradient(180deg, rgba(0,0,0,0.0), rgba(0,0,0,0.10)); cursor: pointer; z-index: 2;
-      user-select: none; -webkit-user-select: none; touch-action: pan-y;
+    .location-map .map-viewport { width: 100%; height: 100%; pointer-events: auto; touch-action: auto; }
+    /* Edge scroll gutters: small top/bottom strips that route scroll to the page */
+    .map-scroll-gutter { position: absolute; left: 0; right: 0; height: 96px; z-index: 2500; opacity: 1; transition: opacity 1000ms cubic-bezier(0.4, 0, 0.2, 1); pointer-events: auto; will-change: opacity; }
+    .map-scroll-gutter.top { top: 0; background: linear-gradient(180deg, rgba(3,218,198,0.35), rgba(3,218,198,0)); }
+    .map-scroll-gutter.bottom { bottom: 0; background: linear-gradient(0deg, rgba(3,218,198,0.35), rgba(3,218,198,0)); }
+    .map-scroll-gutter.hidden { opacity: 0; pointer-events: none; }
+    /* Let gutters allow vertical page scrolling via CSS touch-action */
+    @supports (touch-action: pan-y) {
+      .map-scroll-gutter { touch-action: pan-y; }
     }
-    .map-activation-overlay .hint { color: #ccc; font-size: 0.9rem; background: rgba(0,0,0,0.35); padding: 0.25rem 0.5rem; border-radius: 8px; }
     .location-info { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
     .map-col { display: flex; flex-direction: column; }
     .coords-row { margin-top: 0.4rem; }
@@ -256,7 +277,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <!-- Load auth early so the user header renders ASAP -->
   <script src="/static/js/auth.js"></script>
-  <script src="/static/js/emoji-picker.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
   <script src="/static/js/locations.js"></script>
   <!-- PWA and Notification Management -->
   <script src="/static/js/pwa-manager.js"></script>
