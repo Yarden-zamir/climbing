@@ -2252,7 +2252,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const MS_PER_DAY = 1000 * 60 * 60 * 24;
         const albumDate = new Date(`${match[1]} ${match[2]}, ${new Date().getFullYear()}`);
         const diffDays = (Date.now() - albumDate.getTime()) / MS_PER_DAY;
-        if (diffDays >= 0 && diffDays <= 3) {
+        if (diffDays >= 0 && diffDays <= 7) {
           a.classList.add('new-album');
         }
       }

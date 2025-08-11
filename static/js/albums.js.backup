@@ -208,7 +208,7 @@ const populateCard = async (card, meta) => {
 		const albumDate = new Date(`${match[1]} ${match[2]}, ${new Date().getFullYear()}`);
 		const diffDays = (new Date() - albumDate) / MS_PER_DAY;
 
-		if (diffDays >= 0 && diffDays <= 3) {
+		if (diffDays >= 0 && diffDays <= 7) {
 			card.classList.add("new-album");
 		}
 	}
