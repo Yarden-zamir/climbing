@@ -380,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sections.forEach(sec => container.appendChild(sec));
     // Initialize maps after insertion
     sections.forEach(sec => { if (typeof sec._initMap === 'function') sec._initMap(); });
-    // Update album scrollers to toggle single/full-bleed based on available width
+    // Update album scrollers to toggle single layout if no overflow
     requestAnimationFrame(updateAllAlbumsScrollers);
     updateCount(sections.length, sections.length);
 
@@ -510,15 +510,7 @@ document.addEventListener('DOMContentLoaded', () => {
         e.stopPropagation();
       }
     }, true);
-    // Prevent wheel from bubbling to document when pointer is over scroller (reduce main thread work)
-    scroller.addEventListener('wheel', (e) => {
-      // Only stop propagation if scroller can still scroll; otherwise let page handle it
-      const atStart = scroller.scrollLeft <= 0 && e.deltaX < 0;
-      const atEnd = Math.ceil(scroller.scrollLeft + scroller.clientWidth) >= scroller.scrollWidth && e.deltaX > 0;
-      if (!(atStart || atEnd)) {
-        e.stopPropagation();
-      }
-    }, { passive: true });
+    // Let native wheel handling bubble; custom handling removed for performance
   }
 
 
@@ -580,23 +572,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.addEventListener('resize', debounce(updateAllAlbumsScrollers, 120));
   
-  // Click outside to unselect location cards (but ignore clicks on marker list rows)
-  document.addEventListener('click', (e) => {
-    const t = e.target;
-    // Don't clear selection if clicking on marker rows or their contents
-    if (!t.closest('.location-section') && !t.closest('.marker-row')) {
-      console.log('Global click handler clearing URL params');
-      clearAllSelections();
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('highlight');
-        url.searchParams.delete('selected_map_icon');
-        history.replaceState({}, '', url.toString());
-      } catch(_) {}
-    } else {
-      console.log('Global click handler ignoring click on:', t.closest('.location-section') ? 'location-section' : 'marker-row');
-    }
-  });
+    // Click outside to unselect location cards (but ignore clicks on marker list rows)
+    document.addEventListener('click', (e) => {
+      const t = e.target;
+      // Don't clear selection if clicking on marker rows or their contents
+      if (!t.closest('.location-section') && !t.closest('.marker-row')) {
+        clearAllSelections();
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('highlight');
+          url.searchParams.delete('selected_map_icon');
+          history.replaceState({}, '', url.toString());
+        } catch(_) {}
+      }
+    });
 
   function createLocationSection(loc) {
     const section = document.createElement('section');
@@ -656,7 +645,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Dynamic gutter visibility: fade out and disable when user interacts with the map,
     // fade in and enable when user starts page scrolling again.
     let gutterHideTimer = null;
+    // When true (or until a timestamp), we suppress showing gutters (e.g., while auto-scrolling after focusing map)
+    let suppressGutterShowUntil = 0;
     function showGutters() {
+      // Respect suppression window
+      if (Date.now() < suppressGutterShowUntil) return;
       try {
         topGutter.classList.remove('hidden');
         bottomGutter.classList.remove('hidden');
@@ -673,6 +666,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const focusSectionForMap = () => {
       try {
         if (!section.classList.contains('selected')) {
+          // Suppress gutters during the auto-scroll performed by selection
+          suppressGutterShowUntil = Date.now() + 1200;
           toggleSelection(section, loc.name);
         }
       } catch(_) {}
@@ -681,7 +676,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Use capture phase so we run even if Leaflet stops propagation
     mapViewport.addEventListener('pointerdown', focusSectionForMap, { capture: true, passive: true });
     mapDiv.addEventListener('pointerdown', focusSectionForMap, { capture: true, passive: true });
-    mapDiv.addEventListener('mousedown', focusSectionForMap, { capture: true, passive: true });
     // Also hide gutters on wheel to avoid accidental scroll blocking visuals
     mapViewport.addEventListener('wheel', () => { hideGutters(); }, { passive: true });
     // Hide gutters when user explicitly taps/clicks the shade itself
@@ -696,6 +690,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const now = Date.now();
       if (now - lastScrollAt > 100) {
         lastScrollAt = now;
+        // If we're in a suppression window, keep gutters hidden
+        if (now < suppressGutterShowUntil) {
+          return;
+        }
         clearTimeout(gutterHideTimer);
         gutterHideTimer = setTimeout(() => showGutters(), 80);
       }
@@ -1219,19 +1217,15 @@ document.addEventListener('DOMContentLoaded', () => {
           try {
             const iconId = iconIdentifier || '';
             const current = new URL(window.location.href);
-            console.log('syncUrlSelection called with:', iconId, 'current URL:', current.href);
             current.searchParams.set('highlight', loc.name);
             if (iconId) current.searchParams.set('selected_map_icon', iconId); else current.searchParams.delete('selected_map_icon');
             const href = current.toString();
-            console.log('New URL would be:', href);
             
             // Update URL immediately using both pushState and replaceState for reliability
             history.pushState({ highlight: loc.name, selected_map_icon: iconId || null }, '', href);
-            console.log('pushState called, current URL now:', window.location.href);
             // Ensure browser address bar updates
             setTimeout(() => {
               history.replaceState({ highlight: loc.name, selected_map_icon: iconId || null }, '', href);
-              console.log('replaceState called, current URL now:', window.location.href);
             }, 10);
             
             // Ensure card selection remains in sync
@@ -1266,13 +1260,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // selection: highlight if group's first index matches selectedIndex
             try { row.classList.toggle('selected', grp.indices.includes(selectedIndex)); } catch(_) {}
             row.addEventListener('click', (e) => {
-              console.log('Marker row clicked!', grp);
               try { e.stopPropagation(); e.preventDefault(); } catch(_) {}
               
               // Sync URL FIRST, before any other operations
               const firstIdx = grp.indices[0];
               const iconId = (grp.label && grp.label.trim()) ? grp.label.trim() : (grp.emoji || '📍');
-              console.log('About to call syncUrlSelection with iconId:', iconId);
               try {
                 syncUrlSelection(iconId);
               } catch(e) {
@@ -1809,7 +1801,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const listForInit = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
         selectedIndex = listForInit.length > 0 ? 0 : -1;
       } catch(_) {}
-      let marker = null; // legacy main marker not used anymore
+      // legacy main marker completely removed; rely on extra markers only
       let tilesAdded = false;
       if (hasCoords) {
         // Add tiles first; view will be fit to points after markers render
