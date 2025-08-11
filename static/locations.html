@@ -128,19 +128,17 @@
       gap: 0.6rem;
       width: 100%;
       overflow-x: auto;
-      overflow-y: visible;
-      position: relative; /* anchor fade overlays */
-      /* Use negative margins with compensating padding so glow/hover can extend without changing layout */
-      margin-top: -6px;
-      padding-top: 6px;
-      margin-bottom: -6px;
-      padding-bottom: 6px;
-      contain: layout; /* Remove paint containment to allow glow effects */
+      overflow-y: hidden; /* keep effects contained */
+      position: relative;
+      /* Promote to its own layer for smoother programmatic scrolling */
+      will-change: transform;
+      transform: translateZ(0);
+      backface-visibility: hidden;
+      overscroll-behavior-x: contain;
       /* Hide scrollbar (Firefox) */
       scrollbar-width: none;
       /* Hide scrollbar (IE/Edge legacy) */
       -ms-overflow-style: none;
-      -webkit-overflow-scrolling: touch;
       touch-action: auto;
     }
     /* Hide scrollbar (WebKit) */
@@ -151,13 +149,20 @@
       text-decoration: none; color: inherit;
       box-shadow: 0 3px 6px rgba(0,0,0,0.22);
       transition: transform 90ms ease;
-      will-change: transform; transform: translateZ(0);
+      /* Avoid permanent layer promotion on many children to keep scroll smooth */
+      transform: none;
+      will-change: auto;
       position: relative; /* Needed for NEW badge positioning */
     }
-    /* Ensure hover/glow effects are never clipped by the card box */
-    .mini-album-card { overflow: visible; }
+    /* Keep card visuals contained within the card */
+    .mini-album-card { overflow: hidden; }
     .mini-album-card:hover { transform: translateY(-2px); z-index: 2; }
     .mini-album-card:focus-visible { outline: none; transform: translateY(-2px); }
+    /* Cursor feedback during drag scroll */
+    .albums-scroller { cursor: grab; }
+    .albums-scroller.dragging { cursor: grabbing; }
+    /* While dragging, make text unselectable to avoid selection flash */
+    .albums-scroller.dragging, .albums-scroller.dragging * { user-select: none; -webkit-user-select: none; }
     .mini-album-img { width: 100%; height: 220px; object-fit: cover; border-radius: 12px 12px 0 0; display: block; }
     .mini-album-content { padding: 0.5rem 0.6rem 0.6rem; }
     .mini-album-title { font-size: 0.95rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -189,41 +194,29 @@
       }
     }
 
-    /* Desktop spacing: ensure margin between share icons row and approach panel
-       when approach is moved under the map column */
+    /* Desktop spacing: ensure margin between share icons row and approach panel */
     @media (min-width: 901px) {
       .map-col > .location-approach { margin-top: 0.6rem; }
-      /* Allow album glow to extend beyond the left/right edges without shifting layout */
-      .albums-scroller {
-        /* Desktop: full-bleed to the right only */
-        width: calc(100% + 2rem);   /* extend to the right past section + page padding */
-        margin-right: -2rem;        /* bleed to viewport edge (page 1rem + section 1rem) */
-        padding-right: 2rem;        /* safe space so glow isn't clipped at viewport edge */
-        /* Overlap just the grid gap on the left so glow can sit in-between columns */
-        margin-left: -0.5rem;       /* grid gap defined on .location-body */
-        padding-left: 0.5rem;       /* keep card content aligned; no left crossing */
-      }
-      /* Left-edge fade overlay to soften contact with neighbor column */
-      .albums-scroller::before {
-        content: "";
-        position: absolute;
-        left: -0.5rem;              /* cover the overlapped gap */
-        top: -10px;                 /* allow glow above */
-        bottom: -10px;              /* allow glow below */
-        width: 18px;
-        pointer-events: none;
-        z-index: 5;                 /* above hovered cards */
-        /* Fade from section bg toward transparent */
-        background: linear-gradient(90deg, rgba(31,31,31,0.96) 0%, rgba(31,31,31,0.7) 40%, rgba(31,31,31,0) 100%);
-      }
-      /* If only one album card, keep inline with content (no bleed) */
-      .albums-scroller.single {
-        width: 100%;
-        margin-right: 0;
-        padding-right: 0;
-        margin-left: 0;
-        padding-left: 0;
-      }
+      .albums-scroller { width: 100%; margin: 0; padding: 0; }
+      .albums-scroller.single { width: 100%; margin: 0; padding: 0; }
+    }
+
+    /* Only enable momentum scrolling on touch devices */
+    @media (pointer: coarse) {
+      .albums-scroller { -webkit-overflow-scrolling: touch; }
+    }
+
+    /* In-card NEW treatment for mini album cards (no overflow) */
+    .mini-album-card.new-album {
+      /* Neutralize global glow animation and ensure containment */
+      animation: none !important;
+      overflow: hidden !important;
+      /* Subtle inset ring inside the card bounds */
+      box-shadow: 0 3px 6px rgba(0,0,0,0.22), inset 0 0 0 2px rgba(3,218,198,0.35);
+    }
+    .mini-album-card.new-album .mini-album-content {
+      background: linear-gradient(180deg, rgba(3,218,198,0.12), rgba(3,218,198,0));
+      border-top: 1px solid rgba(3,218,198,0.35);
     }
 
     /* Location Attributes */

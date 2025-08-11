@@ -397,6 +397,131 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Enable desktop drag-to-scroll for horizontal album scrollers
+  function enableDragScroll(scroller) {
+    // Avoid double-binding
+    if (scroller._dragScrollEnabled) return;
+    scroller._dragScrollEnabled = true;
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startScrollLeft = 0;
+    let moved = false;
+    const moveThreshold = 12; // px before we treat as an intentional drag (avoid accidental drags)
+    let selectionSuppressed = false;
+
+    function onPointerDown(e) {
+      // Only main button; ignore right/middle and modifier gestures
+      if (e.button !== undefined && e.button !== 0) return;
+      // Prefer enabling for mouse/pen; let touch devices keep native scrolling
+      const pt = e.pointerType;
+      if (pt && pt !== 'mouse' && pt !== 'pen') return;
+
+      isDragging = true;
+      moved = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      startScrollLeft = scroller.scrollLeft;
+      scroller.classList.add('dragging');
+    }
+
+    let rafId = null;
+    function onPointerMove(e) {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!moved && Math.max(Math.abs(dx), Math.abs(dy)) >= moveThreshold) {
+        moved = true;
+        // Suppress text selection globally while dragging
+        if (!selectionSuppressed) {
+          selectionSuppressed = true;
+          try { document.body.style.userSelect = 'none'; } catch(_) {}
+        }
+      }
+      if (moved) {
+        // Use scrollBy to minimize layout thrash
+        const targetScroll = startScrollLeft - dx;
+        const delta = targetScroll - scroller.scrollLeft;
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          scroller.scrollBy({ left: delta, behavior: 'auto' });
+        });
+        // Prevent selecting child elements while dragging
+        e.preventDefault();
+      }
+    }
+
+    function endDrag(e) {
+      if (!isDragging) return;
+      isDragging = false;
+      scroller.classList.remove('dragging');
+      // If we dragged, suppress the ensuing click so cards don't open accidentally
+      if (moved) {
+        scroller._dragPreventClick = true;
+        setTimeout(() => { scroller._dragPreventClick = false; }, 0);
+      }
+      // Restore selection behavior
+      if (selectionSuppressed) {
+        try { document.body.style.userSelect = ''; } catch(_) {}
+        selectionSuppressed = false;
+      }
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      // Clean up window listeners
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', endDrag);
+      window.removeEventListener('pointercancel', endDrag);
+      window.removeEventListener('pointerleave', endDrag);
+    }
+
+    function onClickCapture(e) {
+      // Swallow only anchor clicks if a drag occurred; allow other clicks
+      if (scroller._dragPreventClick) {
+        const anchor = e.target.closest && e.target.closest('a');
+        if (anchor) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        scroller._dragPreventClick = false;
+      }
+    }
+
+    scroller.addEventListener('pointerdown', (e) => {
+      onPointerDown(e);
+      // Track drag outside the element as well
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', endDrag, { once: true });
+      window.addEventListener('pointercancel', endDrag, { once: true });
+      window.addEventListener('pointerleave', endDrag, { once: true });
+    });
+    // Capture-phase click handler to swallow the click if a drag just happened
+    scroller.addEventListener('click', onClickCapture, true);
+    // Prevent native drag of links/images while dragging to scroll
+    scroller.addEventListener('dragstart', (e) => {
+      if (isDragging || moved) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
+    // Prevent text selection initiation while dragging
+    scroller.addEventListener('selectstart', (e) => {
+      if (isDragging) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
+    // Prevent wheel from bubbling to document when pointer is over scroller (reduce main thread work)
+    scroller.addEventListener('wheel', (e) => {
+      // Only stop propagation if scroller can still scroll; otherwise let page handle it
+      const atStart = scroller.scrollLeft <= 0 && e.deltaX < 0;
+      const atEnd = Math.ceil(scroller.scrollLeft + scroller.clientWidth) >= scroller.scrollWidth && e.deltaX > 0;
+      if (!(atStart || atEnd)) {
+        e.stopPropagation();
+      }
+    }, { passive: true });
+  }
+
+
   function debounce(fn, wait = 120) {
     let t;
     return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
@@ -544,12 +669,21 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (_) {}
     }
     // Hide gutters when user starts interacting inside the map viewport
-    const mapInteractionEvents = ['pointerdown','touchstart','wheel','mousedown'];
-    mapInteractionEvents.forEach(t => {
-      mapViewport.addEventListener(t, () => {
-        hideGutters();
-      }, { passive: true });
-    });
+    // Map interaction: clicking the map should focus the card (select section) and hide gutters
+    const focusSectionForMap = () => {
+      try {
+        if (!section.classList.contains('selected')) {
+          toggleSelection(section, loc.name);
+        }
+      } catch(_) {}
+      hideGutters();
+    };
+    // Use capture phase so we run even if Leaflet stops propagation
+    mapViewport.addEventListener('pointerdown', focusSectionForMap, { capture: true, passive: true });
+    mapDiv.addEventListener('pointerdown', focusSectionForMap, { capture: true, passive: true });
+    mapDiv.addEventListener('mousedown', focusSectionForMap, { capture: true, passive: true });
+    // Also hide gutters on wheel to avoid accidental scroll blocking visuals
+    mapViewport.addEventListener('wheel', () => { hideGutters(); }, { passive: true });
     // Hide gutters when user explicitly taps/clicks the shade itself
     ['click','touchstart','pointerdown'].forEach(t => {
       topGutter.addEventListener(t, (e) => { e.stopPropagation(); hideGutters(); }, { passive: true });
@@ -596,6 +730,8 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       if (albums.length === 1) scroller.classList.add('single');
       albums.forEach(meta => scroller.appendChild(createMiniAlbumCard(meta)));
+      // Enable desktop drag-to-scroll (use native wheel scrolling for best performance)
+      enableDragScroll(scroller);
     }
 
     infoDiv.appendChild(description);
