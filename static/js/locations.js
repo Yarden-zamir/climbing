@@ -1220,7 +1220,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingEmoji = '📍';
     let pendingLabelValue = '';
     let selectedIndex = 0;
-    let dragSrcIndex = null;
+    let dragSrcIndex = null; // used elsewhere
+    // Drag state for markers list (group-level)
+    let markersDragSrcGroupIdx = null;
+    let currentMarkerGroups = [];
     let currentEmojiChoice = '📍';
 
     function enterEditMode() {
@@ -1519,6 +1522,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!groups.has(key)) groups.set(key, { emoji: m.emoji || '📍', label: m.label || '', indices: [] });
             groups.get(key).indices.push(idx);
           });
+          // Preserve display order and expose for DnD
+          currentMarkerGroups = Array.from(groups.entries()).map(([key, value]) => ({ key, ...value }));
           for (const [key, grp] of groups.entries()) {
             const row = document.createElement('div');
             row.className = 'marker-row';
@@ -1533,6 +1538,49 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             // selection: highlight if group's first index matches selectedIndex
             try { row.classList.toggle('selected', grp.indices.includes(selectedIndex)); } catch(_) {}
+            // Make rows draggable in edit mode
+            try { row.draggable = true; row.style.cursor = 'move'; } catch(_) {}
+            row.dataset.groupKey = key;
+            row.addEventListener('dragstart', (e) => {
+              if (!section.classList.contains('editing')) return e.preventDefault();
+              markersDragSrcGroupIdx = currentMarkerGroups.findIndex(g => g.key === key);
+              row.classList.add('dragging');
+              try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', key); } catch(_) {}
+            });
+            row.addEventListener('dragend', () => { try { row.classList.remove('dragging'); } catch(_) {} });
+            row.addEventListener('dragover', (e) => { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch(_) {} });
+            row.addEventListener('dragenter', () => { row.classList.add('drag-over'); });
+            row.addEventListener('dragleave', () => { row.classList.remove('drag-over'); });
+            row.addEventListener('drop', (e) => {
+              e.preventDefault(); e.stopPropagation();
+              row.classList.remove('drag-over');
+              if (markersDragSrcGroupIdx == null) return;
+              const targetIdx = currentMarkerGroups.findIndex(g => g.key === key);
+              if (targetIdx < 0 || targetIdx === markersDragSrcGroupIdx) { markersDragSrcGroupIdx = null; return; }
+              // Rebuild markers array by moving the source group to the new position
+              try {
+                const srcGroups = currentMarkerGroups.slice();
+                const moved = srcGroups.splice(markersDragSrcGroupIdx, 1)[0];
+                const insertAt = targetIdx;
+                srcGroups.splice(insertAt, 0, moved);
+                const original = Array.isArray(extraMarkers) ? extraMarkers.slice() : [];
+                const rebuilt = [];
+                for (const g of srcGroups) {
+                  for (const i of g.indices) {
+                    if (original[i]) rebuilt.push({ ...original[i] });
+                  }
+                }
+                // Ensure primary is first
+                rebuilt.forEach((m, i) => { m.primary = (i === 0); });
+                extraMarkers = rebuilt;
+                selectedIndex = 0;
+                // Re-render and refresh map/lines
+                renderMarkersList();
+                if (typeof section._refreshExtraMarkers === 'function') section._refreshExtraMarkers(extraMarkers);
+                try { if (typeof updateEmojiGroupPolylines === 'function') updateEmojiGroupPolylines(); } catch(_) {}
+              } catch(_) {}
+              markersDragSrcGroupIdx = null;
+            });
             row.addEventListener('click', (e) => {
               try { e.stopPropagation(); e.preventDefault(); } catch(_) {}
               
