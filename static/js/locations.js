@@ -141,10 +141,284 @@ document.addEventListener('DOMContentLoaded', () => {
         if (matches) visible += 1;
       });
       updateCount(visible, sections.length);
+      // Show a geocoded map card when there are no matches
+      updateNoResultsGeoCard((searchInput.value || '').trim(), visible);
     };
     searchInput.addEventListener('input', apply);
     // Apply initial filter from URL param if present
     applyFilterFromUrl();
+  }
+
+  // --- No-results geo card (map + navigation) ---
+  let noResultsCardEl = null;
+  let noResultsMap = null;
+  let noResultsGeocodeTimer = null;
+  const NO_RESULTS_CARD_ID = 'no-results-geo-card';
+
+  function removeNoResultsCard() {
+    try {
+      if (noResultsMap && noResultsMap.remove) {
+        try { noResultsMap.remove(); } catch(_) {}
+      }
+      noResultsMap = null;
+      const el = document.getElementById(NO_RESULTS_CARD_ID) || noResultsCardEl;
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    } catch(_) {}
+    noResultsCardEl = null;
+  }
+
+  async function geocodeQueryName(name) {
+    try {
+      const key = String(name || '').trim();
+      if (!key) return null;
+      // Cache results briefly to avoid repeated lookups while typing
+      const cache = (window.__locationsNoResultsGeocodeCache ||= new Map());
+      if (cache.has(key)) return cache.get(key);
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(key)}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store', signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!res.ok) return null;
+      const arr = await res.json();
+      const result = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
+      if (!result) return null;
+      const coords = { lat: parseFloat(result.lat), lng: parseFloat(result.lon) };
+      if (!Number.isFinite(coords.lat) || !Number.isFinite(coords.lng)) return null;
+      cache.set(key, coords);
+      return coords;
+    } catch(_) { return null; }
+  }
+
+  function buildNavUrl(appKey, coords, name) {
+    const lat = coords?.lat, lng = coords?.lng;
+    const q = name || '';
+    if (appKey === 'google') {
+      return (Number.isFinite(lat) && Number.isFinite(lng))
+        ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+    } else if (appKey === 'apple') {
+      return (Number.isFinite(lat) && Number.isFinite(lng))
+        ? `http://maps.apple.com/?ll=${lat},${lng}&q=${encodeURIComponent(q)}`
+        : `http://maps.apple.com/?q=${encodeURIComponent(q)}`;
+    } else if (appKey === 'waze') {
+      return (Number.isFinite(lat) && Number.isFinite(lng))
+        ? `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`
+        : `https://waze.com/ul?q=${encodeURIComponent(q)}&navigate=yes`;
+    } else if (appKey === 'moovit') {
+      const lang = (navigator.language || 'en').split('-')[0] || 'en';
+      return (Number.isFinite(lat) && Number.isFinite(lng))
+        ? `https://moovitapp.com/tripplan/?to=${encodeURIComponent(q)}&tll=${lat}_${lng}&lang=${encodeURIComponent(lang)}`
+        : `https://moovitapp.com/tripplan/?to=${encodeURIComponent(q)}&lang=${encodeURIComponent(lang)}`;
+    } else if (appKey === 'whatsapp') {
+      const shareUrlObj = new URL(window.location.origin + '/locations');
+      shareUrlObj.searchParams.set('q', q);
+      return `https://wa.me/?text=${encodeURIComponent(shareUrlObj.href)}`;
+    }
+    return '';
+  }
+
+  function ensureNoResultsCard(query, coords) {
+    removeNoResultsCard();
+    if (!headerEl || !headerEl.parentNode) return;
+
+    const card = document.createElement('section');
+    card.className = 'location-section';
+    card.id = NO_RESULTS_CARD_ID;
+    card.setAttribute('aria-live', 'polite');
+    card.dataset.query = query || '';
+
+    const title = document.createElement('div');
+    title.className = 'location-header';
+    title.innerHTML = `
+      <div class="location-title">
+        <span class="pin">📍</span>
+        <span>Explore "${escapeHtml(query)}"</span>
+      </div>
+    `;
+
+    const body = document.createElement('div');
+    body.className = 'location-body';
+    // Simple single-column layout for the card
+    body.style.display = 'grid';
+    body.style.gridTemplateColumns = '1fr';
+
+    const mapCol = document.createElement('div');
+    mapCol.className = 'map-col';
+    const mapDiv = document.createElement('div');
+    mapDiv.className = 'location-map';
+    const mapViewport = document.createElement('div');
+    mapViewport.className = 'map-viewport';
+    mapDiv.appendChild(mapViewport);
+    mapCol.appendChild(mapDiv);
+
+    const navRow = document.createElement('div');
+    navRow.className = 'nav-apps-row';
+    navRow.style.cssText = 'display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem;';
+    const iconPaths = {
+      google: '/static/icons/google-maps.svg',
+      apple: '/static/icons/apple-maps.svg',
+      waze: '/static/icons/waze.svg',
+      moovit: '/static/icons/moovit.svg',
+      whatsapp: '/static/icons/whatsapp.svg',
+      share: '/static/icons/share.svg'
+    };
+    [
+      { key: 'google', label: 'Google Maps' },
+      { key: 'apple', label: 'Apple Maps' },
+      { key: 'waze', label: 'Waze' },
+      { key: 'moovit', label: 'Moovit' },
+      { key: 'whatsapp', label: 'WhatsApp' },
+    ].forEach(({ key, label }) => {
+      const btn = document.createElement('button');
+      btn.className = 'location-btn icon-btn';
+      btn.setAttribute('aria-label', label);
+      const img = document.createElement('img');
+      img.alt = label;
+      img.loading = 'lazy';
+      img.src = iconPaths[key] || '';
+      btn.appendChild(img);
+      btn.addEventListener('click', () => {
+        const href = buildNavUrl(key, coords, query);
+        if (href) window.open(href, '_blank', 'noopener');
+      });
+      navRow.appendChild(btn);
+    });
+    mapCol.appendChild(navRow);
+
+    body.appendChild(mapCol);
+    card.appendChild(title);
+    const divider = document.createElement('div');
+    divider.className = 'section-divider';
+    card.appendChild(divider);
+    card.appendChild(body);
+
+    headerEl.parentNode.insertBefore(card, headerEl);
+    noResultsCardEl = card;
+
+    try {
+      const DEFAULT_ZOOM = 14;
+      const m = L.map(mapViewport, { zoomControl: false, attributionControl: false, minZoom: 3, maxZoom: 30 });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxNativeZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(m);
+      if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
+        const html = `<div class=\"emoji-marker\">📍</div>`;
+        const icon = L.divIcon({ html, className: 'emoji-marker-wrapper', iconSize: [24,24], iconAnchor: [12,12] });
+        L.marker([coords.lat, coords.lng], { icon, riseOnHover: true }).addTo(m);
+        m.setView([coords.lat, coords.lng], DEFAULT_ZOOM);
+      } else {
+        m.setView([0, 0], 2);
+      }
+      noResultsMap = m;
+      setTimeout(() => { try { m.invalidateSize(); } catch(_) {} }, 200);
+      window.addEventListener('resize', () => { try { m.invalidateSize(); } catch(_) {} });
+    } catch(_) {}
+  }
+
+  function updateNoResultsGeoCard(query, visibleCount) {
+    const q = (query || '').trim();
+    if (!q || visibleCount > 0) { removeNoResultsCard(); return; }
+    // Show loading state immediately
+    showNoResultsLoadingCard(q);
+    if (noResultsGeocodeTimer) clearTimeout(noResultsGeocodeTimer);
+    noResultsGeocodeTimer = setTimeout(async () => {
+      const latestQ = (searchInput && searchInput.value) ? String(searchInput.value).trim() : q;
+      if (!latestQ || latestQ.toLowerCase() !== q.toLowerCase()) return; // query changed
+      const coords = await geocodeQueryName(q);
+      if (!latestQ) { removeNoResultsCard(); return; }
+      if (!coords) {
+        // Keep the card but switch to an informative state
+        try {
+          const card = document.getElementById(NO_RESULTS_CARD_ID);
+          if (card) {
+            const loading = card.querySelector('.loading-container');
+            if (loading) {
+              loading.innerHTML = `<div style="color:#bbb; padding:0.5rem;">Couldn't find a precise match. You can still navigate using these apps.</div>`;
+            }
+          }
+        } catch(_) {}
+        return;
+      }
+      ensureNoResultsCard(q, coords);
+    }, 250);
+  }
+
+  function showNoResultsLoadingCard(query) {
+    removeNoResultsCard();
+    if (!headerEl || !headerEl.parentNode) return;
+    try { ensureLoadingStyles(); } catch(_) {}
+
+    const card = document.createElement('section');
+    card.className = 'location-section';
+    card.id = NO_RESULTS_CARD_ID;
+    card.setAttribute('aria-live', 'polite');
+    card.dataset.query = query || '';
+
+    const title = document.createElement('div');
+    title.className = 'location-header';
+    title.innerHTML = `
+      <div class="location-title">
+        <span class="pin">🔎</span>
+        <span>Searching for "${escapeHtml(query)}"…</span>
+      </div>
+    `;
+
+    const body = document.createElement('div');
+    body.className = 'location-body';
+    body.style.display = 'grid';
+    body.style.gridTemplateColumns = '1fr';
+
+    const mapCol = document.createElement('div');
+    mapCol.className = 'map-col';
+    const mapDiv = document.createElement('div');
+    mapDiv.className = 'location-map';
+    const loading = document.createElement('div');
+    loading.className = 'loading-container';
+    loading.innerHTML = '<span class="spinner"></span>';
+    mapDiv.appendChild(loading);
+    mapCol.appendChild(mapDiv);
+
+    const navRow = document.createElement('div');
+    navRow.className = 'nav-apps-row';
+    navRow.style.cssText = 'display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem;';
+    const iconPaths = {
+      google: '/static/icons/google-maps.svg',
+      apple: '/static/icons/apple-maps.svg',
+      waze: '/static/icons/waze.svg',
+      moovit: '/static/icons/moovit.svg',
+      whatsapp: '/static/icons/whatsapp.svg'
+    };
+    [
+      { key: 'google', label: 'Google Maps' },
+      { key: 'apple', label: 'Apple Maps' },
+      { key: 'waze', label: 'Waze' },
+      { key: 'moovit', label: 'Moovit' },
+      { key: 'whatsapp', label: 'WhatsApp' },
+    ].forEach(({ key, label }) => {
+      const btn = document.createElement('button');
+      btn.className = 'location-btn icon-btn';
+      btn.setAttribute('aria-label', label);
+      const img = document.createElement('img');
+      img.alt = label;
+      img.loading = 'lazy';
+      img.src = iconPaths[key] || '';
+      btn.appendChild(img);
+      btn.addEventListener('click', () => {
+        const href = buildNavUrl(key, null, query);
+        if (href) window.open(href, '_blank', 'noopener');
+      });
+      navRow.appendChild(btn);
+    });
+    mapCol.appendChild(navRow);
+
+    body.appendChild(mapCol);
+    card.appendChild(title);
+    const divider = document.createElement('div');
+    divider.className = 'section-divider';
+    card.appendChild(divider);
+    card.appendChild(body);
+
+    headerEl.parentNode.insertBefore(card, headerEl);
+    noResultsCardEl = card;
   }
 
   // Lightweight wrapper to open emoji-picker-element as a floating panel
@@ -351,7 +625,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateCount(visible, total) {
     if (!countLabel) return;
     const hasQuery = !!(searchInput && (searchInput.value || '').trim());
-    if (!hasQuery || total === 0) {
+    if (!hasQuery) {
       countLabel.textContent = '';
       if (headerEl) headerEl.style.display = 'none';
       return;
