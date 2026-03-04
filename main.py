@@ -16,7 +16,17 @@ from typing import List, Optional
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, HTTPException, Query, Response, Form, File, UploadFile, Depends, Path
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Query,
+    Response,
+    Form,
+    File,
+    UploadFile,
+    Depends,
+    Path,
+)
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -37,20 +47,35 @@ from permissions import PermissionsManager, ResourceType, UserRole
 
 # Validation utilities
 from validation import (
-    ValidationError, validate_name, validate_google_photos_url,
-    validate_skill_list, validate_location_list, validate_achievements_list,
-    validate_image_file, validate_crew_list, validate_json_input,
-    validate_and_sanitize_metadata, validate_form_json_field,
-    validate_required_string, validate_optional_image_upload,
-    validate_user_role, validate_resource_type, validate_skill_name,
-    validate_achievement_name, validate_and_raise_http_exception,
-    validate_crew_form_data, validate_crew_edit_form_data
+    ValidationError,
+    validate_name,
+    validate_google_photos_url,
+    validate_skill_list,
+    validate_location_list,
+    validate_achievements_list,
+    validate_image_file,
+    validate_crew_list,
+    validate_json_input,
+    validate_and_sanitize_metadata,
+    validate_form_json_field,
+    validate_required_string,
+    validate_optional_image_upload,
+    validate_user_role,
+    validate_resource_type,
+    validate_skill_name,
+    validate_achievement_name,
+    validate_and_raise_http_exception,
+    validate_crew_form_data,
+    validate_crew_edit_form_data,
 )
 
 # Import extracted utilities
 from utils.logging_setup import setup_logging
 from utils.metadata_parser import inject_css_version, fetch_url, parse_meta_tags
-from utils.background_tasks import perform_album_metadata_refresh, refresh_album_metadata
+from utils.background_tasks import (
+    perform_album_metadata_refresh,
+    refresh_album_metadata,
+)
 from utils.export_utils import export_redis_database
 
 # Import middleware
@@ -59,7 +84,11 @@ from middleware.pretty_json_middleware import PrettyJSONMiddleware
 
 # Import models
 from models.api_models import (
-    NewPerson, AlbumSubmission, AlbumCrewEdit, AddSkillsRequest, AddAchievementsRequest
+    NewPerson,
+    AlbumSubmission,
+    AlbumCrewEdit,
+    AddSkillsRequest,
+    AddAchievementsRequest,
 )
 
 # Import route modules
@@ -83,7 +112,9 @@ from auth import initialize_jwt_manager
 logger = setup_logging()
 
 # Initialize FastAPI app
-app = FastAPI(title="Climbing App", description="A climbing album and crew management system")
+app = FastAPI(
+    title="Climbing App", description="A climbing album and crew management system"
+)
 
 # Simple app initialization - no version tracking needed
 
@@ -95,7 +126,7 @@ try:
         host=settings.REDIS_HOST,
         port=settings.REDIS_PORT,
         password=settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
-        ssl=settings.REDIS_SSL
+        ssl=settings.REDIS_SSL,
     )
     logger.info("✅ Redis datastore initialized successfully")
 except Exception as e:
@@ -125,7 +156,10 @@ except Exception as e:
 
 # Initialize dependencies (get jwt_manager after initialization)
 from auth import jwt_manager
-dependencies.initialize_dependencies(redis_store, permissions_manager, logger, jwt_manager)
+
+dependencies.initialize_dependencies(
+    redis_store, permissions_manager, logger, jwt_manager
+)
 
 # Register route modules
 app.include_router(auth_router)
@@ -138,6 +172,7 @@ app.include_router(users_router)
 app.include_router(albums_router)
 app.include_router(utilities_router)
 app.include_router(notifications_router)
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -168,7 +203,9 @@ async def startup_event():
         if cleanup_result["total_fields_removed"] > 0:
             logger.info(f"✅ Level cleanup completed: {cleanup_result}")
         else:
-            logger.info("✅ Level cleanup completed: No stored level values found to clean")
+            logger.info(
+                "✅ Level cleanup completed: No stored level values found to clean"
+            )
     except Exception as e:
         logger.error(f"❌ Level cleanup failed: {e}")
 
@@ -182,21 +219,22 @@ async def start_background_tasks():
 
 # === API Routes ===
 
+
 @app.get("/get-meta", tags=["utilities"])
 async def get_meta(url: str = Query(..., description="URL to fetch metadata from")):
     """
     Fetch and parse metadata from a URL with Redis caching.
-    
+
     Args:
         url: The URL to fetch metadata from (e.g., Google Photos album URL)
-        
+
     Returns:
         JSON object containing:
         - title: Album title
         - description: Album description
         - images: List of image URLs
         - timestamp: When the metadata was last fetched
-        
+
     Cache:
         - Results are cached for 5 minutes
         - Stale-while-revalidate for up to 24 hours
@@ -208,7 +246,11 @@ async def get_meta(url: str = Query(..., description="URL to fetch metadata from
         headers = {
             "Cache-Control": "public, max-age=5,stale-while-revalidate=86400, immutable"
         }
-        return Response(content=json.dumps(cached_meta), media_type="application/json", headers=headers)
+        return Response(
+            content=json.dumps(cached_meta),
+            media_type="application/json",
+            headers=headers,
+        )
 
     # Fetch new metadata
     async with httpx.AsyncClient() as client:
@@ -221,7 +263,11 @@ async def get_meta(url: str = Query(..., description="URL to fetch metadata from
         headers = {
             "Cache-Control": "public, max-age=5,stale-while-revalidate=86400, immutable"
         }
-        return Response(content=json.dumps(meta_data), media_type="application/json", headers=headers)
+        return Response(
+            content=json.dumps(meta_data),
+            media_type="application/json",
+            headers=headers,
+        )
 
 
 # Albums endpoints moved to routes/albums.py
@@ -231,24 +277,25 @@ async def get_meta(url: str = Query(..., description="URL to fetch metadata from
 async def get_image(url: str = Query(..., description="URL of the image to fetch")):
     """
     Proxy endpoint to fetch and serve images with proper caching headers.
-    
+
     Args:
         url: Direct URL to the image
-        
+
     Returns:
         - Image data with original content-type
         - Cache headers for 7 days
-        
+
     Note:
         This endpoint helps avoid CORS issues and adds proper caching
     """
     async with httpx.AsyncClient() as client:
         response = await fetch_url(client, url)
         content_type = response.headers.get("content-type", "application/octet-stream")
-        headers = {
-            "Cache-Control": "public, max-age=604800, immutable"
-        }
-        return Response(content=response.content, media_type=content_type, headers=headers)
+        headers = {"Cache-Control": "public, max-age=604800, immutable"}
+        return Response(
+            content=response.content, media_type=content_type, headers=headers
+        )
+
 
 # === Redis Image Serving ===
 
@@ -256,21 +303,21 @@ async def get_image(url: str = Query(..., description="URL of the image to fetch
 @app.get("/redis-image/{image_type}/{identifier:path}", tags=["utilities"])
 async def get_redis_image(
     image_type: str = Path(..., description="Type of image (climber, profile, meme)"),
-    identifier: str = Path(..., description="Image identifier or path")
+    identifier: str = Path(..., description="Image identifier or path"),
 ):
     """
     Serve images stored in Redis with proper caching and content types.
-    
+
     Args:
         image_type: Category of image (climber, profile, meme)
         identifier: Unique identifier or path for the image
-        
+
     Returns:
         - Image data with correct content-type
         - Appropriate cache headers based on image type:
             * Profile images: 5 minutes with validation
             * Other images: 7 days, immutable
-            
+
     Raises:
         404: Image not found
         500: Server error while serving image
@@ -282,11 +329,11 @@ async def get_redis_image(
 
         # Determine content type
         content_type = "image/png"  # Default
-        if identifier.lower().endswith(('.jpg', '.jpeg')):
+        if identifier.lower().endswith((".jpg", ".jpeg")):
             content_type = "image/jpeg"
-        elif identifier.lower().endswith('.gif'):
+        elif identifier.lower().endswith(".gif"):
             content_type = "image/gif"
-        elif identifier.lower().endswith('.webp'):
+        elif identifier.lower().endswith(".webp"):
             content_type = "image/webp"
 
         # Different caching strategies based on image type
@@ -294,23 +341,20 @@ async def get_redis_image(
             # For profile images that can be updated, use shorter cache with validation
             headers = {
                 "Cache-Control": "public, max-age=300, must-revalidate",
-                "ETag": f'"{hash(image_data)}"'
+                "ETag": f'"{hash(image_data)}"',
             }
         else:
             # For other images (temp, memes, etc.), use longer cache
-            headers = {
-                "Cache-Control": "public, max-age=604800, immutable"
-            }
+            headers = {"Cache-Control": "public, max-age=604800, immutable"}
 
-        return Response(
-            content=image_data,
-            media_type=content_type,
-            headers=headers
-        )
+        return Response(content=image_data, media_type=content_type, headers=headers)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error serving Redis image {image_type}/{identifier}: {e}")
         raise HTTPException(status_code=500, detail="Failed to serve image")
+
 
 # === HTML Pages ===
 
@@ -396,7 +440,7 @@ async def read_privacy():
 async def read_admin():
     """
     Serve the admin panel page.
-    
+
     This page provides administrative functions like:
     - User management
     - Permission control
@@ -409,6 +453,7 @@ async def read_admin():
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
 
 # === Health Check ===
 
@@ -424,6 +469,7 @@ async def read_admin():
 
 # Custom OpenAPI schema endpoint
 from fastapi.openapi.utils import get_openapi
+
 
 def custom_openapi():
     if app.openapi_schema:
@@ -443,53 +489,54 @@ def custom_openapi():
         """,
         routes=app.routes,
     )
-    
+
     # Add custom tags metadata with consistent naming and ordering
     openapi_schema["tags"] = [
         {
             "name": "authentication",
             "description": "User authentication and session management",
-            "x-displayName": "Authentication"
+            "x-displayName": "Authentication",
         },
         {
             "name": "crew",
             "description": "Manage climbing crew members, their skills, and achievements",
-            "x-displayName": "Crew Management"
+            "x-displayName": "Crew Management",
         },
         {
             "name": "albums",
             "description": "Manage climbing photo albums and metadata",
-            "x-displayName": "Photo Albums"
+            "x-displayName": "Photo Albums",
         },
         {
             "name": "memes",
             "description": "Handle climbing memes and fun content",
-            "x-displayName": "Meme Gallery"
+            "x-displayName": "Meme Gallery",
         },
         {
             "name": "admin",
             "description": "Administrative functions and system management",
-            "x-displayName": "Admin Panel"
+            "x-displayName": "Admin Panel",
         },
         {
             "name": "utilities",
             "description": "Helper endpoints for metadata, images, and system health",
-            "x-displayName": "Utilities"
+            "x-displayName": "Utilities",
         },
         {
             "name": "management",
             "description": "System configuration and feature management",
-            "x-displayName": "Management"
+            "x-displayName": "Management",
         },
         {
             "name": "user",
             "description": "User preferences and settings",
-            "x-displayName": "User Settings"
-        }
+            "x-displayName": "User Settings",
+        },
     ]
-    
+
     app.openapi_schema = openapi_schema
     return app.openapi_schema
+
 
 # Override the default openapi method
 app.openapi = custom_openapi
@@ -497,11 +544,13 @@ app.openapi = custom_openapi
 # Mount static files and add middleware
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
 # Serve favicon
 @app.get("/favicon.ico")
 async def favicon():
     """Serve favicon"""
     return FileResponse("static/favicon/favicon.ico")
+
 
 # Serve service worker from root
 
@@ -524,6 +573,7 @@ async def manifest():
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
 
 # Add GZip compression middleware (add first for best performance)
 app.add_middleware(GZipMiddleware, minimum_size=500)

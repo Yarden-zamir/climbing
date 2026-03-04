@@ -14,40 +14,41 @@ router = APIRouter(prefix="/api", tags=["utilities"])
 async def health_check():
     """Health check endpoint"""
     redis_store = get_redis_store()
-    
+
     if not redis_store:
-        return JSONResponse({
-            "status": "unhealthy",
-            "error": "Redis store not available"
-        }, status_code=500)
-    
+        return JSONResponse(
+            {"status": "unhealthy", "error": "Redis store not available"},
+            status_code=500,
+        )
+
     try:
         health = await redis_store.health_check()
         return JSONResponse(health)
     except Exception as e:
-        return JSONResponse({
-            "status": "unhealthy",
-            "error": str(e)
-        }, status_code=500)
+        return JSONResponse({"status": "unhealthy", "error": str(e)}, status_code=500)
 
 
 @router.get("/level-calculator")
 async def get_level_calculator():
     """Get level calculation information"""
     # This endpoint returns the level calculation logic for the frontend
-    return JSONResponse({
-        "formula": {
-            "skills": "floor(skills / 3)",
-            "climbs": "floor(climbs / 2)",
-            "achievements": "achievements * 2",
-            "total": "skills_level + climbs_level + achievements_level + 1"
-        },
-        "description": "Level calculation based on skills, climbs, and achievements",
-        "min_level": 1,
-        "skill_divisor": 3,
-        "climb_divisor": 2,
-        "achievement_multiplier": 2
-    })
+    return JSONResponse(
+        {
+            "formula": {
+                "skills": "skills",
+                "climbs": "floor(climbs / 5)",
+                "achievements": "achievements",
+                "locations": "locations",
+                "total": "skills_level + climbs_level + achievements_level + locations_level + 1",
+            },
+            "description": "Level calculation based on skills, climbs, achievements, and locations",
+            "min_level": 1,
+            "skill_divisor": 1,
+            "climb_divisor": 5,
+            "achievement_multiplier": 1,
+            "location_multiplier": 1,
+        }
+    )
 
 
 @router.get("/profile-picture/{user_id}")
@@ -55,22 +56,20 @@ async def get_profile_picture(user_id: str):
     """Serve cached profile picture with fallback to Google URL"""
     redis_store = get_redis_store()
     permissions_manager = get_permissions_manager()
-    
+
     if not redis_store:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     try:
         # Try to get cached image from Redis
         image_data = await redis_store.get_image("profile", f"{user_id}/picture")
 
         if image_data:
-            headers = {
-                "Cache-Control": "public, max-age=604800, immutable"
-            }
+            headers = {"Cache-Control": "public, max-age=604800, immutable"}
             return Response(
                 content=image_data,
                 media_type="image/jpeg",  # Most Google profile pics are JPEG
-                headers=headers
+                headers=headers,
             )
 
         # If not in cache, get user info and redirect to Google URL
@@ -82,6 +81,8 @@ async def get_profile_picture(user_id: str):
         # If all else fails, return 404
         raise HTTPException(status_code=404, detail="Profile picture not found")
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error serving profile picture for {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to serve profile picture")
@@ -91,12 +92,15 @@ async def get_profile_picture(user_id: str):
 async def upload_face_image(
     file: UploadFile = File(...),
     person_name: str = Form(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """Upload a temporary face image for a person."""
     redis_store = get_redis_store()
 
     # Validate user authentication
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     user_id = user.get("id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -117,7 +121,7 @@ async def upload_face_image(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
-    if not file.content_type or not file.content_type.startswith('image/'):
+    if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Please upload a valid image file")
 
     try:
@@ -128,15 +132,17 @@ async def upload_face_image(
         # Store as temporary image in Redis (expires after 1 hour)
         temp_path = await redis_store.store_image("temp", validated_name, image_data)
 
-        return JSONResponse({
-            "success": True,
-            "message": "Image uploaded successfully",
-            "temp_path": temp_path,
-            "person_name": validated_name
-        })
+        return JSONResponse(
+            {
+                "success": True,
+                "message": "Image uploaded successfully",
+                "temp_path": temp_path,
+                "person_name": validated_name,
+            }
+        )
 
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error uploading face image for {validated_name}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to upload image") 
+        raise HTTPException(status_code=500, detail="Failed to upload image")
