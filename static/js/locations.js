@@ -82,19 +82,63 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const s = String(dateStr || '');
       // Remove camera emoji section and extra spaces
-      const cleaned = s.replace(/📸.*$/u, '').trim();
-      // Extract Month and Day like "Jun 10" (optionally with leading weekday and/or range)
-      // If a range like "Jun 10 – Jun 12" appears, use the last date (end of trip)
-      const rangeParts = cleaned.split(/[–-]/).map(x => x.trim()).filter(Boolean);
-      const target = rangeParts.length > 1 ? rangeParts[rangeParts.length - 1] : cleaned;
-      const m = target.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})/);
-      if (!m) return 0;
-      const month = m[1];
-      const day = parseInt(m[2], 10);
-      if (!day || day < 1 || day > 31) return 0;
-      const year = new Date().getFullYear();
-      const d = new Date(`${month} ${day}, ${year}`);
+      let cleaned = s.replace(/📸.*$/u, '').trim();
+      // Handle date ranges - use first date (consistent with Python)
+      if (cleaned.includes('–')) {
+        cleaned = cleaned.split('–')[0].trim();
+      }
+      // Remove day of week prefix (e.g., "Saturday, ")
+      cleaned = cleaned.replace(/^[A-Za-z]+,\s*/, '');
+
+      // Match month (short or full), day, and optional year
+      // Patterns: "Dec 25, 2025", "December 25, 2025", "Dec 25 2025", "25 Dec, 2025"
+      const monthNames = {
+        'jan': 0, 'january': 0, 'feb': 1, 'february': 1, 'mar': 2, 'march': 2,
+        'apr': 3, 'april': 3, 'may': 4, 'jun': 5, 'june': 5,
+        'jul': 6, 'july': 6, 'aug': 7, 'august': 7, 'sep': 8, 'september': 8,
+        'oct': 9, 'october': 9, 'nov': 10, 'november': 10, 'dec': 11, 'december': 11
+      };
+
+      let month = null, day = null, year = null;
+
+      // Try "Month Day, Year" or "Month Day Year" format
+      let m = cleaned.match(/([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/);
+      if (m) {
+        const monthStr = m[1].toLowerCase();
+        if (monthNames[monthStr] !== undefined) {
+          month = monthNames[monthStr];
+          day = parseInt(m[2], 10);
+          year = m[3] ? parseInt(m[3], 10) : null;
+        }
+      }
+
+      // Try "Day Month, Year" format if first didn't match
+      if (month === null) {
+        m = cleaned.match(/(\d{1,2})\s+([A-Za-z]+)(?:,?\s+(\d{4}))?/);
+        if (m) {
+          const monthStr = m[2].toLowerCase();
+          if (monthNames[monthStr] !== undefined) {
+            day = parseInt(m[1], 10);
+            month = monthNames[monthStr];
+            year = m[3] ? parseInt(m[3], 10) : null;
+          }
+        }
+      }
+
+      if (month === null || !day || day < 1 || day > 31) return 0;
+
+      // Use current year if not present
+      const currentYear = new Date().getFullYear();
+      if (!year) year = currentYear;
+
+      const d = new Date(year, month, day);
       if (isNaN(d.getTime())) return 0;
+
+      // Safety: if date is in the future, use previous year
+      if (d.getTime() > Date.now()) {
+        d.setFullYear(d.getFullYear() - 1);
+      }
+
       return d.getTime();
     } catch (_) { return 0; }
   }
@@ -230,11 +274,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const title = document.createElement('div');
     title.className = 'location-header';
+    const actionsHtml = (currentUser ? '<button class="location-btn" data-action="add-location">Add Location</button>' : '<button class="location-btn" disabled>Sign in to add</button>');
     title.innerHTML = `
       <div class="location-title">
         <span class="pin">📍</span>
         <span>Explore "${escapeHtml(query)}"</span>
       </div>
+      <div class="location-actions">${actionsHtml}</div>
     `;
 
     const body = document.createElement('div');
@@ -288,6 +334,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     body.appendChild(mapCol);
     card.appendChild(title);
+    try {
+      const addBtn = title.querySelector('[data-action="add-location"]');
+      if (addBtn) {
+        addBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          try { await createLocationFromNoResults(query, coords, card, addBtn); } catch(err) { alert(err?.message || 'Failed to add location'); }
+        });
+      }
+    } catch(_) {}
     const divider = document.createElement('div');
     divider.className = 'section-divider';
     card.appendChild(divider);
@@ -355,11 +410,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const title = document.createElement('div');
     title.className = 'location-header';
+    const actionsHtml = (currentUser ? '<button class="location-btn" data-action="add-location">Add Location</button>' : '<button class="location-btn" disabled>Sign in to add</button>');
     title.innerHTML = `
       <div class="location-title">
         <span class="pin">🔎</span>
         <span>Searching for "${escapeHtml(query)}"…</span>
       </div>
+      <div class="location-actions">${actionsHtml}</div>
     `;
 
     const body = document.createElement('div');
@@ -412,6 +469,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     body.appendChild(mapCol);
     card.appendChild(title);
+    try {
+      const addBtn = title.querySelector('[data-action="add-location"]');
+      if (addBtn) {
+        addBtn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          try { await createLocationFromNoResults(query, null, card, addBtn); } catch(err) { alert(err?.message || 'Failed to add location'); }
+        });
+      }
+    } catch(_) {}
     const divider = document.createElement('div');
     divider.className = 'section-divider';
     card.appendChild(divider);
@@ -419,6 +485,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
     headerEl.parentNode.insertBefore(card, headerEl);
     noResultsCardEl = card;
+  }
+
+  async function createLocationFromNoResults(query, coords, card, buttonEl) {
+    if (!currentUser) { alert('Please sign in to add a location.'); return; }
+    const name = String(query || '').trim();
+    if (!name) return;
+    try { if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Adding…'; } } catch(_) {}
+    const payload = { name };
+    if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
+      payload.latitude = coords.lat;
+      payload.longitude = coords.lng;
+      payload.custom_markers = [{ emoji: '🅿️', label: 'Parking', lat: coords.lat, lng: coords.lng, primary: true }];
+    }
+    let res;
+    try {
+      res = await fetch('/api/locations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    } catch (e) {
+      try { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = 'Add Location'; } } catch(_) {}
+      throw e;
+    }
+    if (res && res.ok) {
+      // Reload and highlight the newly created location
+      const url = new URL(window.location.origin + '/locations');
+      url.searchParams.set('highlight', name);
+      try { window.location.assign(url.toString()); } catch(_) { window.location.href = url.toString(); }
+      return;
+    }
+    // If already exists, just navigate to it
+    try {
+      const text = await res.text();
+      if (res.status === 400 && /exists/i.test(text)) {
+        const url = new URL(window.location.origin + '/locations');
+        url.searchParams.set('highlight', name);
+        window.location.assign(url.toString());
+        return;
+      }
+      throw new Error(text || 'Failed to add location');
+    } catch (err) {
+      try { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = 'Add Location'; } } catch(_) {}
+      throw err;
+    }
   }
 
   // Lightweight wrapper to open emoji-picker-element as a floating panel

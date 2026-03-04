@@ -87,11 +87,16 @@ def validate_location_list(locations: List[str]) -> List[str]:
         return []
     
     validated_locations = []
+    # Use the same allowed characters as canonical Location names in redis_store._validate_name
+    # Allowed: letters, numbers, spaces, hyphen, underscore, apostrophe, period, parentheses
+    location_pattern = re.compile(r"^[a-zA-Z0-9\s\-_'.()]+$")
     for location in locations:
         if not location or not location.strip():
             continue
         
         sanitized = sanitize_string(location, max_length=100)
+        if not location_pattern.match(sanitized):
+            raise ValidationError("Location contains invalid characters")
         if sanitized not in validated_locations:
             validated_locations.append(sanitized)
     
