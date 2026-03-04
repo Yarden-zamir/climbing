@@ -3,6 +3,7 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 from pathlib import Path
+from datetime import datetime
 
 
 def inject_css_version(html_path):
@@ -49,6 +50,48 @@ async def fetch_url(client: httpx.AsyncClient, url: str):
         )
 
 
+def normalize_album_date(date_str: str) -> str:
+    """
+    Normalize album date to always include year.
+    Google Photos often omits year for current-year albums.
+    If date would be in the future, assumes previous year.
+    """
+    if not date_str:
+        return date_str
+
+    date_str = date_str.strip()
+
+    # Already has a 4-digit year (20xx)
+    if re.search(r'\b20\d{2}\b', date_str):
+        return date_str
+
+    # Add current year
+    current_year = datetime.now().year
+    date_with_year = f"{date_str}, {current_year}"
+
+    # Try to parse and check if it's in the future
+    # Clean the date for parsing
+    clean_date = date_with_year
+    # Remove day of week prefix
+    clean_date = re.sub(r'^[A-Za-z]+,\s*', '', clean_date)
+    # Handle date ranges - use first date
+    if '–' in clean_date:
+        clean_date = clean_date.split('–')[0].strip()
+
+    for fmt in ["%B %d, %Y", "%b %d, %Y", "%d %B, %Y", "%d %b, %Y"]:
+        try:
+            parsed_date = datetime.strptime(clean_date, fmt)
+            # If date is in the future, it must be from last year
+            if parsed_date > datetime.now():
+                return f"{date_str}, {current_year - 1}"
+            return date_with_year
+        except ValueError:
+            continue
+
+    # Couldn't parse, just append year
+    return date_with_year
+
+
 def parse_meta_tags(html: str, url: str):
     """Parses OG meta tags and modifies the image URL for full size."""
     soup = BeautifulSoup(html, "html.parser")
@@ -72,6 +115,10 @@ def parse_meta_tags(html: str, url: str):
         title, date = title.split(" · ", 1)
     else:
         date = ""
+
+    # Normalize date to always include year
+    if date:
+        date = normalize_album_date(date)
 
     description = (
         get_meta_tag("og:description") or "No description available."
