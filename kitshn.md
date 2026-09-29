@@ -11,9 +11,9 @@ holds the club's data), see `.kitshn.yaml`.
   (`KITSHN_DEFAULT_SOCKET`), so no port and no socat sidecar. Runs with `ENVIRONMENT=production`.
   `${KITSHN_DATA_DIR}` is mounted at `/data`: `climbing.duckdb` (the whole database), `backups/`
   (daily snapshots, 14 kept) and `keys/` (VAPID keys written from params on start).
-- `redis`: legacy store kept for one release. When the database is empty on start, the app imports
-  everything from it (`scripts/migrate_redis_to_duckdb.py`). Remove the service, the `REDIS_*`
-  params in `compose.yml` and the `redis` dependency once the import has run.
+The legacy Redis data was imported on 2026-09-29 (`scripts/migrate_redis_to_duckdb.py`). The old
+Redis data directory `redis/` and `redis/backup-before-duckdb.rdb` stay under the persistent dir as a
+fallback; delete them once the DuckDB store has proven itself.
 
 Keep the VAPID keys: existing push subscriptions are bound to them.
 
@@ -37,7 +37,6 @@ GitHub Environment `prod`, names carry the `KITSHN_` prefix:
 | `GOOGLE_CLIENT_ID` | variable | Google OAuth client |
 | `GOOGLE_CLIENT_SECRET` | secret | Google OAuth client |
 | `SECRET_KEY` | secret | Signs session cookies, OAuth state and JWT tokens |
-| `REDIS_PASSWORD` | secret | Redis auth, used by both services |
 | `VAPID_PRIVATE_KEY_B64`, `VAPID_PUBLIC_KEY_B64` | secret | Web push keys, base64 of the PEM files |
 
 Values were copied from the previous host's systemd unit on 2026-09-29 and must be rotated.

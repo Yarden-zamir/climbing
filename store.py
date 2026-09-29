@@ -1203,6 +1203,8 @@ class Store:
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"climbing-{datetime.now():%Y%m%d-%H%M%S}.duckdb"
         with self.db.lock:
+            # Fold the write-ahead log into the main file first, so the file on disk is complete too
+            self.db.conn.execute("CHECKPOINT")
             self.db.conn.execute(f"ATTACH '{target}' AS backup_target")
             try:
                 self.db.conn.execute("COPY FROM DATABASE memory TO backup_target" if str(self.db.path) == ":memory:" else f"COPY FROM DATABASE \"{self.db.path.stem}\" TO backup_target")

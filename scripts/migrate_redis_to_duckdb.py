@@ -249,7 +249,10 @@ def migrate(store: Store, redis_client, binary_client) -> Dict[str, int]:
 
 
 def connect_redis():
-    import redis
+    try:
+        import redis
+    except ImportError as e:
+        raise SystemExit("redis-py is not installed; run: uv run --with redis python scripts/migrate_redis_to_duckdb.py") from e
 
     from config import settings
 
@@ -264,6 +267,11 @@ def migrate_if_empty(store: Store) -> Optional[Dict[str, int]]:
     """Import from Redis when the store is empty and REDIS_HOST is configured. Returns counts or None."""
     if not os.getenv("REDIS_HOST"):
         return None
+    try:
+        import redis  # noqa: F401
+    except ImportError:
+        logger.warning("REDIS_HOST is set but redis-py is not installed; skipping legacy migration")
+        return None
     if store.db.value("SELECT count(*) FROM climbers") or store.db.value("SELECT count(*) FROM users"):
         return None
     try:
@@ -274,6 +282,7 @@ def migrate_if_empty(store: Store) -> Optional[Dict[str, int]]:
     if not text.scard("index:climbers:all"):
         return None
     counts = migrate(store, text, binary)
+    store.db.run("CHECKPOINT")
     logger.info(f"Migrated legacy Redis data: {counts}")
     return counts
 
