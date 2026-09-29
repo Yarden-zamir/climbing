@@ -1,0 +1,444 @@
+[
+  {
+    "name": "Beit Arye",
+    "description": "Popular limestone crag above Nahal Shilo, inside the reserve but climbing is allowed under a yearly parks-authority permit. ~55 sport and ~17 trad routes from 5 to 7c+, up to 25 m. Helmets recommended for climber and belayer; busy on weekends.",
+    "approach": "Enter the Beit Arye settlement and ask at the entrance for the key to the fence gate. Go through the gate and follow the descending trail to the crag (5–10 min).",
+    "attributes": [
+      {
+        "key": "Approach Time",
+        "value": "5–10 mins"
+      },
+      {
+        "key": "Height Max",
+        "value": "25 m"
+      },
+      {
+        "key": "Max Grade",
+        "value": "7c+"
+      },
+      {
+        "key": "Rock Type",
+        "value": "Limestone"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "55"
+      },
+      {
+        "key": "Trad Routes",
+        "value": "17"
+      }
+    ],
+    "sources": [
+      "https://www.mountainproject.com/area/116513359/beit-arye",
+      "https://thetopo.com/crags/beit-arye",
+      "https://thetopo.com/crags/beit-arye/routelist",
+      "https://thetopo.com/crags/beit-arye/access"
+    ]
+  },
+  {
+    "name": "Beit Oren",
+    "approach": "Navigate with Waze to 'חניון מחצבת קדומים' and park in the lot just before the road climbs to the Mishmar HaCarmel farm. From the parking take the short easy descent on the unmarked white-blazed path (not the green trail) to the cliff base, about 3 min. Rappellers follow the black trail up to the cliff top.",
+    "attributes": [],
+    "sources": [
+      "https://thetopo.com/crags/beit-oren/access",
+      "https://bashetach.co.il/kedumim-quarries-cliff/",
+      "https://idan-na.co.il/beit-oren/"
+    ]
+  },
+  {
+    "name": "Dalton Cliff",
+    "description": "Limestone crag in the Nahal Dalton reserve near Ein Nevoraya (Biriya forest), shaded most of the day with views to the Golan and Hermon. 24 sport routes from 5 to 7c+, most 5c–6a; some steep pocketed lines and some slabs, ~20 m. A 40 m rope is enough.",
+    "approach": "Park along the main forest road by the Ein Nevoraya square. Take the short, slightly thorny trail marked with blue arrow signs straight down to the cliff (~10 min).",
+    "attributes": [
+      {
+        "key": "Height Max",
+        "value": "20 m"
+      },
+      {
+        "key": "Max Grade",
+        "value": "7c+"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "24"
+      },
+      {
+        "key": "Quickdraws",
+        "value": "12"
+      }
+    ],
+    "sources": [
+      "https://thetopo.com/crags/dalton",
+      "https://thetopo.com/crags/dalton/routelist",
+      "https://thetopo.com/crags/dalton/access",
+      "https://wiki.imga.org.il/index.php?title=%D7%93%D7%9C%D7%AA%D7%95%D7%9F",
+      "https://bashetach.co.il/dalton-cliff/"
+    ]
+  },
+  {
+    "name": "Ein Fara",
+    "description": "The biggest crag near Jerusalem: solid limestone walls 25–35 m high on both sides of the Prat (Qelt) stream. ~127 sport and ~18 trad routes from 5 to 8c over many sectors, so there is shade at any hour. Inside the Ein Prat reserve: entrance fee, opening hours, and some sectors are closed.",
+    "approach": "Drive through Anatot (Almon) to the Ein Prat reserve entrance, pay, and follow the road down to the lower parking by the ranger station. From the parking walk west on the stream trail, cross the stream near the bench, and follow the goat path to the signed climbing sectors (~10 min).",
+    "latitude": 31.832302,
+    "longitude": 35.304658,
+    "custom_markers": [
+      {
+        "emoji": "🅿️",
+        "label": "Parking",
+        "lat": 31.832302,
+        "lng": 35.304658,
+        "primary": true
+      }
+    ],
+    "attributes": [
+      {
+        "key": "Approach Time",
+        "value": "10 mins"
+      },
+      {
+        "key": "Height Max",
+        "value": "35 m"
+      },
+      {
+        "key": "Max Grade",
+        "value": "8c"
+      },
+      {
+        "key": "Rock Type",
+        "value": "Limestone"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "127"
+      },
+      {
+        "key": "Trad Routes",
+        "value": "18"
+      },
+      {
+        "key": "Water",
+        "value": ""
+      }
+    ],
+    "sources": [
+      "https://thetopo.com/crags/ein-fara",
+      "https://thetopo.com/crags/ein-fara/routelist",
+      "https://thetopo.com/crags/ein-fara/cragmap",
+      "https://thetopo.com/crags/ein-fara/access",
+      "https://wiki.imga.org.il/index.php?title=%D7%A2%D7%99%D7%9F_%D7%A4%D7%90%D7%A8%D7%94",
+      "https://bashetach.co.il/ein-perat-cliff/",
+      "https://www.mountainproject.com/area/107433035/ein-prat"
+    ]
+  },
+  {
+    "name": "Gefet",
+    "note": "Identified as Matzuk Gefet on Mount Gilboa (thetopo: 'Gilboa - Gefet cliff'), on the Gilboa scenic road between Ma'ale Gilboa and Gan Ner. Not near Kfar Vitkin. Rock type not stated by any source, so omitted.",
+    "description": "North-facing, tree-shaded crag (~20 m) on the Gilboa scenic road between Ma'ale Gilboa and Gan Ner, looking over the Harod and Beit She'an valleys. 8 sport routes (5 to 6b) and 19 trad routes; also used for rappelling with natural anchors on trees and boulders.",
+    "approach": "Navigate with Waze to 'דרך נוף גלבוע' and park on the east side of the road at the start of the dirt track (jeeps can drive the track to the cliff base). Walk down the track to the cliff top; the easy walk-off from the base goes around to the east.",
+    "latitude": 32.494922,
+    "longitude": 35.418005,
+    "custom_markers": [
+      {
+        "emoji": "🅿️",
+        "label": "Parking",
+        "lat": 32.49456044,
+        "lng": 35.41830182,
+        "primary": true
+      },
+      {
+        "emoji": "🧗",
+        "label": "Cliff Face",
+        "lat": 32.494922,
+        "lng": 35.418005
+      }
+    ],
+    "attributes": [
+      {
+        "key": "Height Max",
+        "value": "20 m"
+      },
+      {
+        "key": "Max Grade",
+        "value": "6b"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "8"
+      },
+      {
+        "key": "Trad Routes",
+        "value": "19"
+      },
+      {
+        "key": "Approach Time",
+        "value": "1 min"
+      }
+    ],
+    "sources": [
+      "https://thetopo.com/crags/gilboa-gefet-cliff",
+      "https://thetopo.com/crags/gilboa-gefet-cliff/routelist",
+      "https://thetopo.com/crags/gilboa-gefet-cliff/cragmap",
+      "https://bashetach.co.il/gaffat-cliff/",
+      "https://idan-na.co.il/gefet/"
+    ]
+  },
+  {
+    "name": "Gilbon",
+    "note": "No bolted climbing found for Nahal Gilabun; every source describes it as a rappelling canyon with natural anchors. Cliff marker omitted: no source gives waterfall coordinates.",
+    "description": "Basalt canyon in the Gilabun reserve with two waterfalls used for rappelling: Dvora falls (~10–15 m) and Gilabun falls (~42 m, second highest in Israel). Natural anchors on trees and boulders, wet descents into deep pools, so swimming is a must. No bolted climbing.",
+    "approach": "Navigate with Waze to 'חניון מפל דבורה'. From the parking follow the red-marked trail down to the top of Dvora falls, then continue ~1 km downstream to Gilabun falls. To skip Dvora, park at the Gilabun falls lot and take the blue trail.",
+    "attributes": [
+      {
+        "key": "Rock Type",
+        "value": "Basalt"
+      },
+      {
+        "key": "Height Max",
+        "value": "42 m"
+      },
+      {
+        "key": "Water",
+        "value": ""
+      }
+    ],
+    "sources": [
+      "https://bashetach.co.il/nahal-gilbon/",
+      "https://www.parks.org.il/trip/gilabun/",
+      "https://en.wikipedia.org/wiki/Gilbon_River"
+    ]
+  },
+  {
+    "name": "Gita",
+    "approach": "On the Jat–Yirka road, right after it crosses the stream bed, turn east onto the dirt road and drive as far as your car allows (most stop at the olive grove). Walk up the green-marked trail to the cliff, 15–20 min. A 4x4 can cross the stream bed and get almost to the crag.",
+    "attributes": [],
+    "sources": [
+      "https://thetopo.com/crags/gita/access",
+      "https://www.mountainproject.com/area/117967770/gita"
+    ]
+  },
+  {
+    "name": "Haifa Grand Crag",
+    "description": "Small urban limestone crag (~10 m) in Haifa with 15 short sport routes from 5 to 6c, most in the 5+–6b range. Good for beginners and a quick session in the city.",
+    "latitude": 32.78685,
+    "longitude": 35.00851,
+    "attributes": [
+      {
+        "key": "Max Grade",
+        "value": "6c"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "15"
+      }
+    ],
+    "sources": [
+      "https://thetopo.com/crags/the-grand-crag/routelist/the-grand-crag",
+      "https://thetopo.com/crags/the-grand-crag"
+    ]
+  },
+  {
+    "name": "Nahal Boker",
+    "note": "Rock type not stated by any source, so omitted. No parking coordinates published; the crag point and Main sector point come from thetopo's crag map.",
+    "description": "Desert crag in Nahal Boker near Sde Boker with 31 sport routes from 4 to 7b in three sectors (Main, Arch, Al Madresa), most in the 6a+–6c range. Remote, quiet, and only reachable on a jeep track.",
+    "approach": "Drop into Nahal Boker where the wadi meets Route 40 and drive along the wadi bed until a right turn onto an easy jeep track that ends at the crag parking. A high-clearance car or 4x4 is recommended.",
+    "latitude": 30.915952,
+    "longitude": 34.799786,
+    "custom_markers": [
+      {
+        "emoji": "🧗",
+        "label": "Main Sector",
+        "lat": 30.909863,
+        "lng": 34.800698
+      }
+    ],
+    "attributes": [
+      {
+        "key": "Max Grade",
+        "value": "7b"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "31"
+      }
+    ],
+    "sources": [
+      "https://thetopo.com/crags/nahal-boker",
+      "https://thetopo.com/crags/nahal-boker/routelist",
+      "https://thetopo.com/crags/nahal-boker/access",
+      "https://thetopo.com/crags/nahal-boker/cragmap"
+    ]
+  },
+  {
+    "name": "Nahal Tzafit",
+    "description": "Narrow, shady desert canyon crag in Nahal Tzafit near the Arava, developed by volunteers ('Negev Cliffs Development'). 54 sport routes from 4+ to 7c in small sectors (Family room, Corridor, amphitheaters). Flash-flood risk: stay away on days with rain forecast. Sandy camping by the access road.",
+    "approach": "Park at the Tzafit canyon parking at the end of the access road by the stream channel. The climbing sectors start in the narrow canyon right next to the parking, heading west.",
+    "latitude": 30.971962,
+    "longitude": 35.30018,
+    "custom_markers": [
+      {
+        "emoji": "🅿️",
+        "label": "Parking",
+        "lat": 30.971962,
+        "lng": 35.30018,
+        "primary": true
+      },
+      {
+        "emoji": "🧗",
+        "label": "Cliff Face",
+        "lat": 30.972124,
+        "lng": 35.29894
+      }
+    ],
+    "attributes": [
+      {
+        "key": "Max Grade",
+        "value": "7c"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "54"
+      }
+    ],
+    "sources": [
+      "https://thetopo.com/crags/tzafit-canyon",
+      "https://thetopo.com/crags/tzafit-canyon/routelist",
+      "https://thetopo.com/crags/tzafit-canyon/access",
+      "https://thetopo.com/crags/tzafit-canyon/cragmap",
+      "https://www.thecrag.com/en/climbing/israel-and-palestine/area/10688662044"
+    ]
+  },
+  {
+    "name": "Rocca Pendice",
+    "description": "Historic trachyte (volcanic) crag above Teolo in the Colli Euganei: technical footwork climbing on slabs, flakes and edges, with a few roofs. Several hundred well-bolted sport routes from 3 to 8b plus ~39 multi-pitch lines up to 170 m. Some sectors close for nesting birds; check current closures.",
+    "approach": "From Teolo take the road toward Castelnuovo and park in the large free lot opposite the cemetery (45.34030, 11.67867). Take the steep, well-marked trail; at the first junction go right for Numerate Basse and continue to Punta Nord and Numerate Alte (10–15 min).",
+    "attributes": [
+      {
+        "key": "Rock Type",
+        "value": "Trachyte"
+      },
+      {
+        "key": "Max Grade",
+        "value": "8b"
+      },
+      {
+        "key": "Approach Time",
+        "value": "10–15 mins"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "400"
+      }
+    ],
+    "sources": [
+      "https://thetopo.com/crags/rocca-pendica/description",
+      "https://thetopo.com/crags/rocca-pendica/access",
+      "https://thetopo.com/crags/rocca-pendica/cragmap",
+      "https://rockrun.com/products/rocca-pendice-climbing-guidebook",
+      "https://www.falesia.it/crag/213/rocca-pendice.html",
+      "https://myoutdoor.it/percorsi/climbing/rocca-pendice/",
+      "https://www.italiaoutdoors.com/index.php/padova-climbing-sites/724-rock-climbing-italy-guide-to-rocca-pendice-teolo"
+    ]
+  },
+  {
+    "name": "Rocca di Perti",
+    "description": "The biggest and most historic climbing area of Finale Ligure: a limestone massif above Finalborgo with ~13 sectors, several hundred sport routes and classic multi-pitch and mixed lines up to ~120 m. Mostly west-facing, with shady north sectors (Versante Nord, Grotto) for summer. A 60 m rope covers most routes.",
+    "approach": "From Finalborgo take the SP17 toward Calice Ligure; 3.1 km after the roundabout turn right at the sign 'Palestra di roccia Rocca di Perti' and park after 500 m at the west car park. Walk on along the dirt road; just before the olive grove a path on the left (boulder signed 'Rocca di Perti') leads to Settore Settentrionale and Tre Porcellini, 5–15 min depending on the sector.",
+    "custom_markers": [
+      {
+        "emoji": "🅿️",
+        "label": "Parking",
+        "lat": 44.192657,
+        "lng": 8.306329,
+        "primary": true
+      },
+      {
+        "emoji": "🧗",
+        "label": "Settore Settentrionale",
+        "lat": 44.194538,
+        "lng": 8.309508
+      }
+    ],
+    "attributes": [
+      {
+        "key": "Rock Type",
+        "value": "Limestone"
+      },
+      {
+        "key": "Approach Time",
+        "value": "5–15 mins"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "692"
+      },
+      {
+        "key": "Trad Routes",
+        "value": "65"
+      }
+    ],
+    "sources": [
+      "https://thetopo.com/crags/rocca-di-perti",
+      "https://thetopo.com/crags/rocca-di-perti/access",
+      "https://thetopo.com/crags/rocca-di-perti/cragmap",
+      "https://www.mountainproject.com/area/117720087/rocca-di-perti"
+    ]
+  },
+  {
+    "name": "The Black Canyon",
+    "approach": "From the Yehudiya campsite (Khirbet Sheikh Hussein) follow the blue trail across the basalt plateau to the Zavitan waterfall lookout (~30 min). Go down the two blue-marked ladders to the pools, then turn left onto the unmarked path into the canyon. Guided groups only; register at the reserve entrance.",
+    "latitude": 32.94188,
+    "longitude": 35.70152,
+    "attributes": [
+      {
+        "key": "Rock Type",
+        "value": "Basalt"
+      },
+      {
+        "key": "Approach Time",
+        "value": "30 mins"
+      }
+    ],
+    "sources": [
+      "https://israelbylocals.com/black-canyon/",
+      "https://www.mad-in-israel.com/2022/07/21/canyoning-in-the-black-canyon/"
+    ]
+  },
+  {
+    "name": "Wadi Tamar",
+    "note": "Two different 'Tamar' crags exist. This entry uses theCrag's 'Nahal Tamar' south of the Arava junction (near Mount Tamar and the Nahal Tamar/Tzafit hike), which matches the given hint. theCrag blocks fetching, so the facts come from its search snippets; no coordinates were readable. The other one, thetopo's 'Wadi Tamer' near Mitzpe Shalem by the Dead Sea (parking 31.638833, 35.417645; 3 sport, 10 trad, 16 boulders, poor rock), is a different site.",
+    "description": "Dolomite crag close to Route 90 south of the Arava junction, opened after an Israel Climbing Club bolting course in March 2013. 25+ bolted routes 10–28 m long; the Rolling Stones sector is visible from the dirt road. The nearby Nahal Tamar–Nahal Tzafit canyon is a popular ladders-and-rungs hike.",
+    "approach": "From the Arava junction (Route 90 and Route 25) drive south, pass the gas station, and turn right (west) onto a decent dirt road. Park next to the fenced-off station below the Rolling Stones sector and scramble carefully up south to the crag. A 4x4 can turn south before the station up to a ledge under the sector.",
+    "attributes": [
+      {
+        "key": "Rock Type",
+        "value": "Dolomite"
+      },
+      {
+        "key": "Height Max",
+        "value": "28 m"
+      },
+      {
+        "key": "Sport Routes",
+        "value": "25"
+      }
+    ],
+    "sources": [
+      "https://www.thecrag.com/en/climbing/israel-and-palestine/area/283851858",
+      "https://www.thecrag.com/en/climbing/israel-and-palestine/route/415976013",
+      "https://www.deadsea.co.il/tracks/nahal-tamar-nahal-tzafit/?lang=en"
+    ]
+  },
+  {
+    "name": "__attribute_key_cleanup__",
+    "delete_keys": [
+      "25",
+      "5",
+      "a"
+    ],
+    "rename_keys": {
+      "Trad Climbs": "Trad Routes",
+      "Training anchor": "Training Anchor"
+    }
+  }
+]
