@@ -318,6 +318,19 @@ class Store:
     async def get_new_climbers(self) -> set[str]:
         return {c["name"] for c in self._climber_rows() if c["is_new"]}
 
+    def _climber_items(self, name: str) -> Optional[Dict]:
+        """Cheap read of the editable fields only (no levels, no album scan)."""
+        row = self.db.row("SELECT name, home_locations FROM climbers WHERE name = ?", [name])
+        if not row:
+            return None
+        return {
+            "name": row["name"],
+            "location": _json_list(row["home_locations"]),
+            "skills": [r["skill"] for r in self.db.rows("SELECT skill FROM climber_skills WHERE climber = ? ORDER BY added_at, skill", [name])],
+            "achievements": [r["achievement"] for r in self.db.rows("SELECT achievement FROM climber_achievements WHERE climber = ? ORDER BY added_at, achievement", [name])],
+            "tags": [r["tag"] for r in self.db.rows("SELECT tag FROM climber_tags WHERE climber = ? ORDER BY tag", [name])],
+        }
+
     async def update_climber(
         self,
         original_name: str,
@@ -327,7 +340,7 @@ class Store:
         tags: Optional[List[str]] = None,
         achievements: Optional[List[str]] = None,
     ) -> None:
-        current = await self.get_climber(original_name)
+        current = self._climber_items(original_name)
         if not current:
             raise ValidationError(f"Climber not found: {original_name}")
         new_name = validate_name(name) if name else current["name"]
@@ -378,7 +391,7 @@ class Store:
         """Add items gained in one album; items the climber already has are ignored."""
         name = validate_name(name)
         album_url = validate_album_url(album_url)
-        climber = await self.get_climber(name)
+        climber = self._climber_items(name)
         if not climber:
             raise ValidationError(f"Climber not found: {name}")
         new_skills = [s for s in clean_items(skills, "Skill") if s not in climber["skills"]]
@@ -1003,6 +1016,15 @@ class Store:
                 "UPDATE ownership SET resource_id = ? WHERE resource_type = ? AND resource_id = ?",
                 [new_id, resource_type, old_id],
             )
+
+    async def get_owner_map(self, resource_type: str) -> Dict[str, List[str]]:
+        """resource_id -> owner user ids, for listing pages that show owners of everything."""
+        owners: Dict[str, List[str]] = {}
+        for r in self.db.rows(
+            "SELECT resource_id, user_id FROM ownership WHERE resource_type = ? ORDER BY user_id", [resource_type]
+        ):
+            owners.setdefault(r["resource_id"], []).append(r["user_id"])
+        return owners
 
     async def get_unowned_resources(self, resource_type: str) -> List[str]:
         source = {"album": ("albums", "url"), "crew_member": ("climbers", "name"), "location": ("locations", "name"), "meme": ("memes", "id")}

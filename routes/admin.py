@@ -262,85 +262,56 @@ async def get_all_resources_with_owners(user: dict = Depends(require_auth)):
         all_crew = await store.get_all_climbers()
         all_locations = await store.get_all_locations()
 
-        # Get album details with owners
-        album_details = []
-        for album_data in all_albums:
-            album_url = album_data["url"]
-            if album_data:
-                # Get owner information (multiple owners)
-                owner_ids = await permissions_manager.get_resource_owners(ResourceType.ALBUM, album_url)
-                owners_info = []
+        users = {u["id"]: u for u in await permissions_manager.get_all_users()}
+        owner_maps = {
+            resource_type: await store.get_owner_map(resource_type.value)
+            for resource_type in (ResourceType.ALBUM, ResourceType.CREW_MEMBER, ResourceType.LOCATION)
+        }
 
-                for owner_id in owner_ids:
-                    owner_user = await permissions_manager.get_user(owner_id)
-                    if owner_user:
-                        owners_info.append({
-                            "id": owner_id,
-                            "name": owner_user.get("name", "Unknown"),
-                            "email": owner_user.get("email", ""),
-                            "picture": owner_user.get("picture", "")
-                        })
+        def owners_of(resource_type: ResourceType, resource_id: str) -> list:
+            return [
+                {
+                    "id": owner_id,
+                    "name": users[owner_id].get("name") or "Unknown",
+                    "email": users[owner_id].get("email", ""),
+                    "picture": users[owner_id].get("picture") or "",
+                }
+                for owner_id in owner_maps[resource_type].get(resource_id, [])
+                if owner_id in users
+            ]
 
-                album_details.append({
-                    "type": "album",
-                    "id": album_url,
-                    "title": album_data.get("title", "Unknown Album"),
-                    "url": album_url,
-                    "created_at": album_data.get("created_at", ""),
-                    "owners": owners_info
-                })
-
-        # Get crew details with owners
-        crew_details = []
-        for crew_data in all_crew:
-            crew_name = crew_data["name"]
-            if crew_data:
-                # Get owner information (multiple owners)
-                owner_ids = await permissions_manager.get_resource_owners(ResourceType.CREW_MEMBER, crew_name)
-                owners_info = []
-
-                for owner_id in owner_ids:
-                    owner_user = await permissions_manager.get_user(owner_id)
-                    if owner_user:
-                        owners_info.append({
-                            "id": owner_id,
-                            "name": owner_user.get("name", "Unknown"),
-                            "email": owner_user.get("email", ""),
-                            "picture": owner_user.get("picture", "")
-                        })
-
-                crew_details.append({
-                    "type": "crew_member",
-                    "id": crew_name,
-                    "name": crew_name,
-                    "level": crew_data.get("level", 1),
-                    "created_at": crew_data.get("created_at", ""),
-                    "owners": owners_info
-                })
-
-        # Get locations with owners
-        location_details = []
-        for loc_data in all_locations:
-            loc_name = loc_data["name"]
-            # Get owner information (multiple owners)
-            owner_ids = await permissions_manager.get_resource_owners(ResourceType.LOCATION, loc_name)
-            owners_info = []
-            for owner_id in owner_ids:
-                owner_user = await permissions_manager.get_user(owner_id)
-                if owner_user:
-                    owners_info.append({
-                        "id": owner_id,
-                        "name": owner_user.get("name", "Unknown"),
-                        "email": owner_user.get("email", ""),
-                        "picture": owner_user.get("picture", "")
-                    })
-            location_details.append({
+        album_details = [
+            {
+                "type": "album",
+                "id": album["url"],
+                "title": album.get("title") or "Unknown Album",
+                "url": album["url"],
+                "created_at": album.get("created_at", ""),
+                "owners": owners_of(ResourceType.ALBUM, album["url"]),
+            }
+            for album in all_albums
+        ]
+        crew_details = [
+            {
+                "type": "crew_member",
+                "id": crew["name"],
+                "name": crew["name"],
+                "level": crew.get("level", 1),
+                "created_at": crew.get("created_at", ""),
+                "owners": owners_of(ResourceType.CREW_MEMBER, crew["name"]),
+            }
+            for crew in all_crew
+        ]
+        location_details = [
+            {
                 "type": "location",
-                "id": loc_name,
-                "name": loc_name,
-                "created_at": loc_data.get("created_at", ""),
-                "owners": owners_info
-            })
+                "id": loc["name"],
+                "name": loc["name"],
+                "created_at": loc.get("created_at", ""),
+                "owners": owners_of(ResourceType.LOCATION, loc["name"]),
+            }
+            for loc in all_locations
+        ]
 
         # Sort by creation date (newest first)
         all_resources = album_details + crew_details + location_details

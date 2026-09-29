@@ -86,11 +86,13 @@ async def get_enriched_albums():
         albums = await store.get_all_albums()
         enriched_albums = []
 
+        # One pass over all climbers instead of one lookup per crew entry
+        climbers = {c["name"]: c for c in await store.get_all_climbers()}
         for album in albums:
             # Create enriched metadata with crew status
             crew_with_status = []
             for crew_member in album.get("crew", []):
-                climber_data = await store.get_climber(crew_member)
+                climber_data = climbers.get(crew_member)
                 is_new = climber_data.get("is_new", False) if climber_data else False
 
                 crew_with_status.append(
