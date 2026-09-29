@@ -138,7 +138,7 @@ async def get_meta(url: str = Query(..., description="URL to fetch metadata from
 # Albums endpoints moved to routes/albums.py
 
 
-PROXY_IMAGE_TTL = 7 * 24 * 3600
+PROXY_IMAGE_TTL = 30 * 24 * 3600  # keyed by url and size; a changed cover has a new url
 
 
 def sized_google_image_url(url: str, size: int) -> str:
@@ -159,7 +159,7 @@ async def get_image(
     """
     sized_url = sized_google_image_url(url, w)
     cache_key = hashlib.md5(sized_url.encode()).hexdigest()
-    headers = {"Cache-Control": "public, max-age=604800, immutable"}
+    headers = {"Cache-Control": "public, max-age=2592000, immutable"}
 
     cached = await store.get_image_with_type("proxy", cache_key)
     if cached:
@@ -180,6 +180,7 @@ async def get_image(
 async def get_redis_image(
     image_type: str = PathParam(..., description="Type of image (climber, profile, meme)"),
     identifier: str = PathParam(..., description="Image identifier or path"),
+    s: int | None = Query(None, ge=16, le=512, description="Square thumbnail size for faces"),
 ):
     """
     Serve images stored in Redis with proper caching and content types.
@@ -199,7 +200,10 @@ async def get_redis_image(
         500: Server error while serving image
     """
     try:
-        found = await store.get_image_with_type(image_type, identifier)
+        if s and image_type in ("climber", "profile"):
+            found = await store.get_thumbnail(image_type, identifier, s)
+        else:
+            found = await store.get_image_with_type(image_type, identifier)
         if not found:
             raise HTTPException(status_code=404, detail="Image not found")
         image_data, stored_type = found

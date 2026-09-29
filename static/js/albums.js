@@ -203,6 +203,8 @@ const typewriter = (element, text, speed = 20) => {
 		return card;
 	};
 
+let coverCount = 0;
+
 const populateCard = async (card, meta) => {
 	card.href = meta.url;
 	card.target = "_blank";
@@ -213,10 +215,12 @@ const populateCard = async (card, meta) => {
 	card.albumMeta = meta;
 
 	const proxyImageUrl = `/get-image?url=${encodeURIComponent(meta.imageUrl)}`;
+	// The first row of covers is the largest contentful paint: fetch it eagerly, lazy-load the rest
+	const eager = coverCount++ < 4;
 
   card.innerHTML = `
       <div class="img-container">
-        <img src="${proxyImageUrl}" alt="${meta.title}" loading="lazy" onerror="this.style.display='none'">
+        <img src="${proxyImageUrl}" alt="${meta.title}" width="600" height="800" decoding="async" ${eager ? 'fetchpriority="high"' : 'loading="lazy"'} onerror="this.style.display='none'">
       </div>
       <div class="album-card-content">
         <h3 dir="auto"></h3>
@@ -280,7 +284,9 @@ const populateCard = async (card, meta) => {
 			faceLink.tabIndex = 0;
 			
 			const faceImg = document.createElement('img');
-			faceImg.src = climber.image_url || `/redis-image/climber/${encodeURIComponent(climberName)}/face`;
+			faceImg.src = `${climber.image_url || `/redis-image/climber/${encodeURIComponent(climberName)}/face`}?s=64`;
+			faceImg.width = 32;
+			faceImg.height = 32;
 			faceImg.alt = climberName;
 			faceImg.className = `album-crew-face${isNew ? ' new-climber' : ''}`;
 			

@@ -327,6 +327,7 @@ class AuthManager {
         const loginBtn = document.createElement('a');
         loginBtn.href = '/auth/login';
         loginBtn.className = 'login-btn auth-element';
+        loginBtn.setAttribute('aria-label', 'Sign in with Google');
         loginBtn.innerHTML = `
             <span style="display: flex; align-items: center; gap: 8px;">
                 <svg class="google-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">

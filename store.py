@@ -827,6 +827,7 @@ class SyncStore:
     ) -> str:
         if kind in FACE_KINDS:
             data, content_type = shrink_image(data)
+            self.db.run("DELETE FROM images WHERE kind LIKE 'thumb%' AND identifier = ?", [identifier])
         expires = datetime.now() + timedelta(seconds=ttl_seconds) if ttl_seconds else None
         self.db.run(
             "INSERT OR REPLACE INTO images (kind, identifier, data, created_at, expires_at, content_type) VALUES (?, ?, ?, current_timestamp, ?, ?)",
@@ -844,6 +845,22 @@ class SyncStore:
             [kind, identifier],
         )
         return (bytes(row["data"]), row["content_type"]) if row else None
+
+    def get_thumbnail(self, kind: str, identifier: str, size: int) -> Optional[tuple[bytes, Optional[str]]]:
+        """A cached square variant of a face; built on first request, dropped when the face is replaced."""
+        thumb_kind = f"thumb{size}"
+        cached = self.get_image_with_type(thumb_kind, identifier)
+        if cached:
+            return cached
+        original = self.get_image_with_type(kind, identifier)
+        if not original:
+            return None
+        data, content_type = shrink_image(original[0], max_side=size)
+        self.db.run(
+            "INSERT OR REPLACE INTO images (kind, identifier, data, created_at, expires_at, content_type) VALUES (?, ?, ?, current_timestamp, ?, ?)",
+            [thumb_kind, identifier, data, datetime.now() + timedelta(days=30), content_type],
+        )
+        return data, content_type
 
     def shrink_stored_faces(self) -> int:
         """One-off for images stored before shrinking existed. Returns how many were re-encoded."""

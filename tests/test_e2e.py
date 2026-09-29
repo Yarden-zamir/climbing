@@ -448,3 +448,15 @@ def test_cover_proxy_requests_a_sized_variant_and_caches_it(client, monkeypatch)
     assert first.headers["content-type"] == "image/png"
     assert seen == ["https://lh3.googleusercontent.com/pw/AP1Gcz_example=s400-rw"]
     assert client.get("/get-image", params={"url": original, "w": 5000}).status_code == 422
+
+
+def test_face_thumbnail_variant(client, admin):
+    login(client, admin)
+    assert client.post("/api/crew/submit", data=crew_form("Thumb Face"), files={"image": ("face.png", png_bytes((900, 900)), "image/png")}).status_code == 200
+    full = client.get("/redis-image/climber/Thumb%20Face/face")
+    small = client.get("/redis-image/climber/Thumb%20Face/face", params={"s": 64})
+    assert full.status_code == small.status_code == 200
+    assert small.headers["content-type"] == "image/webp"
+    assert len(small.content) < len(full.content)
+    assert client.get("/redis-image/climber/Thumb%20Face/face", params={"s": 9999}).status_code == 422
+    assert client.delete("/api/crew/delete", params={"crew_name": "Thumb Face"}).status_code == 200
