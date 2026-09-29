@@ -78,8 +78,6 @@ class NotificationsManager {
             // Wait for service worker to be ready
             await navigator.serviceWorker.ready;
 
-            // Get VAPID public key from server
-            await this.getVapidPublicKey();
 
             // Check existing subscription state
             await this.checkSubscriptionStatus();
@@ -258,7 +256,8 @@ class NotificationsManager {
             // Request permission first
             await this.requestPermission();
 
-            // Create push subscription
+            // The VAPID key is only needed here, not on every page load
+            if (!this.vapidPublicKey) await this.getVapidPublicKey();
             const applicationServerKey = this.urlBase64ToUint8Array(this.vapidPublicKey);
             
             this.subscription = await this.registration.pushManager.subscribe({

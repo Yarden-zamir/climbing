@@ -1480,10 +1480,10 @@
 	<script src="/static/js/cropper.min.js"></script>
 	<script src="/static/js/albums.js"></script>
 	<!-- PWA and Notification Management -->
-	<script src="/static/js/pwa-manager.js"></script>
-	<script src="/static/js/notification-health-manager.js"></script>
-	<script src="/static/js/notifications.js"></script>
-	<script src="/static/js/cache-manager.js"></script>
+	<script src="/static/js/pwa-manager.js" defer></script>
+	<script src="/static/js/notification-health-manager.js" defer></script>
+	<script src="/static/js/notifications.js" defer></script>
+	<script src="/static/js/cache-manager.js" defer></script>
 	<script>
 		// Global variables for modals
 		let editAlbumCurrentPersonImage = null;
@@ -1672,8 +1672,7 @@
 			let allAchievements = [];
 			let session = null; // { name, allSkills, owned: {skills, achievements}, picked: {skills:Set, achievements:Set}, onChange }
 
-			const achievementsLoaded = fetch('/api/achievements')
-				.then(r => (r.ok ? r.json() : []))
+			const achievementsLoaded = apiGetShared('/api/achievements')
 				.then(list => { allAchievements = Array.isArray(list) ? list : []; })
 				.catch(() => { allAchievements = []; });
 
@@ -1900,9 +1899,9 @@
 			
             // Fetch crew data, skills, and canonical locations
 			Promise.all([
-                fetch('/api/crew').then(r => r.json()),
-                fetch('/api/skills').then(r => r.json()),
-                fetch('/api/locations').then(r => r.json())
+                apiGetShared('/api/crew'),
+                apiGetShared('/api/skills'),
+                apiGetShared('/api/locations')
             ]).then(([crew, skills, locations]) => {
 				crewData = crew;
 				allSkills = skills;
@@ -2647,20 +2646,17 @@
 			}
 			
 			// Fetch crew data and the skill catalogue (for the learned-something-new picker)
-			fetch('/api/crew')
-				.then(r => r.json())
+			apiGetShared('/api/crew')
 				.then(crew => {
 					crewData = crew;
 				})
 				.catch(e => console.warn('Could not load crew:', e));
-			fetch('/api/skills')
-				.then(r => (r.ok ? r.json() : []))
+			apiGetShared('/api/skills')
 				.then(skills => { editAllSkills = Array.isArray(skills) ? skills : []; })
 				.catch(() => {});
 
 			// Also load canonical locations for edit selector
-			fetch('/api/locations')
-				.then(r => r.json())
+			apiGetShared('/api/locations')
 				.then(locs => {
 					const names = Array.isArray(locs) ? locs.map(l => l.name || l) : [];
 					if (window.fillLocationsDataList) window.fillLocationsDataList(names);
@@ -2799,7 +2795,7 @@
 				const editLocationInput = document.getElementById('edit-album-location');
                 if (editLocationInput) {
                     // Try to load canonical locations for autocomplete
-                    fetch('/api/locations').then(r => r.json()).then(locs => {
+                    apiGetShared('/api/locations').then(locs => {
                         const names = Array.isArray(locs) ? locs.map(l => l.name || l) : [];
                         if (window.fillLocationsDataList) window.fillLocationsDataList(names);
                         populateEditLocationSelector(names);
@@ -3418,8 +3414,8 @@
 
 		}
 	</script>
-	<script src="/static/js/update-notifier.js"></script>
-	<script src="/static/js/auth.js"></script>
+	<script src="/static/js/update-notifier.js" defer></script>
+	<script src="/static/js/auth.js" defer></script>
 
 	<!-- Privacy Link -->
 	<a href="/privacy" class="privacy-link" title="Privacy Policy">

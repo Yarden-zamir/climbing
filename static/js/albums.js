@@ -1089,8 +1089,7 @@ let editSelectedSkills = [];
 let editCurrentPersonImage = null;
 
 // Fetch skills for edit modal
-fetch('/api/skills')
-    .then(r => r.json())
+apiGetShared('/api/skills')
     .then(skills => {
         editAllSkills = skills;
         initEditSkillsAutocomplete();

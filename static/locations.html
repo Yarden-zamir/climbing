@@ -321,15 +321,15 @@
   <script src="/static/js/api.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <!-- Load auth early so the user header renders ASAP -->
-  <script src="/static/js/auth.js"></script>
+  <script src="/static/js/auth.js" defer></script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
   <script src="/static/js/locations.js"></script>
   <!-- PWA and Notification Management -->
-  <script src="/static/js/pwa-manager.js"></script>
-  <script src="/static/js/notification-health-manager.js"></script>
-  <script src="/static/js/notifications.js"></script>
-  <script src="/static/js/cache-manager.js"></script>
-  <script src="/static/js/update-notifier.js"></script>
+  <script src="/static/js/pwa-manager.js" defer></script>
+  <script src="/static/js/notification-health-manager.js" defer></script>
+  <script src="/static/js/notifications.js" defer></script>
+  <script src="/static/js/cache-manager.js" defer></script>
+  <script src="/static/js/update-notifier.js" defer></script>
   <a href="/privacy" class="privacy-link" title="Privacy Policy">
     <span class="privacy-link-icon">🔒</span>
     <span class="privacy-link-text">Privacy</span>

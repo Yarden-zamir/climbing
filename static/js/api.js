@@ -130,6 +130,19 @@ function showToast(message, { type = 'info', action = null, duration } = {}) {
     return toast;
 }
 
+// Several scripts on one page ask for the same lists at load. Share the in-flight request and
+// keep the answer briefly, so the page issues one request per URL instead of two or three.
+const sharedGets = new Map();
+function apiGetShared(url, ttlMs = 15000) {
+    const now = Date.now();
+    const hit = sharedGets.get(url);
+    if (hit && now - hit.at < ttlMs) return hit.promise;
+    const promise = apiFetch(url).catch((error) => { sharedGets.delete(url); throw error; });
+    sharedGets.set(url, { at: now, promise });
+    return promise;
+}
+
+window.apiGetShared = apiGetShared;
 window.ApiError = ApiError;
 window.apiFetch = apiFetch;
 window.showToast = showToast;
