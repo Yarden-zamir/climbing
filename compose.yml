@@ -37,7 +37,8 @@ services:
     image: redis:7-alpine
     pull_policy: always
     # noeviction: this is the primary store, not a cache. Data is ~10 MB.
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--save", "60", "1", "--save", "300", "10", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    # RDB snapshots only: with append-only on, Redis ignores a seeded dump.rdb and starts empty.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--save", "60", "1", "--save", "300", "10", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
     volumes:
       - ${KITSHN_DATA_DIR}/redis:/data
     healthcheck:
