@@ -1,4 +1,5 @@
 import logging
+import subprocess
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Form
 from fastapi.responses import JSONResponse, RedirectResponse, Response, FileResponse
 
@@ -8,6 +9,19 @@ from validation import ValidationError, validate_name, validate_image_file
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api", tags=["utilities"])
+
+
+def _git_revision() -> str:
+    """Commit the running code was checked out from; the deploy job compares it to the pushed sha."""
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, check=True
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+REVISION = _git_revision()
 
 
 @router.get("/health")
@@ -23,6 +37,7 @@ async def health_check():
 
     try:
         health = await redis_store.health_check()
+        health["revision"] = REVISION
         return JSONResponse(health)
     except Exception as e:
         return JSONResponse({"status": "unhealthy", "error": str(e)}, status_code=500)

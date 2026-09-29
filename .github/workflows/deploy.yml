@@ -1,23 +1,102 @@
-name: Deploy to Server
+name: Check and Deploy
 
 on:
   push:
     branches:
       - main
+  pull_request:
 
 jobs:
-  deploy:
-    name: Deploy
+  check:
+    name: Check
     runs-on: ubuntu-latest
     steps:
-      - name: SSH and Pull
-        uses: appleboy/ssh-action@master
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Compile Python sources
+        run: uv run python -m compileall -q auth.py config.py dependencies.py main.py permissions.py redis_store.py validation.py routes utils middleware models scripts
+
+      - name: Import the application without Redis
+        env:
+          SECRET_KEY: ci-only-secret
+        run: |
+          uv run python - <<'EOF'
+          import importlib
+          for module in ["auth", "config", "permissions", "validation", "utils.metadata_parser", "models.api_models"]:
+              importlib.import_module(module)
+          from redis_store import parse_album_date
+          assert parse_album_date("Dec 27 – 28, 2024").year == 2024
+          EOF
+
+      - name: Syntax-check JavaScript
+        run: |
+          for file in sw.js static/js/*.js; do
+            case "$file" in *.min.js) continue ;; esac
+            node --check "$file"
+          done
+
+      - name: Syntax-check inline page scripts
+        run: |
+          uv run python - <<'EOF'
+          import pathlib, re, subprocess, sys
+          failed = False
+          for page in pathlib.Path("static").glob("*.html"):
+              for index, script in enumerate(re.findall(r"<script>(.*?)</script>", page.read_text(), flags=re.S)):
+                  target = pathlib.Path(f"/tmp/{page.stem}_{index}.js")
+                  target.write_text(script)
+                  result = subprocess.run(["node", "--check", str(target)], capture_output=True, text=True)
+                  if result.returncode != 0:
+                      failed = True
+                      print(f"{page}: inline script {index} failed\n{result.stderr}")
+          sys.exit(1 if failed else 0)
+          EOF
+
+  deploy:
+    name: Deploy
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and pull
+        uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e
             cd /root/climbing
             git fetch --all
             git reset --hard origin/main
-            git pull
+            export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+            if command -v uv > /dev/null; then uv sync --frozen; fi
+            systemctl restart climbing-app.service
+
+      - name: Wait for the service to come back
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 10 https://climbing.yarden-zamir.com/api/health > /dev/null; then
+              echo "healthy after $attempt attempts"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "service did not become healthy"
+          exit 1
+
+      - name: Verify the deployed revision
+        run: |
+          deployed=$(curl -fsS --max-time 10 https://climbing.yarden-zamir.com/api/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("revision", ""))')
+          echo "deployed=$deployed expected=$GITHUB_SHA"
+          test "$deployed" = "$GITHUB_SHA"
