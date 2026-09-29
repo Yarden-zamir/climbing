@@ -1,0 +1,8 @@
+{% if environment == "prod" -%}
+climbing.yarden-zamir.com, onion-climbers.com, www.onion-climbers.com, climbing-next.yarden-zamir.com
+{%- else -%}
+pr.{{ environment.removeprefix("pr-") }}.climbing.yarden-zamir.com
+{%- endif %} {
+    encode zstd gzip
+    reverse_proxy unix//{{ paths.default_socket }}
+}

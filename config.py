@@ -43,7 +43,7 @@ class Settings:
         self.VAPID_SUBSCRIBER: str = os.getenv("VAPID_SUBSCRIBER", "climbing@yarden-zamir.com")
         
         # Key file paths
-        self.KEYS_DIR = Path("keys")
+        self.KEYS_DIR = Path(os.getenv("KEYS_DIR", "keys"))
         self.PRIVATE_KEY_PATH = self.KEYS_DIR / "private_key.pem"
         self.PUBLIC_KEY_PATH = self.KEYS_DIR / "public_key.pem"
 
@@ -80,7 +80,13 @@ class Settings:
                 self.PUBLIC_KEY_PATH.exists())
 
     def _ensure_vapid_keys(self):
-        """Ensure VAPID keys exist, generate them if they don't"""
+        """Write VAPID keys from the environment when given, otherwise keep or generate key files"""
+        if self.VAPID_PRIVATE_KEY_B64 and self.VAPID_PUBLIC_KEY_B64:
+            self.KEYS_DIR.mkdir(parents=True, exist_ok=True)
+            self.PRIVATE_KEY_PATH.write_bytes(base64.b64decode(self.VAPID_PRIVATE_KEY_B64))
+            self.PUBLIC_KEY_PATH.write_bytes(base64.b64decode(self.VAPID_PUBLIC_KEY_B64))
+            print("✅ VAPID keys written from environment")
+            return
         if not self.validate_vapid_config():
             print("🔧 VAPID keys not found, generating new ones...")
             self._generate_vapid_keys()

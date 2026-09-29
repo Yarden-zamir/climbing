@@ -165,7 +165,7 @@ Admins can:
 
 ## Deployment
 
-Pushes to `main` run `.github/workflows/deploy.yml`: a check job (Python compile, JavaScript syntax, inline page scripts), then a deploy job that pulls on the server, runs `uv sync --frozen`, restarts `climbing-app.service`, waits for `/api/health`, and fails unless the `revision` reported by the health endpoint equals the pushed commit.
+Pushes to `main` run two workflows: `check.yml` (Python compile, JavaScript and inline page script syntax) and `kitshn.yml`, which deploys the `prod` environment to the VPS with [KitSHn](https://github.com/Yarden-zamir/kitshn). `kitshn.md` describes the services, params and operating commands.
 
 ## Customization
 

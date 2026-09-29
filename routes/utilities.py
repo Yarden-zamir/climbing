@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Form
 from fastapi.responses import JSONResponse, RedirectResponse, Response, FileResponse
@@ -12,7 +13,9 @@ router = APIRouter(prefix="/api", tags=["utilities"])
 
 
 def _git_revision() -> str:
-    """Commit the running code was checked out from; the deploy job compares it to the pushed sha."""
+    """Commit the running code was built from; deploy checks compare it to the pushed sha."""
+    if os.getenv("GIT_REVISION"):
+        return os.environ["GIT_REVISION"]
     try:
         return subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, check=True

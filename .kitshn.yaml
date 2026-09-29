@@ -1,0 +1,5 @@
+# Stateful singleton (one Redis with the club's data): only main deploys. No pull request previews.
+deploy:
+  - on: push
+    branch: main
+    name: prod
