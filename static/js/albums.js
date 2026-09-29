@@ -191,7 +191,8 @@ const typewriter = (element, text, speed = 20) => {
 		const card = document.createElement("a");
 		card.className = "album-card loading";
 		card.href = "#";
-		card.style.animationDelay = `${index * 100}ms`;
+		// Stagger only the first screen; beyond that every card would wait seconds for its turn
+		card.style.animationDelay = `${Math.min(index, 12) * 60}ms`;
 		card.innerHTML = `
       <div class="placeholder placeholder-img"></div>
       <div class="placeholder-content">
@@ -241,8 +242,10 @@ const populateCard = async (card, meta) => {
 	const descriptionEl = card.querySelector("p");
 	const dateEl = card.querySelector(".album-date");
 
-	await typewriter(titleEl, meta.title);
-	await typewriter(descriptionEl, meta.description);
+	// Typewriter effect only for the first screen of cards; the rest render at once
+	const typeSpeed = eager || coverCount <= 12 ? 20 : 0;
+	await typewriter(titleEl, meta.title, typeSpeed);
+	await typewriter(descriptionEl, meta.description, typeSpeed);
 
   // Set date (no animation)
   dateEl.textContent = meta.date || "";
