@@ -237,7 +237,8 @@
     </main>
     
     <!-- Cropper.js JavaScript -->
-    	     	<script src="/static/js/cropper.min.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/cropper.min.js"></script>
     <script>
         // Level calculation utilities (matches backend logic)
         const LevelCalculator = {
@@ -1368,36 +1369,32 @@ document.querySelectorAll('.level-badge').forEach(badge => {
         window.autoRefreshCrew = autoRefreshCrewWithParticles;
         window.particleSystem = particleSystem;
          
-         // Wait for auth manager to be ready, then load preferences and data
+         // auth.js is loaded after this script and its first network check is async.
+         // Wait for the `auth:ready` event (or the already-resolved authManager.ready
+         // promise) so loadSortPreference sees the real auth state.
+         function whenAuthReady() {
+             if (window.authManager && window.authManager.ready) return window.authManager.ready;
+             return new Promise(resolve => window.addEventListener('auth:ready', () => resolve(), { once: true }));
+         }
+
          async function initializePage() {
-             // Wait for auth manager to be ready
-             if (window.authManager) {
-                 // If authManager exists but might still be initializing, wait a bit
-                 let retries = 0;
-                 while (retries < 10 && window.authManager && typeof window.authManager.isUserAuthenticated === 'undefined') {
-                     await new Promise(resolve => setTimeout(resolve, 100));
-                     retries++;
-                 }
-             }
-             
+             await whenAuthReady();
              // Load sort preferences first
              await loadSortPreference();
-             
              // Then load crew data
              await autoRefreshCrewWithParticles(false, false);
-             
              // Store initial state
              previousCrewData = [...crewData];
          }
-         
-         // Initialize when auth is ready
-         if (window.authManager) {
-             initializePage();
-         } else {
-             // Wait for auth manager to be created
-             document.addEventListener('DOMContentLoaded', () => {
-                 setTimeout(initializePage, 200); // Give auth manager time to initialize
-             });
+
+         initializePage();
+
+         // Retry a callback until crew data is loaded (used to replay a pending action after login)
+         function withCrewMember(crewName, callback, attempt = 0) {
+             const member = crewData.find(c => c.name === crewName);
+             if (member) { callback(member); return; }
+             if (attempt >= 40) { console.warn('Crew member not found for pending action:', crewName); return; }
+             setTimeout(() => withCrewMember(crewName, callback, attempt + 1), 250);
          }
 
          // Initialize add crew functionality
@@ -1455,13 +1452,19 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 .catch(e => console.warn('Could not load skills:', e));
             
             // Open modal
+            const openAddCrewModal = () => {
+                modalOverlay.classList.add('active');
+                setTimeout(() => modal.classList.add('active'), 50);
+            };
             addCrewFab.addEventListener('click', () => {
+                if (!window.authManager.requireAuth({ hint: 'reopen:add-crew-modal' })) return;
                 // Add spinning animation
                 addCrewFab.classList.add('spinning');
                 setTimeout(() => addCrewFab.classList.remove('spinning'), 600);
-                
-                modalOverlay.classList.add('active');
-                setTimeout(() => modal.classList.add('active'), 50);
+                openAddCrewModal();
+            });
+            window.addEventListener('auth:pending-action', (e) => {
+                if (e.detail && e.detail.hint === 'reopen:add-crew-modal') openAddCrewModal();
             });
             
             // Close modal
@@ -1570,12 +1573,12 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 
                 function handleImageFile(file) {
                     if (!file.type.startsWith('image/')) {
-                        alert('Please select an image file');
+                        showToast('Select an image file', { type: 'error' });
                         return;
                     }
                     
                     if (file.size > 5 * 1024 * 1024) {
-                        alert('File size must be less than 5MB');
+                        showToast('File size must be less than 5MB', { type: 'error' });
                         return;
                     }
                     
@@ -1623,21 +1626,11 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         console.log('No image to add');
                     }
                     
-                    const response = await fetch('/api/crew/submit', {
-                        method: 'POST',
-                        credentials: 'include', // Include cookies for authentication
-                        body: formData // Don't set Content-Type header, let browser set it with boundary
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        showSubmissionSuccess(data);
-                    } else {
-                        showSubmissionError(data.detail || 'Submission failed');
-                    }
+                    // Do not set Content-Type: the browser sets the multipart boundary
+                    const data = await apiFetch('/api/crew/submit', { method: 'POST', body: formData });
+                    showSubmissionSuccess(data);
                 } catch (error) {
-                    showSubmissionError('Network error occurred');
+                    showSubmissionError(error.detail || error.message);
                 }
             });
             
@@ -1734,9 +1727,10 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             if (deleteCrewBtn) {
                 deleteCrewBtn.addEventListener('click', async () => {
                 if (!selectedCrewMember) {
-                    alert('No crew member selected. Please select a crew member first.');
+                    showToast('Select a crew member first.', { type: 'error' });
                     return;
                 }
+                if (!window.authManager.requireAuth()) return;
                 
                 const confirmed = confirm(`Are you sure you want to delete "${selectedCrewMember.name}"?\n\nThis action cannot be undone and will:\n- Remove the crew member from the team\n- Remove them from all albums\n- Update climb counts accordingly\n\nProceed with deletion?`);
                 
@@ -1746,22 +1740,15 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 deleteCrewBtn.textContent = '🗑️ Deleting...';
                 
                 try {
-                    const response = await fetch(`/api/crew/delete?crew_name=${encodeURIComponent(selectedCrewMember.name)}`, {
+                    const data = await apiFetch(`/api/crew/delete?crew_name=${encodeURIComponent(selectedCrewMember.name)}`, {
                         method: 'DELETE'
                     });
-                    
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        showEditSubmissionSuccess({
-                            message: data.message,
-                            isDeleted: true
-                        });
-                    } else {
-                        showEditSubmissionError(data.detail || 'Delete failed');
-                    }
+                    showEditSubmissionSuccess({
+                        message: data.message,
+                        isDeleted: true
+                    });
                 } catch (error) {
-                    showEditSubmissionError('Network error occurred during deletion');
+                    showEditSubmissionError(error.detail || error.message);
                 } finally {
                     deleteCrewBtn.disabled = false;
                     deleteCrewBtn.textContent = '🗑️ Delete';
@@ -1824,12 +1811,20 @@ document.querySelectorAll('.level-badge').forEach(badge => {
             };
             
             // Open modal and populate with selected member data
+            const openEditModalFor = (member) => {
+                selectedCrewMember = member;
+                populateEditForm(member);
+                editModalOverlay.classList.add('active');
+                setTimeout(() => editModal.classList.add('active'), 50);
+            };
             editCrewFab.addEventListener('click', () => {
-                if (selectedCrewMember) {
-                    populateEditForm(selectedCrewMember);
-                    editModalOverlay.classList.add('active');
-                    setTimeout(() => editModal.classList.add('active'), 50);
-                }
+                if (!selectedCrewMember) return;
+                if (!window.authManager.requireAuth({ hint: 'reopen:edit-crew-modal', crewName: selectedCrewMember.name })) return;
+                openEditModalFor(selectedCrewMember);
+            });
+            window.addEventListener('auth:pending-action', (e) => {
+                if (!e.detail || e.detail.hint !== 'reopen:edit-crew-modal' || !e.detail.crewName) return;
+                withCrewMember(e.detail.crewName, openEditModalFor);
             });
             
             // Close modal
@@ -1984,12 +1979,12 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                 
                 function handleEditImageFile(file) {
                     if (!file.type.startsWith('image/')) {
-                        alert('Please select an image file');
+                        showToast('Select an image file', { type: 'error' });
                         return;
                     }
                     
                     if (file.size > 5 * 1024 * 1024) {
-                        alert('File size must be less than 5MB');
+                        showToast('File size must be less than 5MB', { type: 'error' });
                         return;
                     }
                     
@@ -2037,27 +2032,17 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         console.log('Debug: No image to add to FormData');
                     }
                     
-                    const response = await fetch('/api/crew/edit', {
-                        method: 'POST',
-                        credentials: 'include', // Include cookies for authentication
-                        body: formData // Don't set Content-Type header, let browser set it with boundary
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        showEditSubmissionSuccess(data);
-                        // Refresh the crew data and table without full page reload
-                        setTimeout(async () => {
-                            await autoRefreshCrewWithParticles(false, true);
-                            // Close the edit modal after successful update
-                            closeEditModal();
-                        }, 1500);
-                    } else {
-                        showEditSubmissionError(data.detail || 'Update failed');
-                    }
+                    // Do not set Content-Type: the browser sets the multipart boundary
+                    const data = await apiFetch('/api/crew/edit', { method: 'POST', body: formData });
+                    showEditSubmissionSuccess(data);
+                    // Refresh the crew data and table without full page reload
+                    setTimeout(async () => {
+                        await autoRefreshCrewWithParticles(false, true);
+                        // Close the edit modal after successful update
+                        closeEditModal();
+                    }, 1500);
                 } catch (error) {
-                    showEditSubmissionError('Network error occurred');
+                    showEditSubmissionError(error.detail || error.message);
                 }
             });
             
@@ -2440,18 +2425,12 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         };
                     }
                     
-                    const response = await fetch(endpoint, {
+                    const responseData = await apiFetch(endpoint, {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(data)
                     });
-                    
-                    if (response.ok) {
-                        // Show success message and auto-refresh
-                        const responseData = await response.json();
-                        
+                    {
                         // Update modal content to show success
                         const modalTitle = document.getElementById('add-items-modal-title');
                         const badgesContainer = document.getElementById('add-items-badges-container');
@@ -2478,19 +2457,22 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                         closeModal();
                         // Start auto-refresh in background after modal closes
                         autoRefreshCrewWithParticles(true, true);
-                    } else {
-                        const errorData = await response.json();
-                        alert(`Failed to add ${currentItemType}: ` + (errorData.detail || 'Unknown error'));
                     }
                 } catch (error) {
-                    alert('Network error occurred');
+                    if (error.status !== 401) showToast(`Failed to add ${currentItemType}: ${error.detail || error.message}`, { type: 'error' });
                 }
             });
             
+            window.addEventListener('auth:pending-action', (e) => {
+                if (!e.detail || e.detail.hint !== 'reopen:add-items-modal' || !e.detail.crewName) return;
+                withCrewMember(e.detail.crewName, (member) => window.openAddItemsModal(member.name));
+            });
+
             // Expose openAddItemsModal function globally
             window.openAddItemsModal = function(crewName) {
                 const member = crewData.find(c => c.name === crewName);
                 if (!member) return;
+                if (!window.authManager.requireAuth({ hint: 'reopen:add-items-modal', crewName })) return;
                 
                 currentCrewMember = crewName;
                 modalTitle.textContent = `Add Items to ${crewName}`;

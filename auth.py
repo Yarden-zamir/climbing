@@ -1,13 +1,14 @@
 import json
 import secrets
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
-from urllib.parse import urlencode, parse_qs
+from urllib.parse import urlencode
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from fastapi import Request, HTTPException, status, Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 import jwt
 from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
@@ -25,22 +26,31 @@ class SessionManager:
 
     def __init__(self):
         self.serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
+        # Separate salt so an OAuth state token can never be replayed as a session cookie
+        self.state_serializer = URLSafeTimedSerializer(settings.SECRET_KEY, salt="oauth-state")
 
     def create_session_token(self, user_data: Dict[str, Any]) -> str:
         """Create a signed session token containing user data"""
         return self.serializer.dumps(user_data)
 
-    def verify_session_token(self, token: str) -> Optional[Dict[str, Any]]:
-        """Verify and decode a session token"""
+    def verify_session_token_with_age(self, token: str) -> Optional[tuple[Dict[str, Any], float]]:
+        """Verify a session token and return (user_data, age_in_seconds)"""
         try:
-            # Verify token is not expired (max age in seconds)
-            user_data = self.serializer.loads(token, max_age=settings.SESSION_MAX_AGE)
-            return user_data
+            user_data, issued_at = self.serializer.loads(
+                token, max_age=settings.SESSION_MAX_AGE, return_timestamp=True
+            )
         except (BadSignature, SignatureExpired) as e:
             logger.warning(f"Invalid session token: {e}")
             return None
+        age_seconds = (datetime.now(timezone.utc) - issued_at).total_seconds()
+        return user_data, age_seconds
 
-    def set_session_cookie(self, response: RedirectResponse, user_data: Dict[str, Any]):
+    def verify_session_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Verify and decode a session token"""
+        verified = self.verify_session_token_with_age(token)
+        return verified[0] if verified else None
+
+    def set_session_cookie(self, response: Response, user_data: Dict[str, Any]):
         """Set secure session cookie on response"""
         token = self.create_session_token(user_data)
         response.set_cookie(
@@ -52,30 +62,74 @@ class SessionManager:
             samesite="lax",
         )
 
-    def clear_session_cookie(self, response: RedirectResponse):
+    def clear_session_cookie(self, response: Response):
         """Clear session cookie"""
         response.delete_cookie(key="session")
+
+    def create_oauth_state(self, next_path: str) -> str:
+        """Create a signed OAuth state that carries the post-login return path"""
+        return self.state_serializer.dumps({"nonce": secrets.token_urlsafe(16), "next": next_path})
+
+    def verify_oauth_state(self, state: Optional[str]) -> Optional[str]:
+        """Verify an OAuth state and return the embedded return path, or None when invalid"""
+        if not state:
+            return None
+        try:
+            data = self.state_serializer.loads(state, max_age=settings.OAUTH_STATE_MAX_AGE)
+        except (BadSignature, SignatureExpired) as e:
+            logger.warning(f"Invalid OAuth state: {e}")
+            return None
+        next_path = data.get("next") if isinstance(data, dict) else None
+        return next_path if is_safe_next_path(next_path) else "/"
+
+
+def is_safe_next_path(path: Any) -> bool:
+    """Only same-origin relative paths are allowed as a post-login redirect"""
+    return isinstance(path, str) and path.startswith("/") and not path.startswith("//")
+
+
+class SessionRefreshMiddleware(BaseHTTPMiddleware):
+    """Sliding session expiry.
+
+    Re-issues the session cookie when the token is older than SESSION_REFRESH_AFTER,
+    or when a route stored fresh user data in request.state.fresh_session_user
+    (for example /api/auth/user after an admin changed the user's role).
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        token = request.cookies.get("session")
+        if not token:
+            return response
+        # Logout and the OAuth callback already set or clear the cookie: never override them
+        if any(value.startswith("session=") for value in response.headers.getlist("set-cookie")):
+            return response
+        verified = session_manager.verify_session_token_with_age(token)
+        if verified is None:
+            return response
+        user_data, age_seconds = verified
+        fresh_user_data = getattr(request.state, "fresh_session_user", None)
+        if fresh_user_data is None and age_seconds < settings.SESSION_REFRESH_AFTER:
+            return response
+        session_manager.set_session_cookie(response, fresh_user_data or user_data)
+        return response
 
 
 class OAuthHandler:
     """Handles Google OAuth 2.0 flow"""
 
-    def __init__(self):
-        self.session_manager = SessionManager()
+    def __init__(self, session_manager: "SessionManager"):
+        self.session_manager = session_manager
 
-    def generate_auth_url(self, state: Optional[str] = None) -> str:
-        """Generate Google OAuth authorization URL"""
-        if not state:
-            state = secrets.token_urlsafe(32)
-
+    def generate_auth_url(self, next_path: str = "/") -> str:
+        """Generate Google OAuth authorization URL; next_path is carried in the signed state"""
         params = {
             "client_id": settings.GOOGLE_CLIENT_ID,
             "redirect_uri": f"{settings.BASE_URL}/auth/callback",
             "scope": " ".join(settings.OAUTH_SCOPES),
             "response_type": "code",
             "access_type": "offline",
-            "state": state,
-            "prompt": "select_account",
+            "state": self.session_manager.create_oauth_state(next_path),
         }
 
         return f"{settings.GOOGLE_AUTHORIZE_URL}?{urlencode(params)}"
@@ -406,8 +460,8 @@ class JWTManager:
 
 
 # Global instances - JWT manager needs Redis store injection
-oauth_handler = OAuthHandler()
 session_manager = SessionManager()
+oauth_handler = OAuthHandler(session_manager)
 jwt_manager = None  # Will be initialized with Redis store
 
 
@@ -461,7 +515,7 @@ def require_auth_hybrid(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required. Provide a valid JWT Bearer token or login session.",
+            detail="Please sign in to continue",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user

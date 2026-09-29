@@ -1183,6 +1183,7 @@
     </div>
 
     <!-- PWA and Notification Management -->
+    <script src="/static/js/api.js"></script>
     <script src="/static/js/pwa-manager.js"></script>
     <script src="/static/js/notification-health-manager.js"></script>
     <script src="/static/js/notifications.js"></script>
@@ -1219,24 +1220,16 @@
                     refreshBtn.textContent = '🔄 Loading...';
                 }
 
-                // Fetch both stats and reliability data
-                const [statsResponse, reliabilityResponse] = await Promise.all([
-                    fetch('/api/notifications/admin/stats'),
-                    fetch('/api/notifications/admin/reliability?days=7')
+                [notificationStatsData, reliabilityData] = await Promise.all([
+                    apiFetch('/api/notifications/admin/stats'),
+                    apiFetch('/api/notifications/admin/reliability?days=7')
                 ]);
-
-                if (!statsResponse.ok || !reliabilityResponse.ok) {
-                    throw new Error('Failed to fetch notification statistics');
-                }
-
-                notificationStatsData = await statsResponse.json();
-                reliabilityData = await reliabilityResponse.json();
 
                 updateNotificationDashboard();
 
             } catch (error) {
                 console.error('Error fetching notification stats:', error);
-                showNotificationError('Failed to load notification statistics: ' + error.message);
+                showNotificationError('Could not load notification statistics: ' + (error.detail || error.message));
             } finally {
                 // Reset button state
                 const refreshBtn = document.querySelector('button[onclick="refreshNotificationStats()"]');
@@ -1292,46 +1285,29 @@
 
         async function validateAllSubscriptions() {
             try {
-                const response = await fetch('/api/notifications/validate-subscriptions', {
-                    method: 'POST'
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    alert(`Validation started for ${result.total} subscription(s). Invalid subscriptions will be cleaned up automatically.`);
-                    
-                    // Refresh stats after validation
-                    setTimeout(refreshNotificationStats, 5000);
-                } else {
-                    throw new Error('Failed to start subscription validation');
-                }
+                const result = await apiFetch('/api/notifications/validate-subscriptions', { method: 'POST' });
+                showToast(`Validation started for ${result.total} subscription(s). Invalid subscriptions will be cleaned up automatically.`, { type: 'success' });
+                // Refresh stats after validation
+                setTimeout(refreshNotificationStats, 5000);
             } catch (error) {
-                showNotificationError('Error validating subscriptions: ' + error.message);
+                if (error.status !== 401) showNotificationError('Could not validate subscriptions: ' + (error.detail || error.message));
             }
         }
 
         async function sendTestNotification() {
             try {
-                const response = await fetch('/api/notifications/test', {
+                const result = await apiFetch('/api/notifications/test', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         title: '🧪 Admin Test',
                         body: 'This is a test notification from the admin panel',
                         icon: '/static/favicon/android-chrome-192x192.png'
                     })
                 });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    alert(`Test notification sent to ${result.devices} device(s)`);
-                } else {
-                    throw new Error('Failed to send test notification');
-                }
+                showToast(`Test notification sent to ${result.devices} device(s)`, { type: 'success' });
             } catch (error) {
-                showNotificationError('Error sending test notification: ' + error.message);
+                if (error.status !== 401) showNotificationError('Could not send test notification: ' + (error.detail || error.message));
             }
         }
 

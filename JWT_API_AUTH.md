@@ -182,7 +182,7 @@ The response includes your current permissions in the `user.permissions` object.
 ### Authentication Errors
 ```json
 {
-  "detail": "Authentication required. Provide a valid JWT Bearer token or login session.",
+  "detail": "Please sign in to continue",
   "status_code": 401
 }
 ```

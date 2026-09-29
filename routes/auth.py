@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request, status
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 
-from auth import oauth_handler, get_current_user
+from auth import oauth_handler, get_current_user, is_safe_next_path
 from config import settings
 from dependencies import get_redis_store, get_permissions_manager, get_jwt_manager
 
@@ -40,16 +40,32 @@ class TokenInfo(BaseModel):
     permissions: Dict[str, bool]
 
 
+def build_session_permissions(permissions_manager, role: str) -> Dict[str, bool]:
+    """Flatten a role's permissions into the dict stored in the session cookie"""
+    permissions = permissions_manager.get_user_permissions(role)
+    return {
+        "can_create_albums": permissions.can_create_albums,
+        "can_create_crew": permissions.can_create_crew,
+        "can_create_memes": permissions.can_create_memes,
+        "can_edit_own_resources": permissions.can_edit_own_resources,
+        "can_delete_own_resources": permissions.can_delete_own_resources,
+        "can_edit_all_resources": permissions.can_edit_all_resources,
+        "can_delete_all_resources": permissions.can_delete_all_resources,
+        "can_manage_users": permissions.can_manage_users
+    }
+
+
 @router.get("/login")
-async def login():
-    """Initiate Google OAuth login"""
+async def login(next: Optional[str] = None):
+    """Initiate Google OAuth login; `next` is a relative path to return to after login"""
     if not settings.validate_oauth_config():
         raise HTTPException(
             status_code=500,
             detail="OAuth not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
         )
 
-    auth_url = oauth_handler.generate_auth_url()
+    next_path = next if is_safe_next_path(next) else "/"
+    auth_url = oauth_handler.generate_auth_url(next_path)
     return RedirectResponse(url=auth_url)
 
 
@@ -62,6 +78,11 @@ async def auth_callback(code: Optional[str] = None, state: Optional[str] = None,
     if error:
         logger.error(f"OAuth error: {error}")
         return RedirectResponse(url="/?error=oauth_error")
+
+    next_path = oauth_handler.session_manager.verify_oauth_state(state)
+    if next_path is None:
+        logger.error("OAuth callback with missing or invalid state")
+        return RedirectResponse(url="/?error=invalid_state")
 
     if not code:
         logger.error("No authorization code received")
@@ -118,18 +139,9 @@ async def auth_callback(code: Optional[str] = None, state: Optional[str] = None,
                 user_record = await permissions_manager.create_or_update_user(user_info)
                 user_session_data["role"] = user_record.get("role", "user")
 
-                # Get permissions for session
-                permissions = permissions_manager.get_user_permissions(user_record.get("role", "user"))
-                user_session_data["permissions"] = {
-                    "can_create_albums": permissions.can_create_albums,
-                    "can_create_crew": permissions.can_create_crew,
-                    "can_create_memes": permissions.can_create_memes,
-                    "can_edit_own_resources": permissions.can_edit_own_resources,
-                    "can_delete_own_resources": permissions.can_delete_own_resources,
-                    "can_edit_all_resources": permissions.can_edit_all_resources,
-                    "can_delete_all_resources": permissions.can_delete_all_resources,
-                    "can_manage_users": permissions.can_manage_users
-                }
+                user_session_data["permissions"] = build_session_permissions(
+                    permissions_manager, user_session_data["role"]
+                )
 
                 logger.info(f"User {user_info.get('email')} logged in with role: {user_record.get('role', 'user')}")
             except Exception as e:
@@ -143,7 +155,7 @@ async def auth_callback(code: Optional[str] = None, state: Optional[str] = None,
             user_session_data["permissions"] = {}
 
         # Create session and redirect (SessionManager handles both token creation and cookie setting)
-        response = RedirectResponse(url="/")
+        response = RedirectResponse(url=next_path)
         oauth_handler.session_manager.set_session_cookie(response, user_session_data)
 
         logger.info(f"🎉 User logged in successfully: {user_info.get('email')}")
@@ -167,23 +179,44 @@ api_router = APIRouter(prefix="/api/auth", tags=["auth-api"])
 
 
 @api_router.get("/user")
-async def get_auth_user(user: dict = Depends(get_current_user)):
-    """Get current authenticated user info"""
-    if user:
-        return {
-            "authenticated": True,
-            "user": {
-                "id": user.get("id"),
-                "email": user.get("email"),
-                "name": user.get("name"),
-                "picture": user.get("picture"),
-                "verified_email": user.get("verified_email", False),
-                "role": user.get("role", "user"),
-                "permissions": user.get("permissions", {})
-            }
-        }
-    else:
+async def get_auth_user(request: Request, user: dict = Depends(get_current_user)):
+    """Get current authenticated user info.
+
+    Role and permissions come from the permissions store, not the cookie snapshot,
+    so an admin approval is visible without re-login. When they differ from the
+    cookie, SessionRefreshMiddleware re-issues the cookie with the fresh values.
+    """
+    if not user:
         return {"authenticated": False, "user": None}
+
+    role = user.get("role", "user")
+    permissions = user.get("permissions", {})
+    permissions_manager = get_permissions_manager()
+    user_id = user.get("id")
+    if permissions_manager is not None and user_id:
+        try:
+            user_record = await permissions_manager.get_user(user_id)
+        except Exception as e:
+            logger.error(f"Error reading user {user_id} from permissions system: {e}")
+            user_record = None
+        if user_record:
+            role = user_record.get("role", role)
+            permissions = build_session_permissions(permissions_manager, role)
+            if role != user.get("role") or permissions != user.get("permissions"):
+                request.state.fresh_session_user = {**user, "role": role, "permissions": permissions}
+
+    return {
+        "authenticated": True,
+        "user": {
+            "id": user_id,
+            "email": user.get("email"),
+            "name": user.get("name"),
+            "picture": user.get("picture"),
+            "verified_email": user.get("verified_email", False),
+            "role": role,
+            "permissions": permissions
+        }
+    }
 
 
 @api_router.get("/status")

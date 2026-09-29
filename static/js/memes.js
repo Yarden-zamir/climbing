@@ -15,6 +15,10 @@ class MemesManager {
 	setupEventListeners() {
 		// FAB button
 		const addMemeFab = document.getElementById('add-meme-fab');
+		// Reopen the upload modal after the user signed in from the "Sign in to do that" toast
+		window.addEventListener('auth:pending-action', (e) => {
+			if (e.detail && e.detail.hint === 'reopen:add-meme-modal') this.showUploadModal();
+		});
 		if (addMemeFab) {
 			addMemeFab.addEventListener('click', () => this.showUploadModal());
 		}
@@ -100,14 +104,12 @@ class MemesManager {
 
 	async loadMemes() {
 		try {
-			const response = await fetch('/api/memes');
-			const data = await response.json();
-			
-			this.memes = data || [];
+			const data = await apiFetch('/api/memes');
+			this.memes = Array.isArray(data) ? data : [];
 			this.renderMemes();
 		} catch (error) {
 			console.error('Error loading memes:', error);
-			this.showError('Failed to load memes');
+			this.showError(error.detail || error.message);
 		}
 	}
 
@@ -583,12 +585,7 @@ class MemesManager {
 	}
 
 	showUploadModal() {
-		// Check authentication first
-		const authManager = window.authManager;
-		if (!authManager || !authManager.isAuthenticated) {
-			this.showError('Please log in to upload memes');
-			return;
-		}
+		if (!window.authManager || !window.authManager.requireAuth({ hint: 'reopen:add-meme-modal' })) return;
 
 		const modalOverlay = document.getElementById('add-meme-modal-overlay');
 		if (modalOverlay) {
@@ -767,30 +764,30 @@ class MemesManager {
 				try {
 					const formData = new FormData();
 					formData.append('image', file);
-
-					const response = await fetch('/api/memes/submit', {
-						method: 'POST',
-						body: formData
-					});
-
-					if (response.ok) {
-						successCount++;
-						this.updateUploadProgress(i, 'success', `${file.name} uploaded`);
-					} else {
-						const result = await response.json();
-						errorCount++;
-						errors.push(`${file.name}: ${result.detail || 'Unknown error'}`);
-						this.updateUploadProgress(i, 'error', `Failed: ${file.name}`);
-					}
+					await apiFetch('/api/memes/submit', { method: 'POST', body: formData });
+					successCount++;
+					this.updateUploadProgress(i, 'success', `${file.name} uploaded`);
 				} catch (error) {
 					console.error('Upload error:', error);
 					errorCount++;
-					errors.push(`${file.name}: Network error`);
+					errors.push(`${file.name}: ${error.detail || error.message}`);
 					this.updateUploadProgress(i, 'error', `Failed: ${file.name}`);
+					if (error.status === 401) {
+						// Session is gone: the remaining uploads would fail the same way
+						for (let j = i + 1; j < this.selectedFiles.length; j++) {
+							this.updateUploadProgress(j, 'error', 'Skipped: sign in required');
+						}
+						break;
+					}
 				}
 			}
 
 			// Show final result
+			const summarizeErrors = () => {
+				const shown = errors.slice(0, 3);
+				const rest = errors.length - shown.length;
+				return shown.join('\n') + (rest > 0 ? `\nand ${rest} more` : '');
+			};
 			setTimeout(() => {
 				if (successCount > 0) {
 					const message = successCount === 1 ? 
@@ -799,7 +796,7 @@ class MemesManager {
 					this.showSuccess(message);
 					
 					if (errorCount > 0) {
-						this.showError(`${errorCount} uploads failed. Check console for details.`);
+						this.showError(`${errorCount} upload(s) failed:\n${summarizeErrors()}`);
 						console.error('Upload errors:', errors);
 					}
 					
@@ -807,15 +804,15 @@ class MemesManager {
 					this.resetUploadForm();
 					this.hideUploadModal();
 					this.loadMemes(); // Reload memes
-				} else {
-					this.showError('All uploads failed. Please try again.');
+				} else if (errors.length > 0) {
+					this.showError(`Upload failed:\n${summarizeErrors()}`);
 					console.error('All upload errors:', errors);
 				}
 			}, 1000);
 
 		} catch (error) {
 			console.error('Upload error:', error);
-			this.showError('Failed to upload memes');
+			this.showError(error.detail || error.message);
 		} finally {
 			// Reset button state
 			setTimeout(() => {
@@ -884,21 +881,14 @@ class MemesManager {
 	}
 
 	async deleteMeme(memeId) {
+		if (!window.authManager || !window.authManager.requireAuth()) return;
 		try {
-			const response = await fetch(`/api/memes/${memeId}`, {
-				method: 'DELETE'
-			});
-
-			if (response.ok) {
-				this.showSuccess('Meme deleted successfully!');
-				this.loadMemes(); // Reload memes
-			} else {
-				const result = await response.json();
-				this.showError(result.detail || 'Failed to delete meme');
-			}
+			await apiFetch(`/api/memes/${encodeURIComponent(memeId)}`, { method: 'DELETE' });
+			this.showSuccess('Meme deleted successfully!');
+			this.loadMemes(); // Reload memes
 		} catch (error) {
 			console.error('Delete error:', error);
-			this.showError('Failed to delete meme');
+			if (error.status !== 401) this.showError(error.detail || error.message);
 		}
 	}
 
@@ -912,23 +902,11 @@ class MemesManager {
 	}
 
 	showSuccess(message) {
-		this.showNotification(message, 'success');
+		showToast(message, { type: 'success' });
 	}
 
 	showError(message) {
-		this.showNotification(message, 'error');
-	}
-
-	showNotification(message, type) {
-		const notification = document.createElement('div');
-		notification.className = `notification ${type}`;
-		notification.textContent = message;
-		
-		document.body.appendChild(notification);
-		
-		setTimeout(() => {
-			notification.remove();
-		}, 3000);
+		showToast(message, { type: 'error' });
 	}
 }
 

@@ -1,10 +1,13 @@
 import os
 import base64
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class Settings:
     def __init__(self):
@@ -12,14 +15,21 @@ class Settings:
         self.GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
         self.GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
-        # Session Configuration
-        self.SECRET_KEY: str = os.getenv("SECRET_KEY") or ""
-        if not self.SECRET_KEY:
-            print("SECRET_KEY environment variable is must be set to a secure random value to enable google auth")
-
         # App Configuration
         self.BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8001")
         self.ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+
+        # Session Configuration
+        self.SECRET_KEY: str = os.getenv("SECRET_KEY") or ""
+        if not self.SECRET_KEY:
+            if self.is_production:
+                raise RuntimeError(
+                    "SECRET_KEY must be set to a secure random value when ENVIRONMENT=production"
+                )
+            logger.warning(
+                "SECRET_KEY is empty: session cookies and API tokens are signed with an empty key. "
+                "Set SECRET_KEY to a secure random value before deploying."
+            )
 
         # Redis Configuration
         self.REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
@@ -47,7 +57,11 @@ class Settings:
         self.OAUTH_SCOPES = ["openid", "email", "profile"]
 
         # Session Configuration
-        self.SESSION_MAX_AGE = 86400 * 7  # 7 days in seconds
+        self.SESSION_MAX_AGE = 86400 * 30  # 30 days in seconds
+        # A valid session cookie older than this is re-issued (sliding expiry)
+        self.SESSION_REFRESH_AFTER = 86400  # 1 day in seconds
+        # OAuth state tokens are only valid for this long
+        self.OAUTH_STATE_MAX_AGE = 600  # 10 minutes in seconds
         
         # Initialize VAPID keys
         self._ensure_vapid_keys()

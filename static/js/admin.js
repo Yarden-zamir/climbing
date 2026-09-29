@@ -387,33 +387,34 @@ class AdminPanel {
             await this.loadDashboardStats();
             this.showSuccess(`${this.getResourceTypeLabel(type)} "${pretty}" deleted`);
         } catch (e) {
-            this.showError(e.message || `Failed to delete ${type}`);
+            if (e.status !== 401) this.showError(e.detail || e.message || `Could not delete ${type}`);
         }
     }
 
     async deleteAlbum(albumUrl, pretty) {
-        const res = await fetch(`/api/albums/delete?album_url=${encodeURIComponent(albumUrl)}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete album'));
+        await apiFetch(`/api/albums/delete?album_url=${encodeURIComponent(albumUrl)}`, { method: 'DELETE' });
     }
 
     async deleteCrew(name, pretty) {
-        const res = await fetch(`/api/crew/delete?crew_name=${encodeURIComponent(name)}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete crew member'));
+        await apiFetch(`/api/crew/delete?crew_name=${encodeURIComponent(name)}`, { method: 'DELETE' });
     }
 
     async deleteMeme(memeId, pretty) {
-        const res = await fetch(`/api/memes/${encodeURIComponent(memeId)}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete meme'));
+        await apiFetch(`/api/memes/${encodeURIComponent(memeId)}`, { method: 'DELETE' });
     }
 
     async deleteLocation(name, pretty) {
         const baseUrl = `/api/locations?name=${encodeURIComponent(name)}`;
-        let res = await fetch(baseUrl, { method: 'DELETE' });
-        if (res.ok) return;
-        if (res.status === 409) {
-            let detail;
-            try { detail = await res.json(); } catch { detail = null; }
-            const blocked = detail?.detail?.blocked_by_albums ?? detail?.blocked_by_albums ?? 0;
+        let conflict;
+        try {
+            await apiFetch(baseUrl, { method: 'DELETE' });
+            return;
+        } catch (err) {
+            if (err.status !== 409) throw err;
+            conflict = err.body;
+        }
+        {
+            const blocked = conflict?.detail?.blocked_by_albums ?? conflict?.blocked_by_albums ?? 0;
             const answer = window.prompt(
                 `There are ${blocked} album(s) tagged to this location.\n` +
                 `- Type 'clear' to remove the location tag from those albums, OR\n` +
@@ -435,11 +436,8 @@ class AdminPanel {
                 if (target.name === name) throw new Error('Cannot reassign to the same location');
                 finalUrl += `&reassign_to=${encodeURIComponent(target.name)}`;
             }
-            res = await fetch(finalUrl, { method: 'DELETE' });
-            if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete location'));
-            return;
+            await apiFetch(finalUrl, { method: 'DELETE' });
         }
-        throw new Error(await res.text().catch(() => 'Failed to delete location'));
     }
 
     generateOwnersDisplay(owners, resourceType, resourceId) {
@@ -579,14 +577,10 @@ class AdminPanel {
         apiFormData.append('new_role', newRole);
         
         try {
-            const response = await fetch(`/api/admin/users/${this.selectedUser}/role`, {
+            const result = await apiFetch(`/api/admin/users/${encodeURIComponent(this.selectedUser)}/role`, {
                 method: 'POST',
                 body: apiFormData
             });
-            
-            if (!response.ok) throw new Error('Failed to update role');
-            
-            const result = await response.json();
             this.showSuccess(result.message);
             this.closeModal('roleModal');
             
@@ -596,7 +590,7 @@ class AdminPanel {
             
         } catch (error) {
             console.error('Error updating user role:', error);
-            this.showError('Failed to update user role.');
+            if (error.status !== 401) this.showError(error.detail || error.message);
         }
     }
 
@@ -607,17 +601,11 @@ class AdminPanel {
         const targetUserId = formData.get('targetUser');
         
         try {
-            const response = await fetch('/api/admin/resources/assign', {
+            const result = await apiFetch('/api/admin/resources/assign', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `resource_type=${this.selectedResource.type}&resource_id=${encodeURIComponent(this.selectedResource.id)}&target_user_id=${targetUserId}`
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `resource_type=${this.selectedResource.type}&resource_id=${encodeURIComponent(this.selectedResource.id)}&target_user_id=${encodeURIComponent(targetUserId)}`
             });
-            
-            if (!response.ok) throw new Error('Failed to add owner');
-            
-            const result = await response.json();
             this.showSuccess(result.message);
             this.closeModal('addOwnerModal');
             
@@ -627,7 +615,7 @@ class AdminPanel {
             
         } catch (error) {
             console.error('Error adding owner:', error);
-            this.showError('Failed to add owner.');
+            if (error.status !== 401) this.showError(error.detail || error.message);
         }
     }
 
@@ -639,13 +627,7 @@ class AdminPanel {
         btn.innerHTML = '<div class="loading"></div> Migrating...';
         
         try {
-            const response = await fetch('/api/admin/migrate-resources', {
-                method: 'POST'
-            });
-            
-            if (!response.ok) throw new Error('Migration failed');
-            
-            const result = await response.json();
+            const result = await apiFetch('/api/admin/migrate-resources', { method: 'POST' });
             
             resultDiv.innerHTML = `
                 <div class="alert alert-success">
@@ -664,7 +646,7 @@ class AdminPanel {
             resultDiv.innerHTML = `
                 <div class="alert alert-error">
                     <strong>Migration Failed!</strong><br>
-                    ${error.message}
+                    ${this.escapeHtml(error.detail || error.message)}
                 </div>
             `;
         } finally {
@@ -836,15 +818,11 @@ class AdminPanel {
 
         try {
             // For now, we'll just add it directly to the Redis achievements index
-            const response = await fetch('/api/achievements', {
+            await apiFetch('/api/achievements', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: achievementName })
             });
-
-            if (!response.ok) throw new Error('Failed to add achievement');
 
             resultDiv.innerHTML = `
                 <div class="alert alert-success">
@@ -859,7 +837,7 @@ class AdminPanel {
             console.error('Error adding achievement:', error);
             resultDiv.innerHTML = `
                 <div class="alert alert-error">
-                    <strong>Error!</strong> Failed to add achievement.
+                    <strong>Error!</strong> ${this.escapeHtml(error.detail || error.message)}
                 </div>
             `;
         }
@@ -871,18 +849,14 @@ class AdminPanel {
         }
 
         try {
-            const response = await fetch(`/api/achievements/${encodeURIComponent(achievementName)}`, {
-                method: 'DELETE'
-            });
-
-            if (!response.ok) throw new Error('Failed to delete achievement');
+            await apiFetch(`/api/achievements/${encodeURIComponent(achievementName)}`, { method: 'DELETE' });
 
             this.showSuccess(`Achievement "${achievementName}" has been deleted.`);
             this.loadAchievements(); // Reload the achievements list
             
         } catch (error) {
             console.error('Error deleting achievement:', error);
-            this.showError('Failed to delete achievement.');
+            if (error.status !== 401) this.showError(error.detail || error.message);
         }
     }
 
@@ -956,15 +930,11 @@ class AdminPanel {
         }
 
         try {
-            const response = await fetch('/api/skills', {
+            await apiFetch('/api/skills', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: skillName })
             });
-
-            if (!response.ok) throw new Error('Failed to add skill');
 
             resultDiv.innerHTML = `
                 <div class="alert alert-success">
@@ -979,7 +949,7 @@ class AdminPanel {
             console.error('Error adding skill:', error);
             resultDiv.innerHTML = `
                 <div class="alert alert-error">
-                    <strong>Error!</strong> Failed to add skill.
+                    <strong>Error!</strong> ${this.escapeHtml(error.detail || error.message)}
                 </div>
             `;
         }
@@ -991,18 +961,14 @@ class AdminPanel {
         }
 
         try {
-            const response = await fetch(`/api/skills/${encodeURIComponent(skillName)}`, {
-                method: 'DELETE'
-            });
-
-            if (!response.ok) throw new Error('Failed to delete skill');
+            await apiFetch(`/api/skills/${encodeURIComponent(skillName)}`, { method: 'DELETE' });
 
             this.showSuccess(`Skill "${skillName}" has been deleted.`);
             this.loadSkills(); // Reload the skills list
             
         } catch (error) {
             console.error('Error deleting skill:', error);
-            this.showError('Failed to delete skill.');
+            if (error.status !== 401) this.showError(error.detail || error.message);
         }
     }
 
@@ -1025,26 +991,13 @@ class AdminPanel {
     }
 
     showAlert(message, type) {
-        // Remove existing alerts
-        document.querySelectorAll('.alert').forEach(alert => {
-            if (!alert.closest('#migration-result')) {
-                alert.remove();
-            }
-        });
-        
-        const alert = document.createElement('div');
-        alert.className = `alert alert-${type}`;
-        alert.textContent = message;
-        
-        document.querySelector('.admin-container').insertBefore(
-            alert, 
-            document.querySelector('.admin-nav')
-        );
-        
-        // Auto-hide after 5 seconds
-        setTimeout(() => {
-            alert.remove();
-        }, 5000);
+        showToast(message, { type });
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = String(text ?? '');
+        return div.innerHTML;
     }
 
     formatDate(dateString) {
@@ -1067,20 +1020,11 @@ class AdminPanel {
         if (!confirm) return;
 
         try {
-            const response = await fetch('/api/admin/resources/remove-owner', {
+            const result = await apiFetch('/api/admin/resources/remove-owner', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `resource_type=${resourceType}&resource_id=${encodeURIComponent(resourceId)}&owner_id=${ownerId}`
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `resource_type=${resourceType}&resource_id=${encodeURIComponent(resourceId)}&owner_id=${encodeURIComponent(ownerId)}`
             });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.detail || `HTTP ${response.status}`);
-            }
-
-            const result = await response.json();
             this.showSuccess(result.message);
 
             // Reload resources and stats
@@ -1089,7 +1033,7 @@ class AdminPanel {
 
         } catch (error) {
             console.error('Error removing owner:', error);
-            this.showError(`Failed to remove owner: ${error.message}`);
+            if (error.status !== 401) this.showError(`Could not remove owner: ${error.detail || error.message}`);
         }
     }
 
@@ -1387,23 +1331,7 @@ class AdminPanel {
     }
 
     showNotificationToast(message, type = 'info') {
-        // Remove existing toasts
-        document.querySelectorAll('.notification-toast').forEach(toast => toast.remove());
-        
-        const toast = document.createElement('div');
-        toast.className = `notification-toast ${type}`;
-        toast.textContent = message;
-        
-        document.body.appendChild(toast);
-        
-        // Show toast with animation
-        setTimeout(() => toast.classList.add('show'), 100);
-        
-        // Auto-hide after 5 seconds
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 400);
-        }, 5000);
+        showToast(message, { type: type === 'success' || type === 'error' ? type : 'info' });
     }
 
     async openUserNotificationSettings(userId, userName) {
@@ -1411,14 +1339,11 @@ class AdminPanel {
             // Show loading state
             this.showNotificationToast('Loading notification settings...', 'info');
             
-            const response = await fetch(`/api/admin/users/${userId}/notifications`);
-            if (!response.ok) throw new Error('Failed to load user notifications');
-            
-            const data = await response.json();
+            const data = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/notifications`);
             this.showUserNotificationModal(data.user, data.devices);
         } catch (error) {
             console.error('Error loading user notifications:', error);
-            this.showNotificationToast('Failed to load user notification settings.', 'error');
+            if (error.status !== 401) this.showNotificationToast(error.detail || error.message, 'error');
         }
     }
 
@@ -1524,11 +1449,8 @@ class AdminPanel {
             toggle.style.opacity = '0.7';
             
             // Get current preferences for this device
-            const response = await fetch(`/api/admin/users/${userId}/notifications`);
-            if (!response.ok) throw new Error('Failed to fetch current preferences');
-            
-            const data = await response.json();
-            const device = data.devices.find(d => d.device_id === deviceId);
+            const data = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/notifications`);
+            const device = (data.devices || []).find(d => d.device_id === deviceId);
             
             if (!device) {
                 throw new Error('Device not found');
@@ -1541,17 +1463,11 @@ class AdminPanel {
             };
 
             // Send updated preferences to server
-            const updateResponse = await fetch(`/api/admin/users/${userId}/notifications/${deviceId}`, {
+            await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}/notifications/${encodeURIComponent(deviceId)}`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedPreferences)
             });
-
-            if (!updateResponse.ok) {
-                throw new Error('Failed to update preferences');
-            }
 
             // Show success feedback
             toggle.style.opacity = '1';
@@ -1564,7 +1480,7 @@ class AdminPanel {
 
         } catch (error) {
             console.error('Error updating user notification preference:', error);
-            this.showNotificationToast('Failed to update notification preference', 'error');
+            if (error.status !== 401) this.showNotificationToast(error.detail || error.message, 'error');
             
             // Revert checkbox state on error
             const modal = document.querySelector('.user-notification-modal');

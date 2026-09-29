@@ -2,16 +2,27 @@
  * Authentication module for Google OAuth integration
  */
 
+const PENDING_ACTION_KEY = 'pending_action_v1';
+const AUTH_RECHECK_MIN_INTERVAL_MS = 60 * 1000;
+
 class AuthManager {
     constructor() {
         this.currentUser = null;
         this.isAuthenticated = false;
+        this.lastNetworkCheckAt = 0;
+        // Resolves after the first network auth check completes (success or failure)
+        this.ready = new Promise((resolve) => { this._resolveReady = resolve; });
         // Eager initialize for instant header render
         this.loadCachedUser();
         this.setupEventListeners();
+        this.setupRecheckTriggers();
         this.updateUI();
         // Refresh in background
-        this.refreshAuthStatus();
+        this.refreshAuthStatus().then(() => {
+            this._resolveReady(this.isAuthenticated);
+            window.dispatchEvent(new CustomEvent('auth:ready', { detail: { authenticated: this.isAuthenticated } }));
+            this.replayPendingAction();
+        });
     }
 
     // Helper method to get profile picture URL
@@ -36,21 +47,100 @@ class AuthManager {
     }
 
     async checkAuthStatus() {
+        // Only an explicit `authenticated: false` from the server logs the user out.
+        // Network errors, 5xx during a deploy, or a non-JSON body keep the cached state.
+        this.lastNetworkCheckAt = Date.now();
         try {
-            const response = await fetch('/api/auth/user');
+            const response = await fetch('/api/auth/user', { cache: 'no-store', credentials: 'same-origin' });
+            if (!response.ok) {
+                console.warn('Auth check returned', response.status, '- keeping cached auth state');
+                return;
+            }
             const data = await response.json();
-            
-            this.isAuthenticated = data.authenticated;
-            this.currentUser = data.user;
-            
+            if (data.authenticated === false) {
+                this.isAuthenticated = false;
+                this.currentUser = null;
+                this.clearCachedUser();
+            } else if (data.authenticated === true && data.user) {
+                this.isAuthenticated = true;
+                this.currentUser = data.user;
+                this.saveCachedUser();
+            } else {
+                console.warn('Auth check returned an unexpected body - keeping cached auth state', data);
+                return;
+            }
             console.log('Auth status:', { authenticated: this.isAuthenticated, user: this.currentUser });
-            this.saveCachedUser();
         } catch (error) {
-            console.error('Error checking auth status:', error);
+            console.warn('Auth check failed - keeping cached auth state:', error);
+        }
+    }
+
+    setupRecheckTriggers() {
+        const recheckIfStale = () => {
+            if (document.visibilityState === 'hidden') return;
+            if (Date.now() - this.lastNetworkCheckAt < AUTH_RECHECK_MIN_INTERVAL_MS) return;
+            this.refreshAuthStatus();
+        };
+        window.addEventListener('focus', recheckIfStale);
+        document.addEventListener('visibilitychange', recheckIfStale);
+        // Coming back online is not throttled: the last check most likely failed
+        window.addEventListener('online', () => this.refreshAuthStatus());
+    }
+
+    // --- Login gating -------------------------------------------------------
+
+    /**
+     * Synchronous pre-check for a write action. Returns true when signed in;
+     * otherwise shows the sign-in toast (storing `pending`) and returns false.
+     */
+    requireAuth(pending) {
+        if (this.isAuthenticated) return true;
+        this.requireLogin(pending);
+        return false;
+    }
+
+    /**
+     * Show "Sign in to do that" with a Sign in action. `pending` is a small JSON
+     * object ({ page, hint }) stored in sessionStorage and replayed after login
+     * through the `auth:pending-action` event. Never pass FormData or files.
+     */
+    requireLogin(pending) {
+        // A 401 from the server means the cookie is gone: reflect it in the header
+        if (this.isAuthenticated) {
             this.isAuthenticated = false;
             this.currentUser = null;
             this.clearCachedUser();
+            this.updateUI();
         }
+        window.showToast('Sign in to do that', {
+            type: 'info',
+            action: { label: 'Sign in', onClick: () => this.login(pending) }
+        });
+    }
+
+    login(pending) {
+        const page = window.location.pathname + window.location.search;
+        try {
+            if (pending && typeof pending === 'object') {
+                sessionStorage.setItem(PENDING_ACTION_KEY, JSON.stringify({ page, ...pending }));
+            }
+        } catch (_) {}
+        window.location.href = '/auth/login?next=' + encodeURIComponent(page);
+    }
+
+    replayPendingAction() {
+        let pending = null;
+        try {
+            const raw = sessionStorage.getItem(PENDING_ACTION_KEY);
+            if (raw) pending = JSON.parse(raw);
+        } catch (_) {}
+        if (!pending || typeof pending !== 'object') return;
+        const page = window.location.pathname + window.location.search;
+        if (pending.page !== page) return;
+        if (!this.isAuthenticated) return;
+        try { sessionStorage.removeItem(PENDING_ACTION_KEY); } catch (_) {}
+        window.showToast("You're signed in. Continue where you left off.", { type: 'success' });
+        window.dispatchEvent(new CustomEvent('auth:pending-action', { detail: pending }));
     }
 
     setupEventListeners() {
@@ -158,11 +248,6 @@ class AuthManager {
                 window.open('/docs', '_blank');
             }
         });
-    }
-
-    login() {
-        // Redirect to OAuth login endpoint
-        window.location.href = '/auth/login';
     }
 
     logout() {
@@ -476,11 +561,11 @@ class AuthManager {
             if (!raw) return;
             const parsed = JSON.parse(raw);
             const ts = typeof parsed.ts === 'number' ? parsed.ts : 0;
-            // Fresh for 10 minutes
-            if (Date.now() - ts < 10 * 60 * 1000) {
-                this.isAuthenticated = !!parsed.authenticated && !!parsed.user;
-                this.currentUser = parsed.user || null;
-            }
+            // Trusted for first paint for the whole session cookie lifetime; the
+            // network check corrects it. The timestamp is kept for logging only.
+            console.log('Auth cache age (min):', Math.round((Date.now() - ts) / 60000));
+            this.isAuthenticated = !!parsed.authenticated && !!parsed.user;
+            this.currentUser = parsed.user || null;
         } catch (_) {}
     }
 
@@ -547,21 +632,11 @@ class AuthManager {
 
     async openNotificationManagement() {
         try {
-            // Get user's devices and their notification preferences
-            const response = await fetch('/api/notifications/devices', {
-                credentials: 'include'
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch devices: ${response.status}`);
-            }
-
-            const devicesData = await response.json();
-            this.showNotificationManagementModal(devicesData.devices || []);
-
+            const devicesData = await apiFetch('/api/notifications/devices');
+            this.showNotificationManagementModal((devicesData && devicesData.devices) || []);
         } catch (error) {
             console.error('Error opening notification management:', error);
-            this.showNotification('Failed to load notification settings', 'error');
+            if (error.status !== 401) showToast(error.detail || error.message, { type: 'error' });
         }
     }
 
@@ -711,40 +786,21 @@ class AuthManager {
 
     async updateNotificationPreference(deviceId, notificationType, isEnabled) {
         try {
-            // Get current preferences for this device
-            const response = await fetch(`/api/notifications/devices/${deviceId}/preferences`, {
-                credentials: 'include'
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch preferences: ${response.status}`);
-            }
-
-            const data = await response.json();
-            const preferences = data.preferences;
-
-            // Update the specific preference
+            const data = await apiFetch(`/api/notifications/devices/${deviceId}/preferences`);
+            const preferences = (data && data.preferences) || {};
             preferences[notificationType] = isEnabled;
 
-            // Send updated preferences to server
-            const updateResponse = await fetch(`/api/notifications/devices/${deviceId}/preferences`, {
+            await apiFetch(`/api/notifications/devices/${deviceId}/preferences`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(preferences)
             });
-
-            if (!updateResponse.ok) {
-                throw new Error(`Failed to update preferences: ${updateResponse.status}`);
-            }
 
             console.log(`✅ Updated ${notificationType} preference for device ${deviceId.substring(0, 15)}...`);
 
         } catch (error) {
             console.error('Error updating notification preference:', error);
-            this.showNotification('Failed to update notification preference', 'error');
+            if (error.status !== 401) showToast(error.detail || error.message, { type: 'error' });
             
             // Revert checkbox state on error
             const checkbox = document.querySelector(`input[data-device-id="${deviceId}"][data-notification-type="${notificationType}"]`);
@@ -760,14 +816,7 @@ class AuthManager {
         }
 
         try {
-            const response = await fetch(`/api/notifications/devices/${deviceId}`, {
-                method: 'DELETE',
-                credentials: 'include'
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to remove device: ${response.status}`);
-            }
+            await apiFetch(`/api/notifications/devices/${deviceId}`, { method: 'DELETE' });
 
             // Remove the row from the table
             const row = document.querySelector(`tr[data-device-id="${deviceId}"]`);
@@ -775,12 +824,12 @@ class AuthManager {
                 row.remove();
             }
 
-            this.showNotification('Device removed successfully', 'success');
+            showToast('Device removed', { type: 'success' });
             console.log(`✅ Removed device ${deviceId.substring(0, 15)}...`);
 
         } catch (error) {
             console.error('Error removing device:', error);
-            this.showNotification('Failed to remove device', 'error');
+            if (error.status !== 401) showToast(error.detail || error.message, { type: 'error' });
         }
     }
 
@@ -791,35 +840,16 @@ class AuthManager {
         }
     }
 
-    showNotification(message, type = 'info') {
-        // Create notification element
-        const notification = document.createElement('div');
-        notification.className = `notification ${type}`;
-        notification.textContent = message;
-
-        // Add to DOM
-        document.body.appendChild(notification);
-
-        // Remove after 3 seconds
-        setTimeout(() => {
-            notification.classList.add('fade-out');
-            setTimeout(() => notification.remove(), 3000);
-        }, 3000);
-    }
-
     async toggleNotifications() {
-        if (!this.isAuthenticated) {
-            alert('Please log in to enable notifications');
-            return;
-        }
+        if (!this.requireAuth()) return;
 
         if (!window.notificationsManager) {
-            alert('Notification manager not available. Please refresh the page.');
+            showToast('Notification manager not available. Refresh the page.', { type: 'error' });
             return;
         }
 
         if (!window.notificationsManager.supported) {
-            alert('Push notifications are not supported in this browser');
+            showToast('Push notifications are not supported in this browser', { type: 'error' });
             return;
         }
 
@@ -834,12 +864,12 @@ class AuthManager {
                 if (!confirmed) return;
                 
                 await window.notificationsManager.disableNotifications();
-                alert('Notifications disabled successfully');
+                showToast('Notifications disabled', { type: 'success' });
                 
             } else {
                 // Enable notifications
                 await window.notificationsManager.enableNotifications();
-                alert('Notifications enabled successfully! You\'ll now receive alerts for new content.');
+                showToast("Notifications enabled. You'll now receive alerts for new content.", { type: 'success' });
                 
                 // Send a test notification after a short delay
                 setTimeout(async () => {
@@ -858,67 +888,45 @@ class AuthManager {
             console.error('Error toggling notifications:', error);
             
             if (error.message.includes('denied')) {
-                alert('Notification permission was denied. Please enable notifications in your browser settings and try again.');
+                showToast('Notification permission was denied. Enable notifications in your browser settings and try again.', { type: 'error' });
             } else if (error.message.includes('dismissed')) {
-                alert('Notification permission was dismissed. Please try again and allow notifications.');
+                showToast('Notification permission was dismissed. Try again and allow notifications.', { type: 'error' });
             } else {
-                alert('Failed to toggle notifications: ' + error.message);
+                showToast('Failed to toggle notifications: ' + error.message, { type: 'error' });
             }
         }
     }
 
     // Method to clear all user preferences
     async clearUserPreferences() {
-        if (!this.isAuthenticated || !this.currentUser) {
-            console.log('Cannot clear preferences: user not authenticated');
-            return;
-        }
+        if (!this.requireAuth()) return;
 
         const confirmed = confirm('Are you sure you want to clear all your saved preferences? This cannot be undone.');
         if (!confirmed) return;
 
         try {
             console.log('Clearing user preferences...');
-            
-            // Get all current preferences
-            const response = await fetch('/api/user/preferences', {
-                method: 'GET',
-                credentials: 'include'
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                const preferences = data.preferences || {};
-                
-                // Delete each preference
-                const deletePromises = Object.keys(preferences).map(async (key) => {
-                    const deleteResponse = await fetch(`/api/user/preferences/${key}`, {
-                        method: 'DELETE',
-                        credentials: 'include'
-                    });
-                    
-                    if (!deleteResponse.ok) {
-                        console.error(`Failed to delete preference: ${key}`);
-                    }
-                    return { key, success: deleteResponse.ok };
-                });
-
-                const results = await Promise.all(deletePromises);
-                const successCount = results.filter(r => r.success).length;
-                
-                if (successCount > 0) {
-                    alert(`Successfully cleared ${successCount} preference(s). The page will reload to apply changes.`);
-                    // Reload the page to reset any UI state
-                    window.location.reload();
-                } else {
-                    alert('No preferences found to clear.');
-                }
-            } else {
-                throw new Error('Failed to fetch preferences');
+            const data = await apiFetch('/api/user/preferences');
+            const preferences = (data && data.preferences) || {};
+            const keys = Object.keys(preferences);
+            if (keys.length === 0) {
+                showToast('No preferences found to clear.', { type: 'info' });
+                return;
             }
+
+            const results = await Promise.allSettled(
+                keys.map((key) => apiFetch(`/api/user/preferences/${encodeURIComponent(key)}`, { method: 'DELETE' }))
+            );
+            const failed = results.filter(r => r.status === 'rejected');
+            if (failed.length) {
+                showToast(`Cleared ${keys.length - failed.length} of ${keys.length} preference(s). ${failed[0].reason.detail || failed[0].reason.message}`, { type: 'error' });
+                return;
+            }
+            showToast(`Cleared ${keys.length} preference(s). Reloading...`, { type: 'success' });
+            setTimeout(() => window.location.reload(), 800);
         } catch (error) {
             console.error('Error clearing preferences:', error);
-            alert('Failed to clear preferences. Please try again.');
+            if (error.status !== 401) showToast(error.detail || error.message, { type: 'error' });
         } finally {
             this.closeProfileDropdown();
         }
@@ -928,20 +936,16 @@ class AuthManager {
     async showTokenManagement() {
         this.closeProfileDropdown();
         
+        if (!this.requireAuth()) return;
         try {
-            // Fetch user's tokens and available permissions
-            const [tokensResponse, permissionsResponse] = await Promise.all([
-                fetch('/api/auth/tokens'),
-                fetch('/api/auth/permissions')
+            const [tokens, permissionsData] = await Promise.all([
+                apiFetch('/api/auth/tokens'),
+                apiFetch('/api/auth/permissions')
             ]);
-            
-            const tokens = await tokensResponse.json();
-            const permissionsData = await permissionsResponse.json();
-            
-            this.displayTokenModal(tokens, permissionsData);
+            this.displayTokenModal(Array.isArray(tokens) ? tokens : [], permissionsData || { permissions: {}, descriptions: {} });
         } catch (error) {
             console.error('Error loading token management:', error);
-            alert('Failed to load token management. Please try again.');
+            if (error.status !== 401) showToast(error.detail || error.message, { type: 'error' });
         }
     }
 
@@ -1148,14 +1152,14 @@ class AuthManager {
     async createToken() {
         const tokenName = document.getElementById('token-name').value.trim();
         if (!tokenName) {
-            alert('Please enter a token name');
+            showToast('Enter a token name', { type: 'error' });
             return;
         }
 
         // Get selected expiry hours
         const expiryHours = parseInt(document.getElementById('token-expiry').value);
         if (!expiryHours || expiryHours < 1 || expiryHours > 8760) {
-            alert('Please select a valid expiry time');
+            showToast('Select a valid expiry time', { type: 'error' });
             return;
         }
 
@@ -1171,30 +1175,21 @@ class AuthManager {
         });
 
         try {
-            const response = await fetch('/api/auth/token/create', {
+            const tokenData = await apiFetch('/api/auth/token/create', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     token_name: tokenName,
                     permissions: permissions,
                     expires_in_hours: expiryHours
                 })
             });
-
-            if (response.ok) {
-                const tokenData = await response.json();
-                this.showTokenCreatedDialog(tokenData);
-                // Refresh the token list
-                this.showTokenManagement();
-            } else {
-                const error = await response.json();
-                alert(`Failed to create token: ${error.detail}`);
-            }
+            this.showTokenCreatedDialog(tokenData);
+            // Refresh the token list
+            this.showTokenManagement();
         } catch (error) {
             console.error('Error creating token:', error);
-            alert('Failed to create token. Please try again.');
+            if (error.status !== 401) showToast(error.detail || error.message, { type: 'error' });
         }
     }
 
@@ -1337,20 +1332,12 @@ class AuthManager {
         }
 
         try {
-            const response = await fetch(`/api/auth/tokens/${tokenId}`, {
-                method: 'DELETE'
-            });
-
-            if (response.ok) {
-                // Refresh the token list
-                this.showTokenManagement();
-            } else {
-                const error = await response.json();
-                alert(`Failed to revoke token: ${error.detail}`);
-            }
+            await apiFetch(`/api/auth/tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' });
+            showToast('Token revoked', { type: 'success' });
+            this.showTokenManagement();
         } catch (error) {
             console.error('Error revoking token:', error);
-            alert('Failed to revoke token. Please try again.');
+            if (error.status !== 401) showToast(error.detail || error.message, { type: 'error' });
         }
     }
 
@@ -2500,25 +2487,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const error = urlParams.get('error');
     
     if (error) {
-        let errorMessage = 'Authentication failed. Please try again.';
-        
-        switch (error) {
-            case 'oauth_error':
-                errorMessage = 'OAuth authorization failed.';
-                break;
-            case 'no_code':
-                errorMessage = 'No authorization code received.';
-                break;
-            case 'no_token':
-                errorMessage = 'Failed to get access token.';
-                break;
-            case 'auth_failed':
-                errorMessage = 'Authentication process failed.';
-                break;
-        }
-        
-        // Show error message (you can customize this)
-        console.error('Auth error:', errorMessage);
+        const messages = {
+            oauth_error: 'Google did not complete the sign-in. Please try again.',
+            no_code: 'Google did not return a sign-in code. Please try again.',
+            no_token: 'Could not confirm your Google account. Please try again.',
+            auth_failed: 'Sign-in failed on our side. Please try again in a moment.',
+            invalid_state: 'The sign-in link expired or was already used. Please try again.'
+        };
+        const errorMessage = messages[error] || 'Sign-in failed. Please try again.';
+        console.error('Auth error:', error, errorMessage);
+        showToast(errorMessage, {
+            type: 'error',
+            action: { label: 'Sign in', onClick: () => window.authManager && window.authManager.login() }
+        });
         
         // Remove error from URL
         const newUrl = new URL(window.location);
