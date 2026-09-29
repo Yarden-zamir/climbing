@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile
 from fastapi.responses import JSONResponse
 
-from auth import get_current_user
+from auth import require_auth
 from dependencies import get_redis_store, get_permissions_manager
 from permissions import ResourceType
 from validation import ValidationError, validate_image_file
@@ -38,18 +38,16 @@ async def get_memes():
 
     except Exception as e:
         logger.error(f"Error getting memes: {e}")
-        return JSONResponse([])
+        raise HTTPException(status_code=500, detail="Failed to get memes")
 
 
 @router.post("/submit")
 async def submit_meme(
     image: UploadFile = File(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_auth)
 ):
     """Submit a new meme"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
     redis_store = get_redis_store()
@@ -73,6 +71,8 @@ async def submit_meme(
         can_submit = await permissions_manager.check_submission_limits(user_id, ResourceType.MEME)
         if not can_submit:
             raise HTTPException(status_code=403, detail="You have reached your meme submission limit")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Permission check failed")
@@ -122,6 +122,8 @@ async def submit_meme(
             "meme_id": meme_id
         })
 
+    except HTTPException:
+        raise
     except ValidationError as e:
         logger.error(f"Validation error in meme submission: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -131,11 +133,9 @@ async def submit_meme(
 
 
 @router.delete("/{meme_id}")
-async def delete_meme(meme_id: str, user: dict = Depends(get_current_user)):
+async def delete_meme(meme_id: str, user: dict = Depends(require_auth)):
     """Delete a meme"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
     redis_store = get_redis_store()
@@ -154,12 +154,7 @@ async def delete_meme(meme_id: str, user: dict = Depends(get_current_user)):
     if not meme:
         raise HTTPException(status_code=404, detail="Meme not found")
 
-    # Check permissions
-    try:
-        await permissions_manager.require_resource_access(user_id, ResourceType.MEME, meme_id, "delete")
-    except Exception as e:
-        logger.error(f"Permission check failed: {e}")
-        raise HTTPException(status_code=403, detail="You don't have permission to delete this meme")
+    await permissions_manager.require_resource_access(user_id, ResourceType.MEME, meme_id, "delete")
 
     try:
         # Delete meme
@@ -167,11 +162,15 @@ async def delete_meme(meme_id: str, user: dict = Depends(get_current_user)):
         if not success:
             raise HTTPException(status_code=404, detail="Meme not found")
 
+        await permissions_manager.release_resource(ResourceType.MEME, meme_id)
+
         return JSONResponse({
             "success": True,
             "message": "Meme deleted successfully"
         })
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting meme: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete meme")

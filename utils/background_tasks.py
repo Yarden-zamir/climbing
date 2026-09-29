@@ -115,4 +115,14 @@ async def refresh_album_metadata(redis_store):
         except Exception as e:
             logger.error(f"❌ Album metadata refresh task failed: {e}")
             # Continue the loop even if there's an error
-            continue 
+            continue
+
+
+async def refresh_new_climbers(redis_store):
+    """Keep is_new current as the 14-day window passes; album writes also recalculate."""
+    while True:
+        try:
+            await redis_store.calculate_new_climbers()
+        except Exception as e:
+            logger.error(f"❌ New climber recalculation failed: {e}")
+        await asyncio.sleep(60 * 60) 

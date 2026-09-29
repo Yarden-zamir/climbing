@@ -71,6 +71,8 @@ climbing/
 - **Albums:**
   - Add albums via Google Photos URL
   - Crew selection and instant DB update
+  - "Learned something new?": a ⚡ button on each selected crew chip records skills and achievements gained in that album. The album URL is stored per item as its source (`skill_sources`, `achievement_sources` on the climber).
+  - Album dates are parsed once on the server (`date_iso`); the "new album" badge and sorting use that value, so old albums never show as new
   - Animated auto-refresh with change detection (particles for add/delete/update)
   - Album metadata scraping and image proxying
 
@@ -78,7 +80,7 @@ climbing/
   - Add/edit/delete crew members with skills, achievements, and images
   - Real-time updates and particle animations for changes
   - Team stats exclude "Is Etherial" members
-  - "NEW" badge for recent crew, with tooltip for first climb date
+  - "NEW" badge for climbers whose first climb (album date, not upload date) is within 14 days, with tooltip for the first climb date. Recomputed on album writes and hourly
 
 - **Memes:**
   - Upload, browse, and delete memes in a responsive gallery
@@ -102,9 +104,10 @@ climbing/
   - Permission system with roles (user, admin, pending)
 
 - **Authentication:**
-  - Google OAuth for web
+  - Google OAuth for web; sessions last 30 days and refresh on activity
   - JWT Bearer tokens for API/mobile (see `JWT_API_AUTH.md`)
   - Hybrid endpoints support both session and JWT
+  - Signed-out users who try a write action get a "Sign in" toast; after login they return to the same page and the modal reopens (`static/js/api.js`: `apiFetch`, `showToast`, `authManager.requireAuth`)
 
 - **Backend:**
   - Modular FastAPI app (routes, middleware, models, utils)
@@ -127,6 +130,7 @@ climbing/
   - See `JWT_API_AUTH.md` for JWT usage and hybrid auth
 
 - **Scripts:**
+  - `scripts/enrich_locations.py` — Fill missing location data from `data/locations_enrichment.json` (dry run by default, `--apply` to write)
   - `scripts/redis_data_migration.py` — Migrate old JSON arrays to Redis sets
   - `scripts/make_admin.py` — Promote user to admin
   - `scripts/list_users.py` — List all users
@@ -158,6 +162,10 @@ Admins can:
 - Monitor notification delivery reliability
 
 ---
+
+## Deployment
+
+Pushes to `main` run `.github/workflows/deploy.yml`: a check job (Python compile, JavaScript syntax, inline page scripts), then a deploy job that pulls on the server, runs `uv sync --frozen`, restarts `climbing-app.service`, waits for `/api/health`, and fails unless the `revision` reported by the health endpoint equals the pushed commit.
 
 ## Customization
 

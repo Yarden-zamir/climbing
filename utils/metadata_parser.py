@@ -3,7 +3,10 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 from pathlib import Path
+from urllib.parse import urlparse
 from datetime import datetime
+
+from redis_store import YEAR_PATTERN, parse_album_date
 
 
 def inject_css_version(html_path):
@@ -33,63 +36,55 @@ def inject_css_version(html_path):
     return html
 
 
+# Only Google Photos pages and their image CDN may be fetched through the proxy endpoints.
+ALLOWED_FETCH_HOSTS = ("photos.app.goo.gl", "photos.google.com", "googleusercontent.com")
+
+
+def is_allowed_fetch_url(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == allowed or host.endswith("." + allowed) for allowed in ALLOWED_FETCH_HOSTS)
+
+
 async def fetch_url(client: httpx.AsyncClient, url: str):
-    """Generic helper to fetch a URL and handle errors."""
+    """Fetch a Google Photos URL. Upstream failures become 4xx/502 with a readable detail, never 500."""
+    if not is_allowed_fetch_url(url):
+        raise HTTPException(status_code=400, detail="Only Google Photos URLs can be fetched")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    }
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-        }
-        response = await client.get(
-            url, headers=headers, follow_redirects=True
-        )
+        response = await client.get(url, headers=headers, follow_redirects=True)
         response.raise_for_status()
         return response
+    except httpx.HTTPStatusError as exc:
+        upstream = exc.response.status_code
+        if upstream in (401, 403):
+            detail = "Google Photos refused access; the album must be shared with a link"
+        elif upstream in (404, 410):
+            detail = "Google Photos returned not found; the album or image no longer exists"
+        else:
+            detail = f"Google Photos responded with HTTP {upstream}"
+        raise HTTPException(status_code=upstream if 400 <= upstream < 500 else 502, detail=detail)
     except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=400, detail=f"Error fetching URL: {exc}"
-        )
+        raise HTTPException(status_code=502, detail=f"Could not reach Google Photos: {exc.__class__.__name__}")
 
 
 def normalize_album_date(date_str: str) -> str:
     """
-    Normalize album date to always include year.
-    Google Photos often omits year for current-year albums.
-    If date would be in the future, assumes previous year.
+    Normalize album date to always include a year.
+    Google Photos omits the year for current-year albums; parse_album_date infers it
+    (a yearless date in the future belongs to last year).
     """
     if not date_str:
         return date_str
 
     date_str = date_str.strip()
-
-    # Already has a 4-digit year (20xx)
-    if re.search(r'\b20\d{2}\b', date_str):
+    if YEAR_PATTERN.search(date_str):
         return date_str
 
-    # Add current year
-    current_year = datetime.now().year
-    date_with_year = f"{date_str}, {current_year}"
-
-    # Try to parse and check if it's in the future
-    # Clean the date for parsing
-    clean_date = date_with_year
-    # Remove day of week prefix
-    clean_date = re.sub(r'^[A-Za-z]+,\s*', '', clean_date)
-    # Handle date ranges - use first date
-    if '–' in clean_date:
-        clean_date = clean_date.split('–')[0].strip()
-
-    for fmt in ["%B %d, %Y", "%b %d, %Y", "%d %B, %Y", "%d %b, %Y"]:
-        try:
-            parsed_date = datetime.strptime(clean_date, fmt)
-            # If date is in the future, it must be from last year
-            if parsed_date > datetime.now():
-                return f"{date_str}, {current_year - 1}"
-            return date_with_year
-        except ValueError:
-            continue
-
-    # Couldn't parse, just append year
-    return date_with_year
+    parsed = parse_album_date(date_str)
+    year = parsed.year if parsed else datetime.now().year
+    return f"{date_str}, {year}"
 
 
 def parse_meta_tags(html: str, url: str):

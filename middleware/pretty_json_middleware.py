@@ -35,9 +35,11 @@ class PrettyJSONMiddleware(BaseHTTPMiddleware):
         if pretty_param not in ("true", "1", "yes"):
             return response
 
-        # Only process JSON responses
+        # Only process uncompressed JSON responses
         content_type = response.headers.get("content-type", "")
         if not content_type.startswith("application/json"):
+            return response
+        if response.headers.get("content-encoding"):
             return response
 
         try:

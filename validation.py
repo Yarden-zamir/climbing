@@ -3,7 +3,6 @@ Input validation and sanitization utilities for the climbing app.
 """
 
 import re
-import html
 import json
 from typing import List, Optional, Dict, Any
 from urllib.parse import urlparse
@@ -16,13 +15,12 @@ class ValidationError(Exception):
 
 
 def sanitize_string(value: str, max_length: int = 255) -> str:
-    """Sanitize string input by removing HTML and limiting length"""
+    """Strip and collapse whitespace, then limit length. Stored data is raw; templates escape on output."""
     if not value:
         return ""
-    
-    # Remove HTML tags and decode HTML entities
-    sanitized = html.escape(value.strip())
-    
+
+    sanitized = " ".join(value.split())
+
     # Limit length
     if len(sanitized) > max_length:
         raise ValidationError(f"Input too long (max {max_length} characters)")

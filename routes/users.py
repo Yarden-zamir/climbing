@@ -1,8 +1,9 @@
+import json
 import logging
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 
-from auth import get_current_user
+from auth import require_auth
 from dependencies import get_redis_store
 from validation import ValidationError
 
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/user", tags=["user"])
 async def set_user_preference(
     preference_key: str,
     request: dict,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_auth)
 ):
     """Set a user preference"""
     redis_store = get_redis_store()
@@ -24,15 +25,14 @@ async def set_user_preference(
         raise HTTPException(status_code=503, detail="Database unavailable")
     
     try:
-        user_id = user.get("id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Authentication required")
+        user_id = user["id"]
 
         preference_value = request.get("value")
         if preference_value is None:
             raise HTTPException(status_code=400, detail="Preference value is required")
 
-        await redis_store.set_user_preference(user_id, preference_key, preference_value)
+        # Always store JSON so bool/int/str round-trip through get_user_preference's json.loads
+        await redis_store.set_user_preference(user_id, preference_key, json.dumps(preference_value))
 
         return JSONResponse({
             "success": True,
@@ -51,7 +51,7 @@ async def set_user_preference(
 @router.get("/preferences/{preference_key}")
 async def get_user_preference(
     preference_key: str,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_auth)
 ):
     """Get a user preference"""
     redis_store = get_redis_store()
@@ -61,9 +61,7 @@ async def get_user_preference(
         raise HTTPException(status_code=503, detail="Database unavailable")
     
     try:
-        user_id = user.get("id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Authentication required")
+        user_id = user["id"]
 
         preference_value = await redis_store.get_user_preference(user_id, preference_key)
 
@@ -79,7 +77,7 @@ async def get_user_preference(
 
 
 @router.get("/preferences")
-async def get_all_user_preferences(user: dict = Depends(get_current_user)):
+async def get_all_user_preferences(user: dict = Depends(require_auth)):
     """Get all user preferences"""
     redis_store = get_redis_store()
     
@@ -88,9 +86,7 @@ async def get_all_user_preferences(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="Database unavailable")
     
     try:
-        user_id = user.get("id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Authentication required")
+        user_id = user["id"]
 
         preferences = await redis_store.get_all_user_preferences(user_id)
 
@@ -107,7 +103,7 @@ async def get_all_user_preferences(user: dict = Depends(get_current_user)):
 @router.delete("/preferences/{preference_key}")
 async def delete_user_preference(
     preference_key: str,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_auth)
 ):
     """Delete a user preference"""
     redis_store = get_redis_store()
@@ -117,9 +113,7 @@ async def delete_user_preference(
         raise HTTPException(status_code=503, detail="Database unavailable")
     
     try:
-        user_id = user.get("id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Authentication required")
+        user_id = user["id"]
 
         deleted = await redis_store.delete_user_preference(user_id, preference_key)
 

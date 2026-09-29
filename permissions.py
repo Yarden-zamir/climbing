@@ -261,9 +261,9 @@ class PermissionsManager:
         """Get permissions for a user role"""
         try:
             role_enum = UserRole(user_role)
-            return self.role_permissions.get(role_enum, self.role_permissions[UserRole.USER])
+            return self.role_permissions.get(role_enum, self.role_permissions[UserRole.PENDING])
         except ValueError:
-            return self.role_permissions[UserRole.USER]
+            return self.role_permissions[UserRole.PENDING]
 
     async def can_user_perform_action(self, user_id: str, action: str, resource_type: Optional[ResourceType] = None,
                                       resource_id: Optional[str] = None) -> bool:
@@ -333,6 +333,44 @@ class PermissionsManager:
         elif resource_type == ResourceType.MEME:
             self.redis_store.redis.hincrby(user_key, "memes_created", 1)
 
+    async def release_resource(self, resource_type: ResourceType, resource_id: str) -> None:
+        """Drop all ownership records of a deleted resource and give each owner back one creation slot."""
+        count_fields = {
+            ResourceType.ALBUM: "albums_created",
+            ResourceType.CREW_MEMBER: "crew_members_created",
+            ResourceType.MEME: "memes_created",
+        }
+        owners = await self.get_resource_owners(resource_type, resource_id)
+        redis = self.redis_store.redis
+
+        redis.delete(f"ownership:{resource_type.value}:{resource_id}")
+        for owner_id in owners:
+            redis.srem(f"index:user_resources:{owner_id}:{resource_type.value}", resource_id)
+            field = count_fields.get(resource_type)
+            if field is None:
+                continue
+            user_key = f"user:{owner_id}"
+            if redis.hincrby(user_key, field, -1) < 0:
+                redis.hset(user_key, field, 0)
+
+        logger.info(f"Released {resource_type.value} {resource_id} from owners {owners}")
+
+    async def rename_resource(self, resource_type: ResourceType, old_id: str, new_id: str) -> None:
+        """Move ownership records from old_id to new_id. Creation counters stay unchanged."""
+        if old_id == new_id:
+            return
+        owners = await self.get_resource_owners(resource_type, old_id)
+        redis = self.redis_store.redis
+
+        for owner_id in owners:
+            redis.sadd(f"ownership:{resource_type.value}:{new_id}", owner_id)
+            user_index = f"index:user_resources:{owner_id}:{resource_type.value}"
+            redis.srem(user_index, old_id)
+            redis.sadd(user_index, new_id)
+        redis.delete(f"ownership:{resource_type.value}:{old_id}")
+
+        logger.info(f"Renamed {resource_type.value} {old_id} -> {new_id} for owners {owners}")
+
     # === AUTHORIZATION HELPERS ===
 
     async def require_permission(self, user_id: str, action: str, resource_type: Optional[ResourceType] = None,
@@ -375,6 +413,14 @@ class PermissionsManager:
             return
         if action == "delete" and permissions.can_delete_all_resources:
             return
+
+        # Role gate before ownership: pending users cannot touch even their own resources
+        can_touch_own = permissions.can_edit_own_resources if action == "edit" else permissions.can_delete_own_resources
+        if not can_touch_own:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Your account is pending approval. You cannot {action} resources until an administrator approves you."
+            )
 
         # Check ownership
         if not await self.is_resource_owner(resource_type, resource_id, user_id):

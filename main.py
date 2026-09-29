@@ -25,7 +25,7 @@ from fastapi import (
     File,
     UploadFile,
     Depends,
-    Path,
+    Path as PathParam,
 )
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
@@ -36,7 +36,7 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # OAuth imports
-from auth import oauth_handler, get_current_user, require_auth
+from auth import oauth_handler, get_current_user, require_auth, SessionRefreshMiddleware
 from config import settings
 
 # Redis datastore import
@@ -75,6 +75,7 @@ from utils.metadata_parser import inject_css_version, fetch_url, parse_meta_tags
 from utils.background_tasks import (
     perform_album_metadata_refresh,
     refresh_album_metadata,
+    refresh_new_climbers,
 )
 from utils.export_utils import export_redis_database
 
@@ -215,6 +216,7 @@ async def start_background_tasks():
     """Start background tasks on startup"""
     logger.info("🚀 Starting background metadata refresh task...")
     asyncio.create_task(refresh_album_metadata(redis_store))
+    asyncio.create_task(refresh_new_climbers(redis_store))
 
 
 # === API Routes ===
@@ -302,8 +304,8 @@ async def get_image(url: str = Query(..., description="URL of the image to fetch
 
 @app.get("/redis-image/{image_type}/{identifier:path}", tags=["utilities"])
 async def get_redis_image(
-    image_type: str = Path(..., description="Type of image (climber, profile, meme)"),
-    identifier: str = Path(..., description="Image identifier or path"),
+    image_type: str = PathParam(..., description="Type of image (climber, profile, meme)"),
+    identifier: str = PathParam(..., description="Image identifier or path"),
 ):
     """
     Serve images stored in Redis with proper caching and content types.
@@ -575,8 +577,9 @@ async def manifest():
     return response
 
 
-# Add GZip compression middleware (add first for best performance)
-app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(PrettyJSONMiddleware, api_prefix="/api")
 app.add_middleware(CaseInsensitiveMiddleware)
 app.add_middleware(NoCacheMiddleware)
+app.add_middleware(SessionRefreshMiddleware)
+# GZip is registered last so it runs outermost and compresses after PrettyJSON has rewritten the body
+app.add_middleware(GZipMiddleware, minimum_size=500)
