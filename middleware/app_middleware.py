@@ -56,7 +56,7 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
         if (path.endswith((".css", ".js", ".html")) or
             path in ["/", "/albums", "/memes", "/crew"] or
                 path.startswith("/static/")):
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+            response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
 

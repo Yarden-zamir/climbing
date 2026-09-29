@@ -2620,7 +2620,7 @@ document.addEventListener('DOMContentLoaded', () => {
     a.rel = 'noopener noreferrer';
 
     const imageTag = meta.imageUrl
-      ? `<img class="mini-album-img" src="/get-image?url=${encodeURIComponent(meta.imageUrl)}" alt="${escapeHtml(meta.title || '')}" loading="lazy" onerror="this.style.display='none'">`
+      ? `<img class="mini-album-img" src="/get-image?url=${encodeURIComponent(meta.imageUrl)}&w=400" alt="${escapeHtml(meta.title || '')}" loading="lazy" onerror="this.style.display='none'">`
       : '';
     a.innerHTML = `
       ${imageTag}

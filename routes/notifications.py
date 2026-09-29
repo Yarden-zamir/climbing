@@ -1268,7 +1268,7 @@ def create_notification_payload(event_type: str, event_data: Dict[str, Any]) -> 
                 body += f" and {rest} more"
 
         image_url = event_data.get("image_url")
-        icon = f"/get-image?url={quote(image_url, safe='')}" if image_url else "/static/favicon/android-chrome-192x192.png"
+        icon = f"/get-image?url={quote(image_url, safe='')}&w=256" if image_url else "/static/favicon/android-chrome-192x192.png"
         album_url = event_data.get("url") or "/albums"
 
         return {

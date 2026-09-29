@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS images (
     expires_at TIMESTAMP,
     PRIMARY KEY (kind, identifier)
 );
+ALTER TABLE images ADD COLUMN IF NOT EXISTS content_type TEXT;
 
 -- resource_type: album | crew_member | meme | location; several owners per resource are allowed
 CREATE TABLE IF NOT EXISTS ownership (

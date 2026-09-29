@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 from contextlib import asynccontextmanager
 
@@ -50,6 +51,7 @@ async def lifespan(_: FastAPI):
     migrated = migrate_if_empty(store)
     if migrated:
         logger.info(f"✅ Legacy Redis data imported: {migrated}")
+    await asyncio.to_thread(store.shrink_stored_faces)
     logger.info(f"✅ Store healthy: {await store.health_check()}")
     tasks = [
         asyncio.create_task(refresh_album_metadata(store)),
@@ -136,28 +138,39 @@ async def get_meta(url: str = Query(..., description="URL to fetch metadata from
 # Albums endpoints moved to routes/albums.py
 
 
+PROXY_IMAGE_TTL = 7 * 24 * 3600
+
+
+def sized_google_image_url(url: str, size: int) -> str:
+    """Google renders the size itself from the `=s<px>` suffix; strip any existing size first."""
+    if "googleusercontent.com" not in url:
+        return url
+    return f"{url.split('=')[0]}=s{size}"
+
+
 @app.get("/get-image", tags=["utilities"])
-async def get_image(url: str = Query(..., description="URL of the image to fetch")):
+async def get_image(
+    url: str = Query(..., description="Google Photos image URL"),
+    w: int = Query(800, ge=64, le=2048, description="Longest side in pixels"),
+):
+    """Serve a Google Photos image at the requested size, cached in the store for a week.
+
+    A card never downloads the multi-megabyte original again.
     """
-    Proxy endpoint to fetch and serve images with proper caching headers.
+    sized_url = sized_google_image_url(url, w)
+    cache_key = hashlib.md5(sized_url.encode()).hexdigest()
+    headers = {"Cache-Control": "public, max-age=604800, immutable"}
 
-    Args:
-        url: Direct URL to the image
+    cached = await store.get_image_with_type("proxy", cache_key)
+    if cached:
+        return Response(content=cached[0], media_type=cached[1] or "image/jpeg", headers=headers)
 
-    Returns:
-        - Image data with original content-type
-        - Cache headers for 7 days
-
-    Note:
-        This endpoint helps avoid CORS issues and adds proper caching
-    """
-    async with httpx.AsyncClient() as client:
-        response = await fetch_url(client, url)
-        content_type = response.headers.get("content-type", "application/octet-stream")
-        headers = {"Cache-Control": "public, max-age=604800, immutable"}
-        return Response(
-            content=response.content, media_type=content_type, headers=headers
-        )
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await fetch_url(client, sized_url)
+    content_type = response.headers.get("content-type", "application/octet-stream")
+    if content_type.startswith("image/"):
+        await store.store_image("proxy", cache_key, response.content, ttl_seconds=PROXY_IMAGE_TTL, content_type=content_type)
+    return Response(content=response.content, media_type=content_type, headers=headers)
 
 
 # === Redis Image Serving ===
@@ -186,25 +199,25 @@ async def get_redis_image(
         500: Server error while serving image
     """
     try:
-        image_data = await store.get_image(image_type, identifier)
-        if not image_data:
+        found = await store.get_image_with_type(image_type, identifier)
+        if not found:
             raise HTTPException(status_code=404, detail="Image not found")
+        image_data, stored_type = found
 
-        # Determine content type
-        content_type = "image/png"  # Default
-        if identifier.lower().endswith((".jpg", ".jpeg")):
+        content_type = stored_type or "image/png"
+        if not stored_type and identifier.lower().endswith((".jpg", ".jpeg")):
             content_type = "image/jpeg"
-        elif identifier.lower().endswith(".gif"):
+        elif not stored_type and identifier.lower().endswith(".gif"):
             content_type = "image/gif"
-        elif identifier.lower().endswith(".webp"):
+        elif not stored_type and identifier.lower().endswith(".webp"):
             content_type = "image/webp"
 
         # Different caching strategies based on image type
         if image_type == "climber" or image_type == "profile":
             # For profile images that can be updated, use shorter cache with validation
             headers = {
-                "Cache-Control": "public, max-age=300, must-revalidate",
-                "ETag": f'"{hash(image_data)}"',
+                "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+                "ETag": f'"{hashlib.md5(image_data).hexdigest()}"',
             }
         else:
             # For other images (temp, memes, etc.), use longer cache
@@ -227,7 +240,7 @@ async def read_root():
     """Serve the main crew page."""
     content = inject_css_version("static/crew.html")
     response = HTMLResponse(content=content, status_code=200)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
@@ -238,7 +251,7 @@ async def read_albums():
     """Serve the climbing albums page."""
     content = inject_css_version("static/albums.html")
     response = HTMLResponse(content=content, status_code=200)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
@@ -249,7 +262,7 @@ async def read_memes():
     """Serve the memes gallery page."""
     content = inject_css_version("static/memes.html")
     response = HTMLResponse(content=content, status_code=200)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
@@ -260,7 +273,7 @@ async def read_locations():
     """Serve the locations page."""
     content = inject_css_version("static/locations.html")
     response = HTMLResponse(content=content, status_code=200)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
@@ -271,7 +284,7 @@ async def read_knowledge():
     """Serve the knowledge base page."""
     content = inject_css_version("static/index.html")
     response = HTMLResponse(content=content, status_code=200)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
@@ -282,7 +295,7 @@ async def read_crew():
     """Serve the crew management page."""
     content = inject_css_version("static/crew.html")
     response = HTMLResponse(content=content, status_code=200)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
@@ -293,7 +306,7 @@ async def read_privacy():
     """Serve the privacy policy page."""
     content = inject_css_version("static/privacy.html")
     response = HTMLResponse(content=content, status_code=200)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
@@ -312,7 +325,7 @@ async def read_admin():
     """
     content = inject_css_version("static/admin.html")
     response = HTMLResponse(content=content, status_code=200)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response

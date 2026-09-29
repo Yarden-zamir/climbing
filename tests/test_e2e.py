@@ -412,3 +412,39 @@ def test_backup_keeps_everything(store, tmp_path):
     original = asyncio.run(store.health_check())["counts"]
     for table, count in original.items():
         assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == count
+
+
+# --------------------------------------------------------------------------- images
+
+
+def test_faces_are_stored_small_and_served_as_webp(client, admin):
+    login(client, admin)
+    big = png_bytes((1200, 1200))
+    assert len(big) > 5000
+    assert client.post("/api/crew/submit", data=crew_form("Big Face"), files={"image": ("face.png", big, "image/png")}).status_code == 200
+    response = client.get("/redis-image/climber/Big%20Face/face")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/webp"
+    assert len(response.content) < 20_000
+    assert client.delete("/api/crew/delete", params={"crew_name": "Big Face"}).status_code == 200
+
+
+def test_cover_proxy_requests_a_sized_variant_and_caches_it(client, monkeypatch):
+    import main
+
+    seen = []
+
+    async def fake_fetch_url(http_client, url):
+        seen.append(url)
+        from tests.conftest import FakeResponse
+
+        return FakeResponse("", content=b"\x89PNG-fake", content_type="image/png")
+
+    monkeypatch.setattr(main, "fetch_url", fake_fetch_url)
+    original = "https://lh3.googleusercontent.com/pw/AP1Gcz_example=w1200-h630"
+    first = client.get("/get-image", params={"url": original, "w": 400})
+    second = client.get("/get-image", params={"url": original, "w": 400})
+    assert first.status_code == second.status_code == 200
+    assert first.headers["content-type"] == "image/png"
+    assert seen == ["https://lh3.googleusercontent.com/pw/AP1Gcz_example=s400"]
+    assert client.get("/get-image", params={"url": original, "w": 5000}).status_code == 422

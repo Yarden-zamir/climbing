@@ -20,6 +20,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 import duckdb
 
 from dates import NEW_CLIMBER_WINDOW_DAYS, album_climb_timestamp
+from utils.images import shrink_image
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ DEFAULT_NOTIFICATION_PREFERENCES = {
     "system_announcements": True,
 }
 IMAGE_URL_PREFIX = "/redis-image"  # kept: every stored image_url and the frontend use this path
+FACE_KINDS = ("climber", "profile", "temp")  # small avatars: stored as 256px WebP
 
 
 class ValidationError(Exception):
@@ -798,21 +800,48 @@ class Store:
     # ------------------------------------------------------------------ images
 
     async def store_image(
-        self, kind: str, identifier: str, data: bytes, ttl_seconds: Optional[int] = None
+        self,
+        kind: str,
+        identifier: str,
+        data: bytes,
+        ttl_seconds: Optional[int] = None,
+        content_type: Optional[str] = None,
     ) -> str:
+        if kind in FACE_KINDS:
+            data, content_type = shrink_image(data)
         expires = datetime.now() + timedelta(seconds=ttl_seconds) if ttl_seconds else None
         self.db.run(
-            "INSERT OR REPLACE INTO images (kind, identifier, data, created_at, expires_at) VALUES (?, ?, ?, current_timestamp, ?)",
-            [kind, identifier, data, expires],
+            "INSERT OR REPLACE INTO images (kind, identifier, data, created_at, expires_at, content_type) VALUES (?, ?, ?, current_timestamp, ?, ?)",
+            [kind, identifier, data, expires, content_type],
         )
         return f"{IMAGE_URL_PREFIX}/{kind}/{identifier}"
 
     async def get_image(self, kind: str, identifier: str) -> Optional[bytes]:
+        found = await self.get_image_with_type(kind, identifier)
+        return found[0] if found else None
+
+    async def get_image_with_type(self, kind: str, identifier: str) -> Optional[tuple[bytes, Optional[str]]]:
         row = self.db.row(
-            "SELECT data FROM images WHERE kind = ? AND identifier = ? AND (expires_at IS NULL OR expires_at > current_timestamp)",
+            "SELECT data, content_type FROM images WHERE kind = ? AND identifier = ? AND (expires_at IS NULL OR expires_at > current_timestamp)",
             [kind, identifier],
         )
-        return bytes(row["data"]) if row else None
+        return (bytes(row["data"]), row["content_type"]) if row else None
+
+    def shrink_stored_faces(self, larger_than: int = 60_000) -> int:
+        """One-off for images stored before shrinking existed. Returns how many were re-encoded."""
+        rows = self.db.rows(
+            "SELECT kind, identifier, data FROM images WHERE kind IN ('climber', 'profile') AND octet_length(data) > ? AND content_type IS DISTINCT FROM 'image/webp'",
+            [larger_than],
+        )
+        for r in rows:
+            data, content_type = shrink_image(bytes(r["data"]))
+            self.db.run(
+                "UPDATE images SET data = ?, content_type = ? WHERE kind = ? AND identifier = ?",
+                [data, content_type, r["kind"], r["identifier"]],
+            )
+        if rows:
+            logger.info(f"Re-encoded {len(rows)} stored faces as 256px WebP")
+        return len(rows)
 
     async def delete_image(self, kind: str, identifier: str) -> bool:
         existed = self.db.value("SELECT count(*) FROM images WHERE kind = ? AND identifier = ?", [kind, identifier])
