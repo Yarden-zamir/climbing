@@ -1,3 +1,14 @@
+const NEW_ALBUM_WINDOW_DAYS = 7;
+
+// The server resolves the climb date (with year) into metadata.date_iso; never re-parse the display string.
+function isRecentAlbum(meta) {
+	if (!meta?.date_iso) return false;
+	const albumDate = new Date(`${meta.date_iso}T00:00:00`);
+	if (Number.isNaN(albumDate.getTime())) return false;
+	const diffDays = (Date.now() - albumDate.getTime()) / (1000 * 60 * 60 * 24);
+	return diffDays >= 0 && diffDays <= NEW_ALBUM_WINDOW_DAYS;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
 	const container = document.getElementById("albums-container");
 	let allAlbums = []; // Store all album cards for filtering
@@ -213,15 +224,8 @@ const populateCard = async (card, meta) => {
         <div class="album-date"></div>
       </div>
     `;
-	const match = meta.date?.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s(\d+)/);
-	if (match) {
-		const MS_PER_DAY = 1000 * 60 * 60 * 24;
-		const albumDate = new Date(`${match[1]} ${match[2]}, ${new Date().getFullYear()}`);
-		const diffDays = (new Date() - albumDate) / MS_PER_DAY;
-
-		if (diffDays >= 0 && diffDays <= 7) {
-			card.classList.add("new-album");
-		}
+	if (isRecentAlbum(meta)) {
+		card.classList.add("new-album");
 	}
 	card.classList.remove("loading");
 	card.classList.add("loaded");

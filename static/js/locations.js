@@ -18,6 +18,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   init();
 
+  // Replay "Add Location" after login: restore the search query so the no-results card shows again
+  window.addEventListener('auth:pending-action', (e) => {
+    if (!e.detail || e.detail.hint !== 'reopen:add-location' || !e.detail.query || !searchInput) return;
+    searchInput.value = e.detail.query;
+    searchInput.dispatchEvent(new Event('input'));
+  });
+
+  function showRequestError(err) {
+    if (err && err.status === 401) return; // apiFetch already showed the sign-in toast
+    showToast((err && (err.detail || err.message)) || 'Something went wrong', { type: 'error' });
+  }
+
+  function isAdmin() {
+    return !!currentUser && currentUser.role === 'admin';
+  }
+
   async function init() {
     try {
       // Load canonical locations and enriched albums
@@ -76,71 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Parse an album date string into a comparable timestamp (ms since epoch)
-  // Falls back to 0 when parsing fails so those items naturally sink to the end
-  function parseAlbumDateToTs(dateStr) {
-    try {
-      const s = String(dateStr || '');
-      // Remove camera emoji section and extra spaces
-      let cleaned = s.replace(/📸.*$/u, '').trim();
-      // Handle date ranges - use first date (consistent with Python)
-      if (cleaned.includes('–')) {
-        cleaned = cleaned.split('–')[0].trim();
-      }
-      // Remove day of week prefix (e.g., "Saturday, ")
-      cleaned = cleaned.replace(/^[A-Za-z]+,\s*/, '');
-
-      // Match month (short or full), day, and optional year
-      // Patterns: "Dec 25, 2025", "December 25, 2025", "Dec 25 2025", "25 Dec, 2025"
-      const monthNames = {
-        'jan': 0, 'january': 0, 'feb': 1, 'february': 1, 'mar': 2, 'march': 2,
-        'apr': 3, 'april': 3, 'may': 4, 'jun': 5, 'june': 5,
-        'jul': 6, 'july': 6, 'aug': 7, 'august': 7, 'sep': 8, 'september': 8,
-        'oct': 9, 'october': 9, 'nov': 10, 'november': 10, 'dec': 11, 'december': 11
-      };
-
-      let month = null, day = null, year = null;
-
-      // Try "Month Day, Year" or "Month Day Year" format
-      let m = cleaned.match(/([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/);
-      if (m) {
-        const monthStr = m[1].toLowerCase();
-        if (monthNames[monthStr] !== undefined) {
-          month = monthNames[monthStr];
-          day = parseInt(m[2], 10);
-          year = m[3] ? parseInt(m[3], 10) : null;
-        }
-      }
-
-      // Try "Day Month, Year" format if first didn't match
-      if (month === null) {
-        m = cleaned.match(/(\d{1,2})\s+([A-Za-z]+)(?:,?\s+(\d{4}))?/);
-        if (m) {
-          const monthStr = m[2].toLowerCase();
-          if (monthNames[monthStr] !== undefined) {
-            day = parseInt(m[1], 10);
-            month = monthNames[monthStr];
-            year = m[3] ? parseInt(m[3], 10) : null;
-          }
-        }
-      }
-
-      if (month === null || !day || day < 1 || day > 31) return 0;
-
-      // Use current year if not present
-      const currentYear = new Date().getFullYear();
-      if (!year) year = currentYear;
-
-      const d = new Date(year, month, day);
-      if (isNaN(d.getTime())) return 0;
-
-      // Safety: if date is in the future, use previous year
-      if (d.getTime() > Date.now()) {
-        d.setFullYear(d.getFullYear() - 1);
-      }
-
-      return d.getTime();
-    } catch (_) { return 0; }
+  // The server resolves the climb date (with year) into metadata.date_iso.
+  // Returns ms since epoch, or 0 when missing so those items sink to the end.
+  function albumTimestamp(meta) {
+    if (!meta || !meta.date_iso) return 0;
+    const t = new Date(`${meta.date_iso}T00:00:00`).getTime();
+    return Number.isNaN(t) ? 0 : t;
   }
 
   function buildAlbumsByLocation(enrichedAlbums) {
@@ -155,8 +112,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Sort each location's albums newest first using parsed dates
     for (const [loc, arr] of map.entries()) {
       arr.sort((a, b) => {
-        const tb = parseAlbumDateToTs(b.date);
-        const ta = parseAlbumDateToTs(a.date);
+        const tb = albumTimestamp(b);
+        const ta = albumTimestamp(a);
         if (tb !== ta) return tb - ta; // descending by timestamp
         // Tie-breaker: fallback to title to keep stable order
         return String((b.title||'')).localeCompare(String((a.title||'')));
@@ -339,7 +296,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (addBtn) {
         addBtn.addEventListener('click', async (e) => {
           e.preventDefault();
-          try { await createLocationFromNoResults(query, coords, card, addBtn); } catch(err) { alert(err?.message || 'Failed to add location'); }
+          try { await createLocationFromNoResults(query, coords, card, addBtn); } catch(err) { showRequestError(err); }
         });
       }
     } catch(_) {}
@@ -474,7 +431,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (addBtn) {
         addBtn.addEventListener('click', async (e) => {
           e.preventDefault();
-          try { await createLocationFromNoResults(query, null, card, addBtn); } catch(err) { alert(err?.message || 'Failed to add location'); }
+          try { await createLocationFromNoResults(query, null, card, addBtn); } catch(err) { showRequestError(err); }
         });
       }
     } catch(_) {}
@@ -488,9 +445,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function createLocationFromNoResults(query, coords, card, buttonEl) {
-    if (!currentUser) { alert('Please sign in to add a location.'); return; }
     const name = String(query || '').trim();
     if (!name) return;
+    if (!window.authManager.requireAuth({ hint: 'reopen:add-location', query: name })) return;
     try { if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Adding…'; } } catch(_) {}
     const payload = { name };
     if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
@@ -498,31 +455,17 @@ document.addEventListener('DOMContentLoaded', () => {
       payload.longitude = coords.lng;
       payload.custom_markers = [{ emoji: '🅿️', label: 'Parking', lat: coords.lat, lng: coords.lng, primary: true }];
     }
-    let res;
-    try {
-      res = await fetch('/api/locations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    } catch (e) {
-      try { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = 'Add Location'; } } catch(_) {}
-      throw e;
-    }
-    if (res && res.ok) {
-      // Reload and highlight the newly created location
+    const goToLocation = () => {
       const url = new URL(window.location.origin + '/locations');
       url.searchParams.set('highlight', name);
       try { window.location.assign(url.toString()); } catch(_) { window.location.href = url.toString(); }
-      return;
-    }
-    // If already exists, just navigate to it
+    };
     try {
-      const text = await res.text();
-      if (res.status === 400 && /exists/i.test(text)) {
-        const url = new URL(window.location.origin + '/locations');
-        url.searchParams.set('highlight', name);
-        window.location.assign(url.toString());
-        return;
-      }
-      throw new Error(text || 'Failed to add location');
+      await apiFetch('/api/locations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      goToLocation();
     } catch (err) {
+      // Already exists: just navigate to it
+      if (err.status === 400 && /exists/i.test(err.detail || '')) { goToLocation(); return; }
       try { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = 'Add Location'; } } catch(_) {}
       throw err;
     }
@@ -1227,7 +1170,7 @@ document.addEventListener('DOMContentLoaded', () => {
           await navigator.share({ url: shareUrl });
         } else if (navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(shareUrl);
-          alert('Link copied to clipboard');
+          showToast('Link copied to clipboard', { type: 'success' });
         } else {
           window.prompt('Copy this link', shareUrl);
         }
@@ -1459,7 +1402,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const addBtn = document.createElement('button');
         addBtn.className = 'location-btn';
         addBtn.textContent = 'Add';
-        function handleAddFromInput() {
+        async function handleAddFromInput() {
           const val = (addAttributeInputEl.value || '').trim();
           if (!val) return;
           // Parse potential key:value
@@ -1471,8 +1414,14 @@ document.addEventListener('DOMContentLoaded', () => {
             value = val.slice(colon + 1).trim();
           }
           if (!key) return;
-          // async fire-and-forget register globally
-          try { fetch('/api/location-attributes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: key }) }); } catch (_) {}
+          // Register the key globally. Only admins may create keys; others still use it on this location.
+          if (isAdmin() && !allLocationAttributes.includes(key)) {
+            try {
+              await apiFetch('/api/location-attributes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: key }) });
+            } catch (err) {
+              showRequestError(err);
+            }
+          }
           if (!allLocationAttributes.includes(key)) allLocationAttributes.push(key);
           ensureKVArray();
           if (!loc.attributes.some(it => it.key === key)) loc.attributes.push({ key, value });
@@ -1768,7 +1717,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function addMarkerFromInputs() {
           const emoji = pendingEmoji || currentEmojiChoice || '📍';
           const label = (pendingLabelValue || '').trim();
-          if (!pendingMarkerPos) { alert('Click "Place on map" then tap the map to set a position.'); return; }
+          if (!pendingMarkerPos) { showToast('Click "Place on map" then tap the map to set a position.', { type: 'info' }); return; }
           extraMarkers.push({ emoji, label, lat: pendingMarkerPos.lat, lng: pendingMarkerPos.lng });
           markerLabelInput.value = '';
           pendingMarkerPos = null;
@@ -1941,21 +1890,24 @@ document.addEventListener('DOMContentLoaded', () => {
       }
         // latitude/longitude are now derived from primary emoji marker; do not send separately
       const targetName = encodeURIComponent(loc.name);
-      const res = await fetch(`/api/locations?name=${targetName}`, {
+      await apiFetch(`/api/locations?name=${targetName}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error('Failed to save');
-      // Save attributes if changed
-      try {
-        if (Array.isArray(loc.attributes)) {
-          // Ensure normalized payload as [{key,value}]
-          const payloadAttrs = (loc.attributes || []).map(it => typeof it === 'string' ? { key: it, value: '' } : { key: String(it.key || ''), value: String(it.value || '') }).filter(it => it.key);
-          const attrsTarget = isRenaming ? trimmedNewName : loc.name;
-          await fetch(`/api/locations/attributes?name=${encodeURIComponent(attrsTarget)}`, {
+      // Save attributes. The main save already succeeded, so a failure here is
+      // reported but does not abort the local UI update below.
+      if (Array.isArray(loc.attributes)) {
+        // Ensure normalized payload as [{key,value}]
+        const payloadAttrs = (loc.attributes || []).map(it => typeof it === 'string' ? { key: it, value: '' } : { key: String(it.key || ''), value: String(it.value || '') }).filter(it => it.key);
+        const attrsTarget = isRenaming ? trimmedNewName : loc.name;
+        try {
+          await apiFetch(`/api/locations/attributes?name=${encodeURIComponent(attrsTarget)}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attributes: payloadAttrs })
           });
+        } catch (err) {
+          if (err.status === 401) throw err;
+          showToast(`Location saved, but attributes were not: ${err.detail || err.message}`, { type: 'error' });
         }
-      } catch (_) {}
+      }
       // Update local and UI
       if (isRenaming) {
         const oldName = loc.name;
@@ -2055,10 +2007,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (editBtn) {
       editBtn.addEventListener('click', async () => {
+        if (!window.authManager.requireAuth()) return;
         if (!isEditing) {
           enterEditMode();
         } else {
-          try { await saveEdit(); } catch (e) { alert(e.message || 'Failed to save'); }
+          try { await saveEdit(); } catch (e) { showRequestError(e); }
         }
       });
     }
@@ -2069,7 +2022,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (deleteBtn) {
       deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        try { await handleDeleteLocation(loc, section); } catch (err) { alert(err?.message || 'Failed to delete'); }
+        if (!window.authManager.requireAuth()) return;
+        try { await handleDeleteLocation(loc, section); } catch (err) { showRequestError(err); }
       });
     }
 
@@ -2674,18 +2628,12 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
-    // Apply "new album" badge logic like on albums page (<= 3 days old)
-    try {
-      const match = (meta.date || '').match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s(\d{1,2})/);
-      if (match) {
-        const MS_PER_DAY = 1000 * 60 * 60 * 24;
-        const albumDate = new Date(`${match[1]} ${match[2]}, ${new Date().getFullYear()}`);
-        const diffDays = (Date.now() - albumDate.getTime()) / MS_PER_DAY;
-        if (diffDays >= 0 && diffDays <= 7) {
-          a.classList.add('new-album');
-        }
-      }
-    } catch (_) {}
+    // Same "new album" rule as the albums page (7 days), based on the server-resolved climb date
+    const ts = albumTimestamp(meta);
+    if (ts) {
+      const diffDays = (Date.now() - ts) / (1000 * 60 * 60 * 24);
+      if (diffDays >= 0 && diffDays <= 7) a.classList.add('new-album');
+    }
     return a;
   }
 
@@ -2724,43 +2672,36 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!firstConfirm) return;
 
     const baseUrl = `/api/locations?name=${encodeURIComponent(name)}`;
-    let res = await fetch(baseUrl, { method: 'DELETE' });
-    if (res.ok) {
+    let conflict;
+    try {
+      await apiFetch(baseUrl, { method: 'DELETE' });
       await applyLocationDeletionClientSide(loc, sectionEl, null);
       return;
+    } catch (err) {
+      if (err.status !== 409) throw err;
+      conflict = err.body;
     }
-    if (res.status === 409) {
-      let detail;
-      try { detail = await res.json(); } catch { detail = null; }
-      const blocked = detail?.detail?.blocked_by_albums ?? detail?.blocked_by_albums ?? 0;
-      const instruction = `There are ${blocked} album(s) tagged to this location.\n` +
-        `- Type 'clear' to remove the location tag from those albums, OR\n` +
-        `- Type another existing location name to reassign those albums, OR\n` +
-        `- Leave blank to cancel.`;
-      const answer = window.prompt(instruction, 'clear');
-      if (!answer) return;
-      let finalUrl = baseUrl;
-      let reassignedTo = null;
-      if (answer.trim().toLowerCase() === 'clear') {
-        finalUrl += `&force_clear=true`;
-      } else {
-        // Validate target exists
-        const target = (locations || []).find(l => String(l.name || '').toLowerCase() === answer.trim().toLowerCase());
-        if (!target) { alert('Target location not found'); return; }
-        if (target.name === name) { alert('Cannot reassign to the same location'); return; }
-        reassignedTo = target.name;
-        finalUrl += `&reassign_to=${encodeURIComponent(reassignedTo)}`;
-      }
-      res = await fetch(finalUrl, { method: 'DELETE' });
-      if (!res.ok) {
-        const msg = await res.text().catch(() => '');
-        throw new Error(msg || 'Failed to delete');
-      }
-      await applyLocationDeletionClientSide(loc, sectionEl, reassignedTo);
-      return;
+    const blocked = conflict?.detail?.blocked_by_albums ?? conflict?.blocked_by_albums ?? 0;
+    const instruction = `There are ${blocked} album(s) tagged to this location.\n` +
+      `- Type 'clear' to remove the location tag from those albums, OR\n` +
+      `- Type another existing location name to reassign those albums, OR\n` +
+      `- Leave blank to cancel.`;
+    const answer = window.prompt(instruction, 'clear');
+    if (!answer) return;
+    let finalUrl = baseUrl;
+    let reassignedTo = null;
+    if (answer.trim().toLowerCase() === 'clear') {
+      finalUrl += `&force_clear=true`;
+    } else {
+      // Validate target exists
+      const target = (locations || []).find(l => String(l.name || '').toLowerCase() === answer.trim().toLowerCase());
+      if (!target) { showToast('Target location not found', { type: 'error' }); return; }
+      if (target.name === name) { showToast('Cannot reassign to the same location', { type: 'error' }); return; }
+      reassignedTo = target.name;
+      finalUrl += `&reassign_to=${encodeURIComponent(reassignedTo)}`;
     }
-    const msg = await res.text().catch(() => '');
-    throw new Error(msg || 'Failed to delete');
+    await apiFetch(finalUrl, { method: 'DELETE' });
+    await applyLocationDeletionClientSide(loc, sectionEl, reassignedTo);
   }
 
   async function applyLocationDeletionClientSide(loc, sectionEl, reassignedTo) {

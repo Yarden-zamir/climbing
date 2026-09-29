@@ -13,47 +13,64 @@ import re
 logger = logging.getLogger(__name__)
 
 
-def parse_album_date(date_str: str) -> Optional[datetime]:
+MONTH_ALIASES = {"sept": "sep"}
+ALBUM_DATE_FORMATS = (
+    "%B %d, %Y",  # December 25, 2025
+    "%b %d, %Y",  # Dec 25, 2025
+    "%d %B, %Y",  # 25 December, 2025
+    "%d %b, %Y",  # 25 Dec, 2025
+    "%B %d %Y",  # December 25 2025
+    "%b %d %Y",  # Dec 25 2025
+    "%d %B %Y",  # 25 December 2025
+    "%d %b %Y",  # 25 Dec 2025
+)
+YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
+
+
+def parse_album_date(
+    date_str: str, reference: Optional[datetime] = None
+) -> Optional[datetime]:
     """
     Central utility to parse album date strings into datetime objects.
-    Handles various formats from Google Photos and normalized dates.
-    Returns None if date cannot be parsed.
+    Handles the display formats Google Photos produces, with or without a year,
+    with or without a weekday prefix, and date ranges (first day of the range).
+    When the range carries a single year at its end ("Dec 27 – 28, 2024"), that
+    year applies to the first day too.
+    A yearless date is placed in the latest year that keeps it on or before
+    `reference` (default: now). Pass the time the album was added as reference:
+    a climb can never be later than the moment its album was recorded.
+    Returns None if the date cannot be parsed.
     """
-    if not date_str:
+    if not date_str or not isinstance(date_str, str):
         return None
+    reference = reference or datetime.now()
 
     try:
         # Remove emoji and extra spaces
         clean_date = re.sub(r"📸.*$", "", date_str).strip()
 
+        # A year anywhere in the full string is the authoritative year
+        year_match = YEAR_PATTERN.search(clean_date)
+        explicit_year = int(year_match.group(1)) if year_match else None
+
         # Handle date ranges - use first date
-        if "–" in clean_date:
-            clean_date = clean_date.split("–")[0].strip()
+        for separator in ("–", "—", " - "):
+            if separator in clean_date:
+                clean_date = clean_date.split(separator)[0].strip()
+                break
 
         # Remove day of week prefix (e.g., "Saturday, ")
         clean_date = re.sub(r"^[A-Za-z]+,\s*", "", clean_date)
+        clean_date = clean_date.replace(".", "")
+        for alias, canonical in MONTH_ALIASES.items():
+            clean_date = re.sub(rf"\b{alias}\b", canonical, clean_date, flags=re.IGNORECASE)
 
-        # Check if year is present (any 4-digit year starting with 20)
-        has_year = bool(re.search(r"\b20\d{2}\b", clean_date))
-
-        # Add current year if not present
-        if not has_year:
-            clean_date = f"{clean_date}, {datetime.now().year}"
-
-        # Try various date formats (with and without comma before year)
-        formats = [
-            "%B %d, %Y",  # December 25, 2025
-            "%b %d, %Y",  # Dec 25, 2025
-            "%d %B, %Y",  # 25 December, 2025
-            "%d %b, %Y",  # 25 Dec, 2025
-            "%B %d %Y",  # December 25 2025
-            "%b %d %Y",  # Dec 25 2025
-            "%d %B %Y",  # 25 December 2025
-            "%d %b %Y",  # 25 Dec 2025
-        ]
+        # Ensure the first date carries a year
+        if not YEAR_PATTERN.search(clean_date):
+            clean_date = f"{clean_date}, {explicit_year or reference.year}"
 
         parsed_date = None
-        for fmt in formats:
+        for fmt in ALBUM_DATE_FORMATS:
             try:
                 parsed_date = datetime.strptime(clean_date, fmt)
                 break
@@ -63,14 +80,41 @@ def parse_album_date(date_str: str) -> Optional[datetime]:
         if parsed_date is None:
             return None
 
-        # Safety net: if date is in the future, it's from last year
-        if parsed_date > datetime.now():
+        # Only an inferred year can be wrong: a yearless date after the reference is from the year before
+        if explicit_year is None and parsed_date > reference:
             parsed_date = parsed_date.replace(year=parsed_date.year - 1)
 
         return parsed_date
 
     except Exception:
         return None
+
+
+NEW_CLIMBER_WINDOW_DAYS = 14
+
+
+def parse_iso_timestamp(value: Any) -> Optional[datetime]:
+    """Parse an ISO timestamp into a naive local datetime. Returns None when unparseable."""
+    if not value or not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return parsed
+
+
+def album_climb_timestamp(album: Dict) -> Optional[datetime]:
+    """When the climb happened: the album date, or the time it was added when the date is unusable."""
+    added_at = parse_iso_timestamp(album.get("created_at"))
+    return parse_album_date(album.get("date", ""), reference=added_at) or added_at
 
 
 class ValidationError(Exception):
@@ -312,8 +356,17 @@ class RedisDataStore:
         climber_data["level_from_locations"] = level_from_locations
 
         # Add computed fields
-        climber_data["first_climb_date"] = climber_data.get("first_climb_date", None)
+        first_seen = parse_iso_timestamp(climber_data.get("first_seen_at"))
+        climber_data["first_seen_at"] = first_seen.isoformat() if first_seen else None
+        climber_data["first_climb_date"] = (
+            first_seen.strftime("%b %d, %Y") if first_seen else None
+        )
         climber_data["face"] = f"/redis-image/climber/{name}/face"
+        # Where each skill / achievement was learned (album url), when known
+        climber_data["skill_sources"] = self.redis.hgetall(f"climber:{name}:skill_sources")
+        climber_data["achievement_sources"] = self.redis.hgetall(
+            f"climber:{name}:achievement_sources"
+        )
 
         # Dynamically compute locations visited from albums index
         try:
@@ -365,8 +418,10 @@ class RedisDataStore:
         # Use pipeline for atomic operations
         pipe = self.redis.pipeline()
 
-        # Update climber data (levels calculated dynamically, not stored)
+        # Update climber data (levels calculated dynamically, not stored).
+        # Start from the stored hash so extra fields such as first_seen_at survive a rename.
         updated_data = {
+            **self.redis.hgetall(original_key),
             "name": name,
             "location": json.dumps(location),
             "climbs": str(current_climbs),
@@ -378,6 +433,9 @@ class RedisDataStore:
         if name_changed:
             # Create new record
             pipe.hset(new_key, mapping=updated_data)
+            if current_climber.get("is_new"):
+                pipe.srem("index:climbers:new", original_name)
+                pipe.sadd("index:climbers:new", name)
 
             # Move sets only if they exist
             if self.redis.exists(f"climber:{original_name}:skills"):
@@ -389,6 +447,11 @@ class RedisDataStore:
                     f"climber:{original_name}:achievements",
                     f"climber:{name}:achievements",
                 )
+            for suffix in ("skill_sources", "achievement_sources"):
+                if self.redis.exists(f"climber:{original_name}:{suffix}"):
+                    pipe.rename(
+                        f"climber:{original_name}:{suffix}", f"climber:{name}:{suffix}"
+                    )
 
             # Update indexes
             pipe.srem("index:climbers:all", original_name)
@@ -428,6 +491,14 @@ class RedisDataStore:
         pipe.delete(f"climber:{name}:achievements")
         if achievements:
             pipe.sadd(f"climber:{name}:achievements", *achievements)
+
+        # Provenance only makes sense for items the climber still has
+        removed_skills = set(current_climber["skills"]) - set(skills)
+        if removed_skills:
+            pipe.hdel(f"climber:{name}:skill_sources", *removed_skills)
+        removed_achievements = set(current_climber["achievements"]) - set(achievements)
+        if removed_achievements:
+            pipe.hdel(f"climber:{name}:achievement_sources", *removed_achievements)
 
         # Rebuild indexes for skills, tags, achievements
         for skill in skills:
@@ -581,6 +652,7 @@ class RedisDataStore:
         for crew_member in crew:
             await self._recalculate_climber_level(crew_member)
 
+        await self.calculate_new_climbers()
         logger.info(f"Added album: {url} with crew: {crew}")
 
     async def get_album(self, url: str) -> Optional[Dict]:
@@ -645,6 +717,7 @@ class RedisDataStore:
         for crew_member in affected_climbers:
             await self._recalculate_climber_level(crew_member)
 
+        await self.calculate_new_climbers()
         logger.info(f"Updated album crew: {url} from {old_crew} to {new_crew}")
 
     async def update_album_metadata(
@@ -736,6 +809,7 @@ class RedisDataStore:
         for crew_member in crew:
             await self._recalculate_climber_level(crew_member)
 
+        await self.calculate_new_climbers()
         logger.info(f"Deleted album: {url}")
         return True
 
@@ -786,6 +860,8 @@ class RedisDataStore:
         pipe.delete(f"climber:{name}:skills")
         pipe.delete(f"climber:{name}:tags")
         pipe.delete(f"climber:{name}:achievements")
+        pipe.delete(f"climber:{name}:skill_sources")
+        pipe.delete(f"climber:{name}:achievement_sources")
 
         # Execute all operations
         pipe.execute()
@@ -796,11 +872,54 @@ class RedisDataStore:
         logger.info(f"Deleted climber: {name}")
         return True
 
+    async def record_learned_items(
+        self,
+        name: str,
+        album_url: str,
+        skills: List[str],
+        achievements: List[str],
+    ) -> Dict[str, List[str]]:
+        """Add skills and achievements a climber learned in a specific album.
+
+        Items the climber already has are ignored. For each item added, the album
+        url is remembered as its source. Returns the items that were actually added.
+        """
+        name = self._validate_name(name)
+        album_url = self._validate_url(album_url)
+        climber = await self.get_climber(name)
+        if not climber:
+            raise ValidationError(f"Climber not found: {name}")
+
+        new_skills = [s for s in self._validate_skills(skills) if s not in climber["skills"]]
+        new_achievements = [
+            a for a in self._validate_attributes(achievements) if a not in climber["achievements"]
+        ]
+        if not new_skills and not new_achievements:
+            return {"skills": [], "achievements": []}
+
+        await self.update_climber(
+            original_name=name,
+            skills=climber["skills"] + new_skills,
+            achievements=climber["achievements"] + new_achievements,
+        )
+        pipe = self.redis.pipeline()
+        if new_skills:
+            pipe.hset(f"climber:{name}:skill_sources", mapping={s: album_url for s in new_skills})
+        if new_achievements:
+            pipe.hset(
+                f"climber:{name}:achievement_sources",
+                mapping={a: album_url for a in new_achievements},
+            )
+        pipe.execute()
+        logger.info(f"{name} learned {new_skills} / {new_achievements} in {album_url}")
+        return {"skills": new_skills, "achievements": new_achievements}
+
     async def calculate_new_climbers(self) -> Set[str]:
-        """Calculate which climbers are new (first participation in last 14 days)"""
+        """Calculate which climbers are new (first climb within NEW_CLIMBER_WINDOW_DAYS)"""
         try:
-            now = datetime.utcnow()
-            cutoff_date = now - timedelta(days=14)
+            # Stored timestamps are naive local time (datetime.now()), so compare with the same clock
+            now = datetime.now()
+            cutoff_date = now - timedelta(days=NEW_CLIMBER_WINDOW_DAYS)
             new_climbers: Set[str] = set()
 
             # Get all registered climbers to ensure we update everyone
@@ -813,28 +932,6 @@ class RedisDataStore:
             # Get all albums
             albums = await self.get_all_albums()
 
-            def parse_iso_timestamp(value: Any) -> Optional[datetime]:
-                if not value or not isinstance(value, str):
-                    return None
-
-                normalized = value.strip()
-                if not normalized:
-                    return None
-
-                # Support common UTC suffix format
-                if normalized.endswith("Z"):
-                    normalized = f"{normalized[:-1]}+00:00"
-
-                try:
-                    parsed = datetime.fromisoformat(normalized)
-                except ValueError:
-                    return None
-
-                if parsed.tzinfo is not None:
-                    parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
-
-                return parsed
-
             # Process albums and extract stable timestamps
             first_appearance: Dict[str, datetime] = {}
             climbers_with_album_records: Set[str] = set()
@@ -846,16 +943,9 @@ class RedisDataStore:
                     if crew_member and isinstance(crew_member, str):
                         climbers_with_album_records.add(crew_member)
 
-                album_timestamp = parse_iso_timestamp(album.get("created_at"))
-
-                # Optional fallback: use album date only when explicit year is present.
-                # This avoids year-drift bugs from yearless display dates.
-                if album_timestamp is None:
-                    date_str = album.get("date", "")
-                    if isinstance(date_str, str) and re.search(
-                        r"\b20\d{2}\b", date_str
-                    ):
-                        album_timestamp = parse_album_date(date_str)
+                # The climb date is the truth for "first climb". Backfilled albums
+                # (added long after the climb) must not make veterans "new" again.
+                album_timestamp = album_climb_timestamp(album)
 
                 if album_timestamp is None:
                     albums_without_stable_timestamp += 1
@@ -2311,14 +2401,21 @@ class RedisDataStore:
         return subscriptions
 
     async def update_subscription_last_used(self, subscription_id: str) -> None:
-        """Update the last_used timestamp for a subscription"""
+        """Update the last_used timestamp on both the subscription record and the device record"""
         subscription = await self.get_push_subscription(subscription_id)
         if not subscription:
             return
 
         subscription["last_used"] = datetime.now().isoformat()
-        subscription_key = f"push_subscription:{subscription_id}"
-        self.redis.set(subscription_key, json.dumps(subscription))
+        pipe = self.redis.pipeline()
+        pipe.set(f"push_subscription:{subscription_id}", json.dumps(subscription))
+        device_id = subscription.get("device_id")
+        if device_id:
+            device_record = await self.get_device_push_subscription(device_id)
+            if device_record and device_record.get("subscription_id") == subscription_id:
+                device_record["last_used"] = subscription["last_used"]
+                pipe.set(f"device:{device_id}:subscription", json.dumps(device_record))
+        pipe.execute()
 
     async def replace_push_subscription(
         self,

@@ -1,25 +1,76 @@
 import json
 import logging
+from typing import Dict, List
+from urllib.parse import quote
+
 import httpx
-from typing import List
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
-from auth import (
-    get_current_user,
-    require_auth,
-    get_current_user_hybrid,
-    require_auth_hybrid,
-)
+from auth import require_auth_hybrid
 from dependencies import get_redis_store, get_permissions_manager
-from models.api_models import AlbumSubmission, AlbumCrewEdit, AlbumMetadataUpdate
+from models.api_models import (
+    AlbumCrewEdit,
+    AlbumMetadataUpdate,
+    AlbumSubmission,
+    LearnedItems,
+)
 from permissions import ResourceType
+from redis_store import ValidationError as StoreValidationError, album_climb_timestamp
 from utils.metadata_parser import fetch_url, parse_meta_tags
 from validation import ValidationError, validate_google_photos_url, validate_crew_list
 from routes.notifications import send_notification_for_event
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api/albums", tags=["albums"])
+
+
+def _learned_by_name(learned: List[LearnedItems], crew: List[str]) -> Dict[str, LearnedItems]:
+    """Index learned items by crew name; reject entries for people not in the album."""
+    by_name: Dict[str, LearnedItems] = {}
+    for item in learned:
+        name = item.name.strip()
+        if not item.skills and not item.achievements:
+            continue
+        if name not in crew:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{name}' is not in this album's crew, so nothing can be learned there",
+            )
+        by_name[name] = item
+    return by_name
+
+
+async def _require_learned_permissions(
+    permissions_manager, user_id: str, learned: Dict[str, LearnedItems]
+) -> None:
+    """Learned items modify crew members, so they follow the crew member edit rule."""
+    if permissions_manager is None:
+        return
+    for name in learned:
+        try:
+            await permissions_manager.require_resource_access(
+                user_id, ResourceType.CREW_MEMBER, name, "edit"
+            )
+        except HTTPException as e:
+            raise HTTPException(
+                status_code=e.status_code,
+                detail=f"You can't record what {name} learned: {e.detail}",
+            )
+
+
+async def _apply_learned(
+    redis_store, album_url: str, learned: Dict[str, LearnedItems]
+) -> Dict[str, Dict[str, List[str]]]:
+    applied: Dict[str, Dict[str, List[str]]] = {}
+    for name, item in learned.items():
+        try:
+            applied[name] = await redis_store.record_learned_items(
+                name, album_url, item.skills, item.achievements
+            )
+        except StoreValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    return applied
 
 
 @router.get("/enriched")
@@ -46,10 +97,11 @@ async def get_enriched_albums():
                     {
                         "name": crew_member,
                         "is_new": is_new,
-                        "image_url": f"/redis-image/climber/{crew_member}/face",
+                        "image_url": f"/redis-image/climber/{quote(crew_member)}/face",
                     }
                 )
 
+            climb_timestamp = album_climb_timestamp(album)
             enriched_albums.append(
                 {
                     "url": album["url"],
@@ -57,6 +109,11 @@ async def get_enriched_albums():
                         "title": album.get("title", ""),
                         "description": album.get("description", ""),
                         "date": album.get("date", ""),
+                        # Machine-readable climb date; clients must not re-parse the display string
+                        "date_iso": climb_timestamp.date().isoformat()
+                        if climb_timestamp
+                        else None,
+                        "created_at": album.get("created_at", ""),
                         "imageUrl": album.get("image_url", ""),
                         "location": album.get("location", ""),
                         "url": album["url"],
@@ -141,7 +198,9 @@ async def validate_album_url(url: str = Query(...)):
 
 @router.post("/submit")
 async def submit_album(
-    submission: AlbumSubmission, user: dict = Depends(get_current_user_hybrid)
+    submission: AlbumSubmission,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_auth_hybrid),
 ):
     """Submit a new album directly to Redis (no GitHub).
 
@@ -161,37 +220,33 @@ async def submit_album(
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
-        if not user:
-            raise HTTPException(status_code=401, detail="Authentication required")
-
         user_id = user.get("id")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid user session")
 
         # Check permissions and submission limits if permissions system is available
         if permissions_manager is not None:
-            try:
-                await permissions_manager.require_permission(user_id, "create_album")
-
-                can_create = await permissions_manager.check_submission_limits(
-                    user_id, ResourceType.ALBUM
-                )
-                if not can_create:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="You have reached your album creation limit. Contact an admin for approval.",
-                    )
-            except Exception as e:
-                logger.error(f"Permission check failed: {e}")
+            await permissions_manager.require_permission(user_id, "create_album")
+            can_create = await permissions_manager.check_submission_limits(
+                user_id, ResourceType.ALBUM
+            )
+            if not can_create:
                 raise HTTPException(
                     status_code=403,
-                    detail="You don't have permission to create albums. Please contact an administrator.",
+                    detail="You have reached your album creation limit. Contact an admin for approval.",
                 )
 
         # Check if album already exists
-        existing_album = await redis_store.get_album(submission.url)
+        existing_album = await redis_store.get_album(validated_url)
         if existing_album:
-            raise HTTPException(status_code=400, detail="Album already exists")
+            raise HTTPException(status_code=409, detail="Album already exists")
+
+        # Learned items only apply to existing crew members (new people pick skills on creation)
+        new_names = {p.name.strip() for p in (submission.new_people or [])}
+        learned = _learned_by_name(
+            submission.learned, [c for c in submission.crew if c not in new_names]
+        )
+        await _require_learned_permissions(permissions_manager, user_id, learned)
 
         # Validate crew members exist or create new ones
         new_created_climbers = []
@@ -239,19 +294,20 @@ async def submit_album(
 
         # Fetch album metadata
         async with httpx.AsyncClient() as client:
-            response = await fetch_url(client, submission.url)
-            metadata = parse_meta_tags(response.text, submission.url)
+            response = await fetch_url(client, validated_url)
+            metadata = parse_meta_tags(response.text, validated_url)
 
         # Add album to Redis
         await redis_store.add_album(
-            submission.url, submission.crew, metadata, location=submission.location
+            validated_url, submission.crew, metadata, location=submission.location
         )
+        learned_applied = await _apply_learned(redis_store, validated_url, learned)
 
         # Set resource ownership and increment count if permissions system available
         if permissions_manager is not None:
             try:
                 await permissions_manager.set_resource_owner(
-                    ResourceType.ALBUM, submission.url, user_id
+                    ResourceType.ALBUM, validated_url, user_id
                 )
                 await permissions_manager.increment_user_creation_count(
                     user_id, ResourceType.ALBUM
@@ -259,60 +315,50 @@ async def submit_album(
             except Exception as e:
                 logger.warning(f"Failed to set resource ownership: {e}")
 
-        # Send notification for new album
-        try:
-            await send_notification_for_event(
-                event_type="album_created",
+        # Push delivery is slow (sequential web push with retries); never block the response on it
+        background_tasks.add_task(
+            send_notification_for_event,
+            event_type="album_created",
+            event_data={
+                "title": metadata.get("title", "New Album"),
+                "url": validated_url,
+                "crew": submission.crew,
+                "creator": user.get("name", "Someone"),
+                "image_url": metadata.get("imageUrl"),
+            },
+            redis_store=redis_store,
+            target_users=None,
+        )
+        for new_person in new_created_climbers:
+            background_tasks.add_task(
+                send_notification_for_event,
+                event_type="crew_member_added",
                 event_data={
-                    "title": metadata.get("title", "New Album"),
-                    "url": submission.url,
-                    "crew": submission.crew,
+                    "name": new_person.name,
                     "creator": user.get("name", "Someone"),
-                    "image_url": metadata.get(
-                        "imageUrl"
-                    ),  # Include album cover for notification icon
+                    "skills": new_person.skills,
+                    "location": new_person.location,
+                    "image_url": f"/redis-image/climber/{quote(new_person.name)}/face",
                 },
                 redis_store=redis_store,
-                target_users=None,  # Notify all users
+                target_users=None,
             )
-        except Exception as e:
-            logger.warning(f"Failed to send album notification: {e}")
-
-        # Send notification for each new crew member added during album creation
-        for new_person in new_created_climbers:
-            try:
-                # Generate image URL for notification
-                image_url = f"/redis-image/climber/{new_person.name}/face"
-
-                await send_notification_for_event(
-                    event_type="crew_member_added",
-                    event_data={
-                        "name": new_person.name,
-                        "creator": user.get("name", "Someone"),
-                        "skills": new_person.skills,
-                        "location": new_person.location,
-                        "image_url": image_url,
-                    },
-                    redis_store=redis_store,
-                    target_users=None,  # Notify all users
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to send crew member notification for {new_person.name}: {e}"
-                )
 
         return JSONResponse(
             {
                 "success": True,
                 "message": f"Album '{metadata.get('title', 'Unknown')}' added successfully!",
-                "album_url": submission.url,
+                "album_url": validated_url,
                 "crew": submission.crew,
-                "created_climbers": [p.name for p in (submission.new_people or [])],
+                "created_climbers": [p.name for p in new_created_climbers],
+                "learned": learned_applied,
             }
         )
 
     except HTTPException:
         raise
+    except StoreValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error submitting album: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to submit album")
@@ -363,16 +409,15 @@ async def edit_album_crew(
 
         # Check resource access permissions if permissions system is available
         if permissions_manager is not None:
-            try:
-                await permissions_manager.require_resource_access(
-                    user_id, ResourceType.ALBUM, validated_url, "edit"
-                )
-            except Exception as e:
-                logger.error(f"Permission check failed: {e}")
-                raise HTTPException(
-                    status_code=403,
-                    detail="You don't have permission to edit this album. You can only edit albums you created.",
-                )
+            await permissions_manager.require_resource_access(
+                user_id, ResourceType.ALBUM, validated_url, "edit"
+            )
+
+        new_names = {p.name.strip() for p in (edit_data.new_people or [])}
+        learned = _learned_by_name(
+            edit_data.learned, [c for c in validated_crew if c not in new_names]
+        )
+        await _require_learned_permissions(permissions_manager, user_id, learned)
 
         # Track created resources for cleanup on failure
         created_climbers = []
@@ -448,14 +493,16 @@ async def edit_album_crew(
 
             # Update album crew (atomic operation)
             await redis_store.update_album_crew(validated_url, validated_crew)
+            learned_applied = await _apply_learned(redis_store, validated_url, learned)
 
             return JSONResponse(
                 {
                     "success": True,
-                    "message": f"Album crew updated successfully!",
+                    "message": "Album crew updated successfully!",
                     "album_url": validated_url,
                     "crew": validated_crew,
                     "created_climbers": created_climbers,
+                    "learned": learned_applied,
                 }
             )
 
@@ -486,7 +533,7 @@ async def edit_album_crew(
 
 @router.delete("/delete")
 async def delete_album(
-    album_url: str = Query(...), user: dict = Depends(get_current_user)
+    album_url: str = Query(...), user: dict = Depends(require_auth_hybrid)
 ):
     """Delete an album from Redis."""
     redis_store = get_redis_store()
@@ -514,16 +561,9 @@ async def delete_album(
 
         # Check resource access permissions
         if permissions_manager is not None:
-            try:
-                await permissions_manager.require_resource_access(
-                    user_id, ResourceType.ALBUM, album_url, "delete"
-                )
-            except Exception as e:
-                logger.error(f"Permission check failed: {e}")
-                raise HTTPException(
-                    status_code=403,
-                    detail="You don't have permission to delete this album. You can only delete albums you created.",
-                )
+            await permissions_manager.require_resource_access(
+                user_id, ResourceType.ALBUM, album_url, "delete"
+            )
 
         # Store album title for response
         album_title = existing_album.get("title", "Unknown Album")
@@ -533,6 +573,9 @@ async def delete_album(
 
         if not deleted:
             raise HTTPException(status_code=500, detail="Failed to delete album")
+
+        if permissions_manager is not None:
+            await permissions_manager.release_resource(ResourceType.ALBUM, album_url)
 
         return JSONResponse(
             {
@@ -579,16 +622,9 @@ async def edit_album_metadata(
 
         # Check permissions
         if permissions_manager is not None:
-            try:
-                await permissions_manager.require_resource_access(
-                    user_id, ResourceType.ALBUM, validated_url, "edit"
-                )
-            except Exception as e:
-                logger.error(f"Permission check failed: {e}")
-                raise HTTPException(
-                    status_code=403,
-                    detail="You don't have permission to edit this album. You can only edit albums you created.",
-                )
+            await permissions_manager.require_resource_access(
+                user_id, ResourceType.ALBUM, validated_url, "edit"
+            )
 
         # Build metadata dict from provided fields
         metadata = {

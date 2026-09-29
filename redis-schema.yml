@@ -154,13 +154,16 @@ models:
       is_new:
         type: boolean
         default: true
-      first_climb:
+        description: "First climb within the last 14 days. Recomputed on album writes and hourly."
+      first_seen_at:
         type: iso_datetime
         validation: optional
+        description: "Earliest climb date across the climber's albums (album date, else album created_at). Never moves forward."
       first_climb_date:
         type: string
         validation: optional
         computed: true
+        description: "first_seen_at formatted as 'Jan 02, 2025' for display"
       created_at:
         type: iso_datetime
         validation: required
@@ -169,6 +172,12 @@ models:
         type: iso_datetime
         validation: required
         auto_update: true
+    related_keys:
+    - "climber:{name}:skills" # set
+    - "climber:{name}:tags" # set
+    - "climber:{name}:achievements" # set
+    - "climber:{name}:skill_sources" # hash skill -> album url where it was learned (optional per skill)
+    - "climber:{name}:achievement_sources" # hash achievement -> album url where it was earned (optional per achievement)
     indexes:
     - "index:climbers:all"
     - "index:climbers:new"

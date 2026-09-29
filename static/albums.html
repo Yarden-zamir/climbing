@@ -618,6 +618,101 @@
 			color: #ff7a3d;
 		}
 
+		/* "Learned something new?" button on a selected crew chip */
+		.learned-btn {
+			display: none;
+			margin-left: auto;
+			min-width: 28px;
+			height: 28px;
+			padding: 0 0.4rem;
+			border-radius: 14px;
+			border: 1px solid #ff7a3d66;
+			background: #2a2a2a;
+			color: #ffd166;
+			font-size: 0.85rem;
+			font-weight: 700;
+			cursor: pointer;
+			align-items: center;
+			justify-content: center;
+			flex-shrink: 0;
+			transition: transform 0.15s ease, background 0.15s ease;
+		}
+		.crew-option.selected .learned-btn {
+			display: inline-flex;
+		}
+		.learned-btn:hover {
+			background: #ff7a3d;
+			color: #1a1a1a;
+			transform: scale(1.08);
+		}
+		.learned-btn.has-learned {
+			background: #ffd166;
+			border-color: #ffd166;
+			color: #1a1a1a;
+		}
+
+		.learned-modal-overlay {
+			position: fixed;
+			inset: 0;
+			background: rgba(0, 0, 0, 0.65);
+			display: none;
+			align-items: center;
+			justify-content: center;
+			z-index: 3000;
+			padding: 1rem;
+		}
+		.learned-modal-overlay.active {
+			display: flex;
+		}
+		.learned-modal {
+			background: #1e1e1e;
+			border: 2px solid #444;
+			border-radius: 16px;
+			width: 100%;
+			max-width: 520px;
+			max-height: 85vh;
+			overflow-y: auto;
+			padding: 1.25rem;
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+		}
+		.learned-modal-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+		}
+		.learned-modal-title {
+			color: #ffd166;
+			font-size: 1.1rem;
+			font-weight: 700;
+			margin: 0;
+		}
+		.learned-modal-person {
+			color: #aaa;
+			font-size: 0.9rem;
+			margin-bottom: 0.75rem;
+		}
+		.learned-section-label {
+			color: #e0e0e0;
+			font-weight: 600;
+			margin: 0.75rem 0 0.35rem;
+		}
+		.learned-hint {
+			color: #888;
+			font-size: 0.8rem;
+			margin-bottom: 0.5rem;
+		}
+		.skill-badge-toggleable.owned,
+		.achievement-badge-toggleable.owned {
+			opacity: 0.45;
+			cursor: default;
+			transform: none;
+			box-shadow: none;
+		}
+		.skill-badge-toggleable.owned::before,
+		.achievement-badge-toggleable.owned::before {
+			content: '✓ ';
+		}
+
 		/* Location selector (single-select) */
 		.location-selector {
 			display: grid;
@@ -1341,6 +1436,22 @@
 				</form>
 			</div>
 		</div>
+		<!-- "Learned something new?" modal, shared by the add and edit album modals -->
+		<div class="learned-modal-overlay" id="learned-modal-overlay">
+			<div class="learned-modal" role="dialog" aria-modal="true" aria-labelledby="learned-modal-title">
+				<div class="learned-modal-header">
+					<h3 class="learned-modal-title" id="learned-modal-title">⚡ Learned something new?</h3>
+					<button type="button" class="edit-album-modal-close" id="learned-modal-close" aria-label="Close">×</button>
+				</div>
+				<div class="learned-modal-person" id="learned-modal-person"></div>
+				<div class="learned-section-label">Skills</div>
+				<div class="learned-hint">Dimmed items are already on the profile. Pick what was picked up in this climb.</div>
+				<div class="skills-badges-container" id="learned-skills-container"></div>
+				<div class="learned-section-label">Achievements</div>
+				<div class="skills-badges-container" id="learned-achievements-container"></div>
+				<button type="button" class="submit-btn" id="learned-done-btn" style="margin-top: 0.5rem;">Done</button>
+			</div>
+		</div>
 	</main>
 	
 	<!-- Image Cropping Modal -->
@@ -1363,6 +1474,7 @@
 	</div>
 	
 	<!-- Cropper.js JavaScript -->
+	<script src="/static/js/api.js"></script>
 	<script src="/static/js/cropper.min.js"></script>
 	<script src="/static/js/albums.js"></script>
 	<!-- PWA and Notification Management -->
@@ -1539,6 +1651,160 @@
 		});
 		
 		// Add Album Modal Functionality
+		function escapeHtml(value) {
+			return String(value)
+				.replaceAll('&', '&amp;')
+				.replaceAll('<', '&lt;')
+				.replaceAll('>', '&gt;')
+				.replaceAll('"', '&quot;')
+				.replaceAll("'", '&#39;');
+		}
+
+		// One shared "Learned something new?" dialog. A picker (one per album modal)
+		// opens it for a crew member; the dialog edits that picker's selection in place.
+		const learnedModal = (() => {
+			const overlay = document.getElementById('learned-modal-overlay');
+			const personEl = document.getElementById('learned-modal-person');
+			const skillsEl = document.getElementById('learned-skills-container');
+			const achievementsEl = document.getElementById('learned-achievements-container');
+			let allAchievements = [];
+			let session = null; // { name, allSkills, owned: {skills, achievements}, picked: {skills:Set, achievements:Set}, onChange }
+
+			const achievementsLoaded = fetch('/api/achievements')
+				.then(r => (r.ok ? r.json() : []))
+				.then(list => { allAchievements = Array.isArray(list) ? list : []; })
+				.catch(() => { allAchievements = []; });
+
+			function renderList(container, kind, items, badgeClass) {
+				const owned = session.owned[kind];
+				const picked = session.picked[kind];
+				if (items.length === 0) {
+					container.innerHTML = `<div class="learned-hint">No ${kind} defined yet.</div>`;
+					return;
+				}
+				container.innerHTML = items.map(item => {
+					const classes = [badgeClass];
+					if (owned.includes(item)) classes.push('owned');
+					if (picked.has(item)) classes.push('selected');
+					const label = kind === 'achievements' ? `🏆 ${escapeHtml(item)}` : escapeHtml(item);
+					return `<div class="${classes.join(' ')}" data-kind="${kind}" data-item="${escapeHtml(item)}">${label}</div>`;
+				}).join('');
+			}
+
+			function render() {
+				if (!session) return;
+				personEl.textContent = `${session.name} came back from this climb with…`;
+				renderList(skillsEl, 'skills', session.allSkills, 'skill-badge-toggleable');
+				renderList(achievementsEl, 'achievements', allAchievements, 'achievement-badge-toggleable');
+			}
+
+			function onBadgeClick(e) {
+				const badge = e.target.closest('[data-item]');
+				if (!badge || !session || badge.classList.contains('owned')) return;
+				const kind = badge.dataset.kind;
+				const item = badge.dataset.item;
+				const picked = session.picked[kind];
+				if (picked.has(item)) picked.delete(item); else picked.add(item);
+				session.onChange();
+				render();
+			}
+
+			function close() {
+				overlay.classList.remove('active');
+				session = null;
+			}
+
+			skillsEl.addEventListener('click', onBadgeClick);
+			achievementsEl.addEventListener('click', onBadgeClick);
+			document.getElementById('learned-done-btn').addEventListener('click', close);
+			document.getElementById('learned-modal-close').addEventListener('click', close);
+			overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+			document.addEventListener('keydown', e => { if (e.key === 'Escape' && session) close(); });
+
+			return {
+				async open(newSession) {
+					session = newSession;
+					await achievementsLoaded;
+					if (session !== newSession) return;
+					render();
+					overlay.classList.add('active');
+				}
+			};
+		})();
+
+		// Tracks, per crew member, what they learned in the album being added or edited.
+		function createLearnedPicker({ getCrewData, getAllSkills }) {
+			const learned = new Map(); // name -> { skills: Set, achievements: Set }
+			const buttons = new Map(); // name -> button element
+
+			function entry(name) {
+				if (!learned.has(name)) learned.set(name, { skills: new Set(), achievements: new Set() });
+				return learned.get(name);
+			}
+
+			function refreshButton(name) {
+				const button = buttons.get(name);
+				if (!button) return;
+				const e = learned.get(name);
+				const n = e ? e.skills.size + e.achievements.size : 0;
+				button.classList.toggle('has-learned', n > 0);
+				button.textContent = n > 0 ? `⚡${n}` : '⚡';
+				button.title = n > 0 ? `${n} new ${n === 1 ? 'thing' : 'things'} learned in this climb` : 'Learned something new?';
+			}
+
+			return {
+				attachToChip(option, name) {
+					const button = document.createElement('button');
+					button.type = 'button';
+					button.className = 'learned-btn';
+					button.setAttribute('aria-label', `What did ${name} learn in this climb?`);
+					button.addEventListener('click', e => {
+						e.preventDefault();
+						e.stopPropagation();
+						const person = getCrewData().find(p => p.name === name) || {};
+						learnedModal.open({
+							name,
+							allSkills: getAllSkills(),
+							owned: { skills: person.skills || [], achievements: person.achievements || [] },
+							picked: entry(name),
+							onChange: () => refreshButton(name)
+						});
+					});
+					option.appendChild(button);
+					buttons.set(name, button);
+					refreshButton(name);
+				},
+				// Only crew members still in the album count; unchecking a chip drops their items.
+				collect(selectedNames) {
+					return selectedNames
+						.map(name => ({ name, entry: learned.get(name) }))
+						.filter(({ entry }) => entry && (entry.skills.size || entry.achievements.size))
+						.map(({ name, entry }) => ({
+							name,
+							skills: Array.from(entry.skills),
+							achievements: Array.from(entry.achievements)
+						}));
+				},
+				reset() {
+					learned.clear();
+					buttons.forEach((_, name) => refreshButton(name));
+				},
+				forgetButtons() {
+					buttons.clear();
+				}
+			};
+		}
+
+		function describeLearned(learned) {
+			const parts = Object.entries(learned || {})
+				.map(([name, items]) => {
+					const gained = [...(items.skills || []), ...(items.achievements || [])];
+					return gained.length ? `${name}: ${gained.join(', ')}` : '';
+				})
+				.filter(Boolean);
+			return parts.length ? `⚡ Learned: ${parts.join(' · ')}` : '';
+		}
+
 		function initAddAlbumModal() {
 			const addAlbumFab = document.getElementById('add-album-fab');
 			const modalOverlay = document.getElementById('add-album-modal-overlay');
@@ -1554,6 +1820,7 @@
 			let urlValidationTimeout;
 			let allSkills = [];
 			let selectedSkills = [];
+			const addLearned = createLearnedPicker({ getCrewData: () => crewData, getAllSkills: () => allSkills });
 
 			function populateAddLocationSelector(locationNames) {
 				try {
@@ -1652,9 +1919,17 @@
 			});
 			
 			// Open modal
-			addAlbumFab.addEventListener('click', () => {
+			const openAddModal = () => {
 				modalOverlay.classList.add('active');
 				setTimeout(() => modal.classList.add('active'), 50);
+			};
+			addAlbumFab.addEventListener('click', () => {
+				const pending = { page: location.pathname + location.search, hint: 'reopen:add-album-modal' };
+				if (window.authManager && !window.authManager.requireAuth(pending)) return;
+				openAddModal();
+			});
+			window.addEventListener('auth:pending-action', e => {
+				if (e.detail && e.detail.hint === 'reopen:add-album-modal') openAddModal();
 			});
 			
 			// Close modal
@@ -1770,6 +2045,7 @@
 			function populateCrewSelector() {
 				const selector = document.getElementById('crew-selector');
 				selector.innerHTML = '';
+				addLearned.forgetButtons();
 				
 				crewData.forEach(person => {
 					const option = document.createElement('div');
@@ -1779,6 +2055,7 @@
 						<img src="${person.face}" alt="${person.name}" class="crew-face" onerror="this.style.display='none'">
 						<span class="crew-option-name">${person.name}</span>
 					`;
+					addLearned.attachToChip(option, person.name);
 					
 					option.addEventListener('click', () => {
 						const checkbox = option.querySelector('input');
@@ -2134,7 +2411,8 @@
 							url,
 							crew,
 							location: albumLocation || null,
-							new_people: processedNewPeople
+							new_people: processedNewPeople,
+							learned: addLearned.collect(crew)
 						})
 					});
 					
@@ -2142,29 +2420,23 @@
 					
 					if (response.ok) {
 						showSubmissionSuccess(data);
+					} else if (response.status === 401) {
+						showSubmissionError('You are signed out. Sign in and submit again; your entries stay in this form.');
+						if (window.authManager) window.authManager.requireLogin({ page: location.pathname + location.search, hint: 'reopen:add-album-modal' });
 					} else {
-						// Handle authentication errors specifically
-						if (response.status === 401) {
-							showSubmissionError('Your session has expired. Please refresh the page and log in again.');
-						} else {
-							showSubmissionError(data.detail || 'Submission failed');
-						}
+						showSubmissionError(data.detail || 'Submission failed');
 					}
 				} catch (error) {
-					showSubmissionError('Network error occurred');
+					showSubmissionError('Could not reach the server. Check your connection and try again.');
+				} finally {
+					submitBtn.textContent = 'Add Album';
+					updateSubmitButton();
 				}
 			});
 			
 			async function showSubmissionSuccess(data) {
-				const status = document.getElementById('submission-status');
-				status.innerHTML = `
-					<div class="refresh-success" style="color: #03dac6; font-weight: 600; margin-bottom: 1rem;">
-						✅ ${data.message}
-					</div>
-					<div style="color: #ccc; font-size: 0.9rem;">
-						Album has been added and is now live!
-					</div>
-				`;
+				const learnedSummary = describeLearned(data.learned);
+				if (learnedSummary && window.showToast) window.showToast(learnedSummary, { type: 'success', duration: 6000 });
 				
 				// Close modal immediately
 				closeModal();
@@ -2235,6 +2507,7 @@
 			function resetForm() {
 				form.reset();
 				selectedCrew.clear();
+				addLearned.reset();
 				newPeople = [];
 				selectedSkills = [];
 				addAlbumCurrentPersonImage = null;
@@ -2282,6 +2555,8 @@
 			let crewData = [];
 			let selectedCrew = new Set();
 			let editNewPeople = [];
+			let editAllSkills = [];
+			const editLearned = createLearnedPicker({ getCrewData: () => crewData, getAllSkills: () => editAllSkills });
 
 			function populateEditLocationSelector(locationNames) {
 				try {
@@ -2369,13 +2644,17 @@
 				} catch (_) {}
 			}
 			
-			// Fetch crew data
+			// Fetch crew data and the skill catalogue (for the learned-something-new picker)
 			fetch('/api/crew')
 				.then(r => r.json())
 				.then(crew => {
 					crewData = crew;
 				})
 				.catch(e => console.warn('Could not load crew:', e));
+			fetch('/api/skills')
+				.then(r => (r.ok ? r.json() : []))
+				.then(skills => { editAllSkills = Array.isArray(skills) ? skills : []; })
+				.catch(() => {});
 
 			// Also load canonical locations for edit selector
 			fetch('/api/locations')
@@ -2430,8 +2709,18 @@
 			
 			// Toggle edit mode
 			editAlbumFab.addEventListener('click', () => {
+				if (!isEditMode) {
+					const pending = { page: location.pathname + location.search, hint: 'reopen:edit-album-mode' };
+					if (window.authManager && !window.authManager.requireAuth(pending)) return;
+				}
 				isEditMode = !isEditMode;
 				toggleEditMode();
+			});
+			window.addEventListener('auth:pending-action', e => {
+				if (e.detail && e.detail.hint === 'reopen:edit-album-mode' && !isEditMode) {
+					isEditMode = true;
+					toggleEditMode();
+				}
 			});
 			
 			function toggleEditMode() {
@@ -2546,6 +2835,7 @@
 			function populateEditCrewSelector() {
 				const selector = document.getElementById('edit-crew-selector');
 				selector.innerHTML = '';
+				editLearned.forgetButtons();
 				
 				crewData.forEach(person => {
 					const isSelected = selectedCrew.has(person.name);
@@ -2556,6 +2846,7 @@
 						<img src="${person.face}" alt="${person.name}" class="crew-face" onerror="this.style.display='none'">
 						<span class="crew-option-name">${person.name}</span>
 					`;
+					editLearned.attachToChip(option, person.name);
 					
 					option.addEventListener('click', () => {
 						const checkbox = option.querySelector('input');
@@ -2675,7 +2966,8 @@
 					const requestPayload = {
 						album_url: currentEditAlbum.url,
 						crew: cleanCrew,
-						new_people: processedNewPeople
+						new_people: processedNewPeople,
+						learned: editLearned.collect(cleanCrew)
 					};
 
 					// Include metadata edits (location only for now)
@@ -2719,6 +3011,8 @@
 						if (data.created_climbers && data.created_climbers.length > 0) {
 							successMessage += `\n\nNew climbers created: ${data.created_climbers.join(', ')}`;
 						}
+						const learnedSummary = describeLearned(data.learned);
+						if (learnedSummary) successMessage += `\n\n${learnedSummary}`;
 						
 						// Add warnings about image uploads if any failed
 						if (imageUploadErrors.length > 0) {
@@ -2906,6 +3200,7 @@
 			
 			function resetEditForm() {
 				selectedCrew.clear();
+				editLearned.reset();
 				currentEditAlbum = null;
 				editNewPeople = [];
 				editAlbumCurrentPersonImage = null;
