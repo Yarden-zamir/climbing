@@ -15,5 +15,12 @@ dependencies = [
     "pyjwt>=2.8.0",
     "webpush>=0.2.0",
     "aiohttp>=3.8.0",
+    "duckdb>=1.5",
 ]
 requires-python = ">=3.13"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=1",
+]

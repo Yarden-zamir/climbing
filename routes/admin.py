@@ -1,18 +1,18 @@
 import logging
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Form, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
-import json
 from datetime import datetime
 import hashlib
 from PIL import Image
 import io
 
 from auth import require_auth
-from dependencies import get_redis_store, get_permissions_manager, get_jwt_manager
+from dependencies import get_store, get_permissions_manager, get_jwt_manager
 from permissions import ResourceType, UserRole
-from utils.export_utils import export_redis_database
 from utils.background_tasks import perform_album_metadata_refresh
 from routes.notifications import send_push_notification_to_subscriptions
 from config import settings
@@ -21,7 +21,7 @@ from validation import ValidationError, validate_image_file
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-# Notification images are now stored in Redis with optimization
+# Notification images are stored in the images table with a 30 day TTL
 
 
 @router.get("/stats")
@@ -30,15 +30,15 @@ async def get_admin_stats(user: dict = Depends(require_auth)):
     user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
-    redis_store = get_redis_store()
+    store = get_store()
 
     # Check if permissions system is available
     if permissions_manager is None:
         logger.error("Permissions system not available")
         raise HTTPException(status_code=503, detail="Permissions system unavailable")
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Check admin permissions
@@ -57,9 +57,9 @@ async def get_admin_stats(user: dict = Depends(require_auth)):
         pending_users = await permissions_manager.get_users_by_role(UserRole.PENDING)
 
         # Get resource counts
-        all_albums = redis_store.redis.smembers("index:albums:all")
-        all_crew = redis_store.redis.smembers("index:climbers:all")
-        all_locations = redis_store.redis.smembers("index:locations:all")
+        all_albums = await store.get_all_albums()
+        all_crew = await store.get_all_climbers()
+        all_locations = await store.get_all_locations()
 
         # Get unowned resources
         unowned_albums = await permissions_manager.get_unowned_resources(ResourceType.ALBUM)
@@ -236,15 +236,15 @@ async def get_all_resources_with_owners(user: dict = Depends(require_auth)):
     user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
-    redis_store = get_redis_store()
+    store = get_store()
 
     # Check if permissions system is available
     if permissions_manager is None:
         logger.error("Permissions system not available")
         raise HTTPException(status_code=503, detail="Permissions system unavailable")
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Check admin permissions
@@ -258,14 +258,14 @@ async def get_all_resources_with_owners(user: dict = Depends(require_auth)):
 
     try:
         # Get all albums, crew members, and locations
-        all_albums = redis_store.redis.smembers("index:albums:all")
-        all_crew = redis_store.redis.smembers("index:climbers:all")
-        all_locations = redis_store.redis.smembers("index:locations:all")
+        all_albums = await store.get_all_albums()
+        all_crew = await store.get_all_climbers()
+        all_locations = await store.get_all_locations()
 
         # Get album details with owners
         album_details = []
-        for album_url in all_albums:
-            album_data = await redis_store.get_album(album_url)
+        for album_data in all_albums:
+            album_url = album_data["url"]
             if album_data:
                 # Get owner information (multiple owners)
                 owner_ids = await permissions_manager.get_resource_owners(ResourceType.ALBUM, album_url)
@@ -292,8 +292,8 @@ async def get_all_resources_with_owners(user: dict = Depends(require_auth)):
 
         # Get crew details with owners
         crew_details = []
-        for crew_name in all_crew:
-            crew_data = await redis_store.get_climber(crew_name)
+        for crew_data in all_crew:
+            crew_name = crew_data["name"]
             if crew_data:
                 # Get owner information (multiple owners)
                 owner_ids = await permissions_manager.get_resource_owners(ResourceType.CREW_MEMBER, crew_name)
@@ -320,8 +320,8 @@ async def get_all_resources_with_owners(user: dict = Depends(require_auth)):
 
         # Get locations with owners
         location_details = []
-        for loc_name in all_locations:
-            loc_data = redis_store.redis.hgetall(f"location:{loc_name}") or {}
+        for loc_data in all_locations:
+            loc_name = loc_data["name"]
             # Get owner information (multiple owners)
             owner_ids = await permissions_manager.get_resource_owners(ResourceType.LOCATION, loc_name)
             owners_info = []
@@ -365,15 +365,15 @@ async def get_unowned_resources(user: dict = Depends(require_auth)):
     user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
-    redis_store = get_redis_store()
+    store = get_store()
 
     # Check if permissions system is available
     if permissions_manager is None:
         logger.error("Permissions system not available")
         raise HTTPException(status_code=503, detail="Permissions system unavailable")
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Check admin permissions
@@ -393,7 +393,7 @@ async def get_unowned_resources(user: dict = Depends(require_auth)):
         # Get details for unowned resources
         album_details = []
         for album_url in unowned_albums:
-            album_data = await redis_store.get_album(album_url)
+            album_data = await store.get_album(album_url)
             if album_data:
                 album_details.append({
                     "type": "album",
@@ -405,7 +405,7 @@ async def get_unowned_resources(user: dict = Depends(require_auth)):
 
         crew_details = []
         for crew_name in unowned_crew:
-            crew_data = await redis_store.get_climber(crew_name)
+            crew_data = await store.get_climber(crew_name)
             if crew_data:
                 crew_details.append({
                     "type": "crew_member",
@@ -417,8 +417,9 @@ async def get_unowned_resources(user: dict = Depends(require_auth)):
 
         # Unowned locations list
         location_details = []
+        locations_by_name = {loc["name"]: loc for loc in await store.get_all_locations()}
         for loc_name in unowned_locations:
-            loc_data = redis_store.redis.hgetall(f"location:{loc_name}") or {}
+            loc_data = locations_by_name.get(loc_name) or {}
             location_details.append({
                 "type": "location",
                 "id": loc_name,
@@ -588,15 +589,15 @@ async def refresh_album_metadata_admin(user: dict = Depends(require_auth)):
     user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
-    redis_store = get_redis_store()
+    store = get_store()
 
     # Check if permissions system is available
     if permissions_manager is None:
         logger.error("Permissions system not available")
         raise HTTPException(status_code=503, detail="Permissions system unavailable")
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Check admin permissions
@@ -610,7 +611,7 @@ async def refresh_album_metadata_admin(user: dict = Depends(require_auth)):
 
     try:
         # Trigger background metadata refresh
-        refreshed_count = await perform_album_metadata_refresh(redis_store)
+        refreshed_count = await perform_album_metadata_refresh(store)
 
         return JSONResponse({
             "success": True,
@@ -624,20 +625,20 @@ async def refresh_album_metadata_admin(user: dict = Depends(require_auth)):
 
 
 @router.get("/export")
-async def export_redis_database_admin(user: dict = Depends(require_auth)):
-    """Export Redis database (admin only)"""
+async def export_database_admin(user: dict = Depends(require_auth)):
+    """Download a consistent DuckDB backup of the database (admin only)"""
     user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
-    redis_store = get_redis_store()
+    store = get_store()
 
     # Check if permissions system is available
     if permissions_manager is None:
         logger.error("Permissions system not available")
         raise HTTPException(status_code=503, detail="Permissions system unavailable")
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Check admin permissions
@@ -650,14 +651,8 @@ async def export_redis_database_admin(user: dict = Depends(require_auth)):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     try:
-        export_data = await export_redis_database(redis_store)
-
-        return JSONResponse({
-            "success": True,
-            "message": "Database exported successfully",
-            "import_command": "cat climbing_db_export.txt | base64 -d | redis-cli --pipe",
-            "export": export_data,
-        })
+        path = store.backup(Path(os.environ.get("KITSHN_DATA_DIR", ".")) / "backups")
+        return FileResponse(path, media_type="application/octet-stream", filename=path.name)
 
     except Exception as e:
         logger.error(f"Error exporting database: {e}")
@@ -719,11 +714,11 @@ async def get_user_notifications(user_id: str, user: dict = Depends(require_auth
     current_user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
-    redis_store = get_redis_store()
+    store = get_store()
 
     if permissions_manager is None:
         raise HTTPException(status_code=503, detail="Permissions system unavailable")
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Check admin permissions
@@ -742,21 +737,12 @@ async def get_user_notifications(user_id: str, user: dict = Depends(require_auth
             raise HTTPException(status_code=404, detail="User not found")
 
         # Get user's notification devices
-        device_subscriptions = await redis_store.get_user_device_subscriptions(user_id)
+        device_subscriptions = await store.get_user_device_subscriptions(user_id)
 
         # Format device data for admin view
         devices = []
         for sub in device_subscriptions:
-            preferences_json = sub.get("notification_preferences", "{}")
-            try:
-                preferences = json.loads(preferences_json) if preferences_json else {}
-            except json.JSONDecodeError:
-                preferences = {
-                    "album_created": True,
-                    "crew_member_added": True,
-                    "meme_uploaded": True,
-                    "system_announcements": True
-                }
+            preferences = sub.get("notification_preferences") or {}
 
             device = {
                 "device_id": sub.get("device_id"),
@@ -795,11 +781,11 @@ async def update_user_device_notifications(
     current_user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
-    redis_store = get_redis_store()
+    store = get_store()
 
     if permissions_manager is None:
         raise HTTPException(status_code=503, detail="Permissions system unavailable")
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Check admin permissions
@@ -813,7 +799,7 @@ async def update_user_device_notifications(
 
     try:
         # Verify the device belongs to the target user
-        subscription = await redis_store.get_device_push_subscription(device_id)
+        subscription = await store.get_device_push_subscription(device_id)
         if not subscription:
             raise HTTPException(status_code=404, detail="Device not found")
 
@@ -822,7 +808,7 @@ async def update_user_device_notifications(
 
         # Update preferences
         preferences_dict = preferences.model_dump()
-        success = await redis_store.update_device_notification_preferences(device_id, preferences_dict)
+        success = await store.update_device_notification_preferences(device_id, preferences_dict)
 
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update preferences")
@@ -848,10 +834,10 @@ async def upload_notification_image(
     image: UploadFile = File(...),
     user: dict = Depends(require_auth)
 ):
-    """Upload an optimized image for use in notifications (stored in Redis)"""
-    redis_store = get_redis_store()
+    """Upload an optimized image for use in notifications (stored for 30 days)"""
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Validate user is admin
@@ -881,11 +867,10 @@ async def upload_notification_image(
         image_hash = hashlib.md5(content + str(datetime.now().timestamp()).encode()).hexdigest()
         identifier = f"notification_{image_hash}"
 
-        # Store in Redis with TTL (30 days for notification images)
-        image_path = await redis_store.store_image("notification", identifier, optimized_data)
-
-        # Set TTL for notification images (30 days)
-        redis_store.binary_redis.expire(f"image:notification:{identifier}", 30 * 24 * 3600)
+        # Notification images expire after 30 days
+        image_path = await store.store_image(
+            "notification", identifier, optimized_data, ttl_seconds=30 * 24 * 3600
+        )
 
         logger.info(
             f"Admin {user.get('email')} uploaded notification image: {identifier} (original: {len(content)} bytes, optimized: {len(optimized_data)} bytes)")
@@ -967,10 +952,10 @@ def optimize_notification_image(image_data: bytes, max_size: int = 50 * 1024) ->
 
 @router.get("/notifications/images")
 async def list_notification_images(user: dict = Depends(require_auth)):
-    """List available notification images from Redis"""
-    redis_store = get_redis_store()
+    """List available notification images"""
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Validate user is admin
@@ -978,25 +963,19 @@ async def list_notification_images(user: dict = Depends(require_auth)):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     try:
-        # Get all notification image keys from Redis
-        keys = redis_store.binary_redis.keys("image:notification:*")
         images = []
+        now = datetime.now()
 
-        for key in keys:
-            if isinstance(key, bytes):
-                key = key.decode('utf-8')
-
-            # Extract identifier from key (image:notification:identifier)
-            identifier = key.split(":", 2)[-1]
-            image_url = f"/redis-image/notification/{identifier}"
-
-            # Get TTL
-            ttl = redis_store.binary_redis.ttl(key)
-            ttl_days = ttl // (24 * 3600) if ttl > 0 else None
+        for stored in await store.list_images("notification"):
+            expires_at = stored.get("expires_at")
+            ttl_days = None
+            if expires_at:
+                remaining = datetime.fromisoformat(expires_at) - now
+                ttl_days = remaining.days if remaining.total_seconds() > 0 else None
 
             images.append({
-                "identifier": identifier,
-                "image_url": image_url,
+                "identifier": stored["identifier"],
+                "image_url": stored["image_url"],
                 "ttl_days": ttl_days
             })
 
@@ -1011,7 +990,7 @@ async def list_notification_images(user: dict = Depends(require_auth)):
         raise HTTPException(status_code=500, detail="Failed to list notification images")
 
 
-# Notification images are now served via /redis-image/notification/{identifier}
+# Notification images are served under store.IMAGE_URL_PREFIX (see the utilities route)
 
 
 @router.post("/notifications/system")
@@ -1020,13 +999,21 @@ async def send_system_notification(
     user: dict = Depends(require_auth)
 ):
     """Send system notification to users with FCM-compatible payload handling"""
-    redis_store = get_redis_store()
+    permissions_manager = get_permissions_manager()
+    store = get_store()
 
-    if not redis_store:
+    if permissions_manager is None:
+        raise HTTPException(status_code=503, detail="Permissions system unavailable")
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    # Validate user is admin
-    if not user.get("role") == "admin":
+    # Check admin permissions
+    try:
+        await permissions_manager.require_permission(user["id"], "manage_users")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
 
     # Validate VAPID configuration
@@ -1035,7 +1022,7 @@ async def send_system_notification(
 
     try:
         # Get all device subscriptions
-        all_subscriptions = await redis_store.get_all_device_push_subscriptions()
+        all_subscriptions = await store.get_all_device_push_subscriptions()
 
         if not all_subscriptions:
             raise HTTPException(status_code=400, detail="No devices are subscribed to notifications")
@@ -1047,14 +1034,8 @@ async def send_system_notification(
         if notification.target_users is None:
             # Send to all subscribed devices
             for subscription in all_subscriptions:
-                # Check notification preferences
-                preferences_json = subscription.get("notification_preferences", "{}")
-                try:
-                    preferences = json.loads(preferences_json)
-                    if preferences.get("system_announcements", True):
-                        filtered_subscriptions.append(subscription)
-                except json.JSONDecodeError:
-                    # If preferences can't be parsed, send notification (fail-safe)
+                preferences = subscription.get("notification_preferences") or {}
+                if preferences.get("system_announcements", True):
                     filtered_subscriptions.append(subscription)
         else:
             # Send to specific users
@@ -1062,14 +1043,8 @@ async def send_system_notification(
             for subscription in all_subscriptions:
                 user_id = subscription.get("user_id")
                 if user_id in notification.target_users:
-                    # Check notification preferences
-                    preferences_json = subscription.get("notification_preferences", "{}")
-                    try:
-                        preferences = json.loads(preferences_json)
-                        if preferences.get("system_announcements", True):
-                            filtered_subscriptions.append(subscription)
-                    except json.JSONDecodeError:
-                        # If preferences can't be parsed, send notification (fail-safe)
+                    preferences = subscription.get("notification_preferences") or {}
+                    if preferences.get("system_announcements", True):
                         filtered_subscriptions.append(subscription)
 
         if not filtered_subscriptions:
@@ -1094,15 +1069,15 @@ async def send_system_notification(
             }
         }
 
-        # Handle custom icon - Redis image paths or static URLs
+        # Handle custom icon - stored image paths or static URLs
         if notification.icon:
             notification_payload["icon"] = notification.icon
 
-        # Handle custom image - Redis image paths or static URLs
+        # Handle custom image - stored image paths or static URLs
         if notification.image:
             notification_payload["image"] = notification.image
 
-        # Handle custom badge - Redis image paths or static URLs
+        # Handle custom badge - stored image paths or static URLs
         if notification.badge:
             notification_payload["badge"] = notification.badge
 
@@ -1160,7 +1135,7 @@ async def send_system_notification(
         await send_push_notification_to_subscriptions(
             filtered_subscriptions,
             notification_payload,
-            redis_store
+            store
         )
 
         logger.info(

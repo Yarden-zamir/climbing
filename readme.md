@@ -1,6 +1,6 @@
 # Climbing App
 
-A modern, animated web app for browsing climbing albums, managing crew, and sharing memes. Features beautiful transitions, real-time push notifications, PWA installation, and a modular FastAPI backend with Redis.
+A modern, animated web app for browsing climbing albums, managing crew, and sharing memes. Features beautiful transitions, real-time push notifications, PWA installation, and a modular FastAPI backend on DuckDB.
 
 ---
 
@@ -16,7 +16,7 @@ A modern, animated web app for browsing climbing albums, managing crew, and shar
 - **Hybrid Auth:** Supports both Google OAuth (session) and JWT Bearer tokens for API/mobile
 - **Animated UI:** Skeleton loading, blur/fade-in, typewriter text, and particle animations for real-time feedback
 - **Responsive Design:** Modern, RTL-ready, accessible, and mobile-friendly
-- **Production-ready:** Modular FastAPI backend, Redis data layer, and robust permission system
+- **Production-ready:** Modular FastAPI backend, single-file DuckDB storage with daily backups, and a role and ownership permission system
 
 ---
 
@@ -51,7 +51,8 @@ climbing/
 ├── models/                # Pydantic models for API
 ├── utils/                 # Logging, metadata parsing, background tasks, export
 ├── scripts/               # CLI scripts (migrate, admin, export, VAPID key generation)
-├── redis_store.py         # Redis data layer (crew, albums, memes, push subscriptions)
+├── store.py               # DuckDB data layer (all entities), schema.sql holds the DDL
+├── dates.py               # Album date parsing (Google Photos display dates)
 ├── sw.js                  # Service worker for PWA and push notifications
 ├── static/                # HTML, CSS, JS, images, PWA manifest
 │   ├── manifest.json      # PWA manifest for installable app
@@ -60,7 +61,6 @@ climbing/
 │   │   ├── pwa-manager.js      # PWA installation prompts
 │   │   └── notification-health-manager.js  # Notification debugging
 │   └── ...
-├── redis-schema.yml       # Redis schema docs
 ├── pyproject.toml         # Python dependencies
 ```
 
@@ -111,9 +111,10 @@ climbing/
 
 - **Backend:**
   - Modular FastAPI app (routes, middleware, models, utils)
-  - Redis for all data (crew, albums, memes, sessions)
-  - Proper Redis data types (sets, hashes, etc.)
-  - Scripts for migration, admin, and export
+  - One DuckDB file for all data (`store.py`, schema in `schema.sql`): climbers, albums, locations, users, ownership, images, push devices, API tokens
+  - Derived facts stay derived: climb counts, levels, "new" climbers and per-user creation counts are computed in queries, never stored
+  - Daily snapshot into `backups/` next to the database (14 kept); the admin panel downloads a snapshot on demand
+  - `tests/` runs the whole HTTP surface against a temporary database (`uv run pytest`)
 
 ---
 
@@ -131,10 +132,9 @@ climbing/
 
 - **Scripts:**
   - `scripts/enrich_locations.py` — Fill missing location data from `data/locations_enrichment.json` (dry run by default, `--apply` to write)
-  - `scripts/redis_data_migration.py` — Migrate old JSON arrays to Redis sets
-  - `scripts/make_admin.py` — Promote user to admin
+  - `scripts/migrate_redis_to_duckdb.py` — One-off import of the legacy Redis data (also runs on first start when the database is empty)
+  - `scripts/make_admin.py <email>` — Promote user to admin
   - `scripts/list_users.py` — List all users
-  - `scripts/export_utils.py` — Export Redis DB
   - `scripts/generate_vapid_keys.py` — Generate VAPID keys for push notifications
 
 ---
@@ -179,7 +179,7 @@ Pushes to `main` run two workflows: `check.yml` (Python compile, JavaScript and 
 
 - Respects `prefers-reduced-motion` for accessibility
 - Fast, responsive, and works on all modern browsers
-- Efficient Redis operations and batch updates
+- Single-file DuckDB storage, one query per page
 
 ---
 
@@ -193,7 +193,7 @@ MIT
 
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Uvicorn](https://www.uvicorn.org/)
-- [Redis](https://redis.io/)
+- [DuckDB](https://duckdb.org/)
 - [Excalidraw](https://excalidraw.com/)
 - [Google Photos](https://photos.google.com/)
 - [Poppins font](https://fonts.google.com/specimen/Poppins)

@@ -719,7 +719,7 @@ class AdminPanel {
             
             // Get the filename from response headers or generate one
             const contentDisposition = response.headers.get('Content-Disposition');
-            let filename = 'climbing_db_export.json';
+            let filename = 'climbing-backup.duckdb';
             if (contentDisposition) {
                 const match = contentDisposition.match(/filename="?([^"]+)"?/);
                 if (match) filename = match[1];
@@ -738,12 +738,9 @@ class AdminPanel {
             
             result.className = 'action-result success';
             result.innerHTML = `
-                ✅ Database exported successfully!<br>
-                <small>File: ${filename}</small><br><br>
-                <strong>To load into Redis:</strong><br>
-                <code style="background: #f8f9fa; padding: 4px 8px; border-radius: 4px; font-family: monospace; display: block; margin: 8px 0;">cat ${filename} | jq -r '.export' | base64 -d | redis-cli</code>
-                <small>Or for remote Redis: <code>cat ${filename} | jq -r '.export' | base64 -d | redis-cli -h hostname -p 6379</code></small><br>
-                <small style="color: #6c757d;">Note: The grep command filters out comment lines before importing</small>
+                ✅ Database backup downloaded!<br>
+                <small>File: ${filename}</small><br>
+                <small>A complete DuckDB snapshot. Open it with <code>duckdb ${filename}</code> or restore by replacing the server's climbing.duckdb while the app is stopped.</small>
             `;
             
         } catch (error) {
@@ -817,7 +814,6 @@ class AdminPanel {
         }
 
         try {
-            // For now, we'll just add it directly to the Redis achievements index
             await apiFetch('/api/achievements', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

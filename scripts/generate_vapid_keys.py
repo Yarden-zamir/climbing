@@ -5,7 +5,6 @@ Creates both PEM files and base64 encoded versions for config.
 """
 
 import base64
-import os
 from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -59,14 +58,14 @@ def generate_vapid_keys():
     # Generate raw public key for browser
     raw_public_key = get_raw_public_key_from_pem(public_pem_path)
     
-    print(f"✅ VAPID keys generated successfully!")
+    print("✅ VAPID keys generated successfully!")
     print(f"📁 Private key saved to: {private_pem_path}")
     print(f"📁 Public key saved to: {public_pem_path}")
     print()
     print("🔐 Add these to your .env file:")
     print(f"VAPID_PRIVATE_KEY_B64={private_b64}")
     print(f"VAPID_PUBLIC_KEY_B64={public_b64}")
-    print(f"VAPID_SUBSCRIBER=climbing@yarden-zamir.com")
+    print("VAPID_SUBSCRIBER=climbing@yarden-zamir.com")
     print()
     print(f"🌐 Raw public key for browser: {raw_public_key}")
     
@@ -107,7 +106,7 @@ def test_keys():
             return False
         
         # Test WebPush initialization
-        wp = WebPush(
+        WebPush(
             public_key=public_pem,
             private_key=private_pem,
             subscriber="climbing@yarden-zamir.com",

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from auth import oauth_handler, get_current_user, is_safe_next_path
 from config import settings
-from dependencies import get_redis_store, get_permissions_manager, get_jwt_manager
+from dependencies import get_store, get_permissions_manager, get_jwt_manager
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -72,7 +72,7 @@ async def login(next: Optional[str] = None):
 @router.get("/callback")
 async def auth_callback(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
     """Handle OAuth callback from Google"""
-    redis_store = get_redis_store()
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     if error:
@@ -107,9 +107,9 @@ async def auth_callback(code: Optional[str] = None, state: Optional[str] = None,
                 # Fetch and cache the profile picture
                 async with httpx.AsyncClient() as client:
                     response = await client.get(profile_picture_url)
-                    if response.status_code == 200 and redis_store:
-                        # Store in Redis with user ID as identifier
-                        image_path = await redis_store.store_image(
+                    if response.status_code == 200 and store:
+                        # Store with user ID as identifier
+                        image_path = await store.store_image(
                             "profile",
                             f"{user_info['id']}/picture",
                             response.content

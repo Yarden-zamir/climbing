@@ -1,6 +1,6 @@
 """Fill missing location data from data/locations_enrichment.json.
 
-Run on the server (or anywhere that reaches the production Redis):
+Run on the server (or anywhere with the production database file, see CLIMBING_DB_PATH):
 
     uv run python scripts/enrich_locations.py            # dry run, prints the plan
     uv run python scripts/enrich_locations.py --apply    # write
@@ -14,13 +14,13 @@ Rules:
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import settings  # noqa: E402
-from redis_store import RedisDataStore  # noqa: E402
+from store import Store  # noqa: E402
 
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "locations_enrichment.json"
 CLEANUP_NAME = "__attribute_key_cleanup__"
@@ -30,7 +30,7 @@ def is_blank(value) -> bool:
     return value is None or (isinstance(value, str) and not value.strip()) or value == []
 
 
-async def enrich_location(store: RedisDataStore, current: dict, patch: dict, apply: bool) -> list[str]:
+async def enrich_location(store: Store, current: dict, patch: dict, apply: bool) -> list[str]:
     changes: list[str] = []
     fields = {}
     for field in ("description", "approach"):
@@ -66,7 +66,7 @@ async def enrich_location(store: RedisDataStore, current: dict, patch: dict, app
     return changes
 
 
-async def cleanup_attribute_keys(store: RedisDataStore, spec: dict, apply: bool) -> list[str]:
+async def cleanup_attribute_keys(store: Store, spec: dict, apply: bool) -> list[str]:
     changes: list[str] = []
     for key in spec.get("delete_keys", []):
         changes.append(f"delete global attribute key {key!r}")
@@ -93,11 +93,10 @@ async def cleanup_attribute_keys(store: RedisDataStore, spec: dict, apply: bool)
 
 
 async def main(apply: bool) -> None:
-    store = RedisDataStore(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        password=settings.REDIS_PASSWORD or None,
-        ssl=settings.REDIS_SSL,
+    store = Store(
+        os.environ.get(
+            "CLIMBING_DB_PATH", str(Path(os.environ.get("KITSHN_DATA_DIR", ".")) / "climbing.duckdb")
+        )
     )
     patches = json.loads(DATA_FILE.read_text())
     locations = {loc["name"]: loc for loc in await store.get_all_locations()}

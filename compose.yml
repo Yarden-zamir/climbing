@@ -18,10 +18,12 @@ services:
       # Existing push subscriptions are bound to these keys; never let the app generate new ones.
       VAPID_PRIVATE_KEY_B64: ${VAPID_PRIVATE_KEY_B64:?VAPID_PRIVATE_KEY_B64 is required}
       VAPID_PUBLIC_KEY_B64: ${VAPID_PUBLIC_KEY_B64:?VAPID_PUBLIC_KEY_B64 is required}
+      # /data holds climbing.duckdb, backups/ and keys/
+      KITSHN_DATA_DIR: /data
       KEYS_DIR: /data/keys
     volumes:
       - ${KITSHN_SOCKET_DIR}:${KITSHN_SOCKET_DIR}
-      - ${KITSHN_DATA_DIR}/keys:/data/keys
+      - ${KITSHN_DATA_DIR}:/data
     depends_on:
       redis:
         condition: service_healthy
@@ -33,6 +35,8 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # Legacy store, kept for one release: on first start the app imports it into DuckDB when the
+  # database is empty. Remove this service, REDIS_* above and the redis dependency afterwards.
   redis:
     image: redis:7-alpine
     pull_policy: always

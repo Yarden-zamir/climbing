@@ -1,5 +1,7 @@
 import asyncio
 import logging
+from pathlib import Path
+
 import httpx
 from utils.metadata_parser import parse_meta_tags
 
@@ -47,12 +49,12 @@ async def fetch_with_retry(client: httpx.AsyncClient, url: str) -> httpx.Respons
     raise last_exception or Exception(f"Failed to fetch {url} after {MAX_RETRIES} attempts")
 
 
-async def perform_album_metadata_refresh(redis_store):
+async def perform_album_metadata_refresh(store):
     """Perform album metadata refresh - can be called manually or automatically"""
     logger.info("🔄 Starting album metadata refresh...")
 
-    # Get all albums from Redis
-    albums = await redis_store.get_all_albums()
+    # Get all albums from the store
+    albums = await store.get_all_albums()
 
     if not albums:
         logger.info("No albums found to refresh")
@@ -75,8 +77,8 @@ async def perform_album_metadata_refresh(redis_store):
                 response = await fetch_with_retry(client, url)
                 fresh_metadata = parse_meta_tags(response.text, url)
 
-                # Update Redis with fresh metadata
-                await redis_store.update_album_metadata(url, fresh_metadata)
+                # Update the store with fresh metadata
+                await store.update_album_metadata(url, fresh_metadata)
                 updated_count += 1
 
                 # Small delay to avoid overwhelming Google Photos
@@ -103,14 +105,14 @@ async def perform_album_metadata_refresh(redis_store):
     }
 
 
-async def refresh_album_metadata(redis_store):
+async def refresh_album_metadata(store):
     """Background task to refresh album metadata from Google Photos once per day"""
     while True:
         try:
             # Wait 24 hours between refreshes (once per day)
             await asyncio.sleep(60*60*24)
 
-            await perform_album_metadata_refresh(redis_store)
+            await perform_album_metadata_refresh(store)
 
         except Exception as e:
             logger.error(f"❌ Album metadata refresh task failed: {e}")
@@ -118,11 +120,15 @@ async def refresh_album_metadata(redis_store):
             continue
 
 
-async def refresh_new_climbers(redis_store):
-    """Keep is_new current as the 14-day window passes; album writes also recalculate."""
+async def backup_database(store, directory: Path):
+    """Snapshot the database once a day and drop expired temporary images."""
     while True:
         try:
-            await redis_store.calculate_new_climbers()
+            path = await asyncio.to_thread(store.backup, directory)
+            logger.info(f"💾 Database backed up to {path}")
+            store.purge_expired_images()
+            await asyncio.sleep(60 * 60 * 24)
         except Exception as e:
-            logger.error(f"❌ New climber recalculation failed: {e}")
-        await asyncio.sleep(60 * 60) 
+            logger.error(f"❌ Database backup failed: {e}")
+            await asyncio.sleep(60 * 60)
+ 

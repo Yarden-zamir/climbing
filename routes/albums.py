@@ -8,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from auth import require_auth_hybrid
-from dependencies import get_redis_store, get_permissions_manager
+from dependencies import get_store, get_permissions_manager
 from models.api_models import (
     AlbumCrewEdit,
     AlbumMetadataUpdate,
@@ -16,7 +16,7 @@ from models.api_models import (
     LearnedItems,
 )
 from permissions import ResourceType
-from redis_store import ValidationError as StoreValidationError, album_climb_timestamp
+from store import IMAGE_URL_PREFIX, ValidationError as StoreValidationError
 from utils.metadata_parser import fetch_url, parse_meta_tags
 from validation import ValidationError, validate_google_photos_url, validate_crew_list
 from routes.notifications import send_notification_for_event
@@ -60,12 +60,12 @@ async def _require_learned_permissions(
 
 
 async def _apply_learned(
-    redis_store, album_url: str, learned: Dict[str, LearnedItems]
+    store, album_url: str, learned: Dict[str, LearnedItems]
 ) -> Dict[str, Dict[str, List[str]]]:
     applied: Dict[str, Dict[str, List[str]]] = {}
     for name, item in learned.items():
         try:
-            applied[name] = await redis_store.record_learned_items(
+            applied[name] = await store.record_learned_items(
                 name, album_url, item.skills, item.achievements
             )
         except StoreValidationError as e:
@@ -75,33 +75,32 @@ async def _apply_learned(
 
 @router.get("/enriched")
 async def get_enriched_albums():
-    """API endpoint that returns all albums with metadata from Redis."""
-    redis_store = get_redis_store()
+    """API endpoint that returns all albums with metadata from the store."""
+    store = get_store()
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
-        albums = await redis_store.get_all_albums()
+        albums = await store.get_all_albums()
         enriched_albums = []
 
         for album in albums:
             # Create enriched metadata with crew status
             crew_with_status = []
             for crew_member in album.get("crew", []):
-                climber_data = await redis_store.get_climber(crew_member)
+                climber_data = await store.get_climber(crew_member)
                 is_new = climber_data.get("is_new", False) if climber_data else False
 
                 crew_with_status.append(
                     {
                         "name": crew_member,
                         "is_new": is_new,
-                        "image_url": f"/redis-image/climber/{quote(crew_member)}/face",
+                        "image_url": f"{IMAGE_URL_PREFIX}/climber/{quote(crew_member)}/face",
                     }
                 )
 
-            climb_timestamp = album_climb_timestamp(album)
             enriched_albums.append(
                 {
                     "url": album["url"],
@@ -110,9 +109,7 @@ async def get_enriched_albums():
                         "description": album.get("description", ""),
                         "date": album.get("date", ""),
                         # Machine-readable climb date; clients must not re-parse the display string
-                        "date_iso": climb_timestamp.date().isoformat()
-                        if climb_timestamp
-                        else None,
+                        "date_iso": album["climb_date"],
                         "created_at": album.get("created_at", ""),
                         "imageUrl": album.get("image_url", ""),
                         "location": album.get("location", ""),
@@ -140,10 +137,10 @@ async def get_enriched_albums():
 @router.get("/validate-url")
 async def validate_album_url(url: str = Query(...)):
     """Validate album URL and check if it already exists"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
@@ -154,7 +151,7 @@ async def validate_album_url(url: str = Query(...)):
             return JSONResponse({"valid": False, "error": str(e)})
 
         # Check if album already exists
-        existing_album = await redis_store.get_album(validated_url)
+        existing_album = await store.get_album(validated_url)
         if existing_album:
             return JSONResponse(
                 {
@@ -202,11 +199,11 @@ async def submit_album(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_auth_hybrid),
 ):
-    """Submit a new album directly to Redis (no GitHub).
+    """Submit a new album directly to the store (no GitHub).
 
     Supports both session-based authentication (web) and JWT Bearer token authentication (API).
     """
-    redis_store = get_redis_store()
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     # Validate album URL format
@@ -215,8 +212,8 @@ async def submit_album(
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
@@ -237,7 +234,7 @@ async def submit_album(
                 )
 
         # Check if album already exists
-        existing_album = await redis_store.get_album(validated_url)
+        existing_album = await store.get_album(validated_url)
         if existing_album:
             raise HTTPException(status_code=409, detail="Album already exists")
 
@@ -258,7 +255,7 @@ async def submit_album(
             if new_person:
                 # Create new climber
                 try:
-                    await redis_store.add_climber(
+                    await store.add_climber(
                         name=new_person.name,
                         location=new_person.location,
                         skills=new_person.skills,
@@ -268,15 +265,15 @@ async def submit_album(
 
                     # Handle image if provided
                     if new_person.temp_image_path:
-                        # Extract temp image from Redis and store as climber image
-                        temp_image = await redis_store.get_image(
+                        # Move the temp image to the climber image
+                        temp_image = await store.get_image(
                             "temp", new_person.name
                         )
                         if temp_image:
-                            await redis_store.store_image(
+                            await store.store_image(
                                 "climber", f"{new_person.name}/face", temp_image
                             )
-                            await redis_store.delete_image("temp", new_person.name)
+                            await store.delete_image("temp", new_person.name)
 
                 except ValueError as e:
                     if "already exists" in str(e):
@@ -285,7 +282,7 @@ async def submit_album(
                         raise
             else:
                 # Check if existing crew member exists
-                existing_climber = await redis_store.get_climber(crew_name)
+                existing_climber = await store.get_climber(crew_name)
                 if not existing_climber:
                     raise HTTPException(
                         status_code=400,
@@ -297,20 +294,17 @@ async def submit_album(
             response = await fetch_url(client, validated_url)
             metadata = parse_meta_tags(response.text, validated_url)
 
-        # Add album to Redis
-        await redis_store.add_album(
+        # Add album to the store
+        await store.add_album(
             validated_url, submission.crew, metadata, location=submission.location
         )
-        learned_applied = await _apply_learned(redis_store, validated_url, learned)
+        learned_applied = await _apply_learned(store, validated_url, learned)
 
-        # Set resource ownership and increment count if permissions system available
+        # Set resource ownership if permissions system available
         if permissions_manager is not None:
             try:
                 await permissions_manager.set_resource_owner(
                     ResourceType.ALBUM, validated_url, user_id
-                )
-                await permissions_manager.increment_user_creation_count(
-                    user_id, ResourceType.ALBUM
                 )
             except Exception as e:
                 logger.warning(f"Failed to set resource ownership: {e}")
@@ -326,7 +320,7 @@ async def submit_album(
                 "creator": user.get("name", "Someone"),
                 "image_url": metadata.get("imageUrl"),
             },
-            redis_store=redis_store,
+            store=store,
             target_users=None,
         )
         for new_person in new_created_climbers:
@@ -338,9 +332,9 @@ async def submit_album(
                     "creator": user.get("name", "Someone"),
                     "skills": new_person.skills,
                     "location": new_person.location,
-                    "image_url": f"/redis-image/climber/{quote(new_person.name)}/face",
+                    "image_url": f"{IMAGE_URL_PREFIX}/climber/{quote(new_person.name)}/face",
                 },
-                redis_store=redis_store,
+                store=store,
                 target_users=None,
             )
 
@@ -372,7 +366,7 @@ async def edit_album_crew(
 
     Supports both session-based authentication (web) and JWT Bearer token authentication (API).
     """
-    redis_store = get_redis_store()
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     # Validate album URL format
@@ -393,8 +387,8 @@ async def edit_album_crew(
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
@@ -403,7 +397,7 @@ async def edit_album_crew(
             raise HTTPException(status_code=401, detail="Authentication required")
 
         # Check if album exists
-        existing_album = await redis_store.get_album(validated_url)
+        existing_album = await store.get_album(validated_url)
         if not existing_album:
             raise HTTPException(status_code=404, detail="Album not found")
 
@@ -431,13 +425,13 @@ async def edit_album_crew(
                     continue
 
                 # Check if climber already exists
-                existing_climber = await redis_store.get_climber(validated_name)
+                existing_climber = await store.get_climber(validated_name)
                 if existing_climber:
                     continue  # Skip if already exists
 
                 try:
                     # Create new climber
-                    await redis_store.add_climber(
+                    await store.add_climber(
                         name=validated_name,
                         location=person.location or [],
                         skills=person.skills or [],
@@ -453,18 +447,16 @@ async def edit_album_crew(
 
                     # Handle image if provided
                     if person.temp_image_path:
-                        temp_image = await redis_store.get_image("temp", validated_name)
+                        temp_image = await store.get_image("temp", validated_name)
                         if temp_image:
                             # Store as climber image
-                            image_path = await redis_store.store_image(
-                                "climber", f"{validated_name}/face", temp_image
-                            )
+                            await store.store_image("climber", f"{validated_name}/face", temp_image)
                             uploaded_images.append(
                                 ("climber", f"{validated_name}/face")
                             )
 
                             # Clean up temp image
-                            await redis_store.delete_image("temp", validated_name)
+                            await store.delete_image("temp", validated_name)
                         else:
                             logger.warning(
                                 f"Temporary image not found for {validated_name}"
@@ -484,7 +476,7 @@ async def edit_album_crew(
 
             # Validate that all crew members exist
             for crew_member in validated_crew:
-                existing_climber = await redis_store.get_climber(crew_member)
+                existing_climber = await store.get_climber(crew_member)
                 if not existing_climber:
                     raise HTTPException(
                         status_code=400,
@@ -492,8 +484,8 @@ async def edit_album_crew(
                     )
 
             # Update album crew (atomic operation)
-            await redis_store.update_album_crew(validated_url, validated_crew)
-            learned_applied = await _apply_learned(redis_store, validated_url, learned)
+            await store.update_album_crew(validated_url, validated_crew)
+            learned_applied = await _apply_learned(store, validated_url, learned)
 
             return JSONResponse(
                 {
@@ -512,13 +504,13 @@ async def edit_album_crew(
 
             for climber_name in created_climbers:
                 try:
-                    await redis_store.delete_climber(climber_name)
+                    await store.delete_climber(climber_name)
                 except:
                     pass
 
             for image_type, image_id in uploaded_images:
                 try:
-                    await redis_store.delete_image(image_type, image_id)
+                    await store.delete_image(image_type, image_id)
                 except:
                     pass
 
@@ -535,8 +527,8 @@ async def edit_album_crew(
 async def delete_album(
     album_url: str = Query(...), user: dict = Depends(require_auth_hybrid)
 ):
-    """Delete an album from Redis."""
-    redis_store = get_redis_store()
+    """Delete an album from the store."""
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     # Validate album URL format
@@ -545,8 +537,8 @@ async def delete_album(
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
@@ -555,7 +547,7 @@ async def delete_album(
             raise HTTPException(status_code=401, detail="Authentication required")
 
         # Check if album exists
-        existing_album = await redis_store.get_album(album_url)
+        existing_album = await store.get_album(album_url)
         if not existing_album:
             raise HTTPException(status_code=404, detail="Album not found")
 
@@ -569,7 +561,7 @@ async def delete_album(
         album_title = existing_album.get("title", "Unknown Album")
 
         # Delete the album
-        deleted = await redis_store.delete_album(album_url)
+        deleted = await store.delete_album(album_url)
 
         if not deleted:
             raise HTTPException(status_code=500, detail="Failed to delete album")
@@ -597,7 +589,7 @@ async def edit_album_metadata(
     update: AlbumMetadataUpdate, user: dict = Depends(require_auth_hybrid)
 ):
     """Edit album metadata such as title/description/date and location."""
-    redis_store = get_redis_store()
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     # Validate URL format
@@ -606,8 +598,8 @@ async def edit_album_metadata(
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
@@ -616,7 +608,7 @@ async def edit_album_metadata(
             raise HTTPException(status_code=401, detail="Authentication required")
 
         # Check if album exists
-        existing_album = await redis_store.get_album(validated_url)
+        existing_album = await store.get_album(validated_url)
         if not existing_album:
             raise HTTPException(status_code=404, detail="Album not found")
 
@@ -643,7 +635,7 @@ async def edit_album_metadata(
             else existing_album.get("cover_image", ""),
         }
 
-        await redis_store.update_album_metadata(
+        await store.update_album_metadata(
             validated_url, metadata, location=update.location
         )
 

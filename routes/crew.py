@@ -5,10 +5,10 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, Form, Fi
 from fastapi.responses import JSONResponse
 
 from auth import require_auth_hybrid
-from dependencies import get_redis_store, get_permissions_manager
+from dependencies import get_store, get_permissions_manager
 from models.api_models import AddSkillsRequest, AddAchievementsRequest
 from permissions import ResourceType
-from redis_store import ValidationError as StoreValidationError
+from store import IMAGE_URL_PREFIX, ValidationError as StoreValidationError
 from validation import (
     ValidationError, validate_crew_form_data,
     validate_optional_image_upload, validate_image_file, validate_name,
@@ -23,16 +23,15 @@ router = APIRouter(prefix="/api/crew", tags=["crew"])
 
 @router.get("")
 async def get_crew():
-    """Get all crew members from Redis"""
-    redis_store = get_redis_store()
+    """Get all crew members from the store"""
+    store = get_store()
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
-        # is_new is maintained on album writes and by the hourly background task
-        crew = await redis_store.get_all_climbers()
+        crew = await store.get_all_climbers()
         return JSONResponse(crew)
     except Exception as e:
         logger.error(f"Error getting crew: {e}")
@@ -41,12 +40,12 @@ async def get_crew():
 
 @router.post("/calculate-new")
 async def calculate_new_climbers_endpoint(user: dict = Depends(require_auth_hybrid)):
-    """Manually trigger calculation of new climbers"""
-    redis_store = get_redis_store()
+    """List the climbers whose first climb falls inside the new-climber window (admin only)"""
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
@@ -58,17 +57,17 @@ async def calculate_new_climbers_endpoint(user: dict = Depends(require_auth_hybr
         if permissions_manager is not None:
             await permissions_manager.require_permission(user_id, "manage_users")
 
-        new_climbers = await redis_store.calculate_new_climbers()
+        new_climbers = list(await store.get_new_climbers())
         return JSONResponse({
             "success": True,
-            "message": f"Calculated {len(new_climbers)} new climbers",
-            "new_climbers": list(new_climbers)
+            "message": f"{len(new_climbers)} new climbers",
+            "new_climbers": new_climbers
         })
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error calculating new climbers: {e}")
-        raise HTTPException(status_code=500, detail="Failed to calculate new climbers")
+        logger.error(f"Error listing new climbers: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list new climbers")
 
 
 @router.post("/submit")
@@ -81,11 +80,11 @@ async def submit_crew_member(
     background_tasks: BackgroundTasks = None,
     user: dict = Depends(require_auth_hybrid)
 ):
-    """Submit a new crew member directly to Redis with optional image upload.
+    """Submit a new crew member directly to the store with optional image upload.
     
     Supports both session-based authentication (web) and JWT Bearer token authentication (API).
     """
-    redis_store = get_redis_store()
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     try:
@@ -108,7 +107,7 @@ async def submit_crew_member(
                     detail="You have reached your crew member creation limit. Contact an admin for approval."
                 )
 
-        if await redis_store.get_climber(validated_name):
+        if await store.get_climber(validated_name):
             raise HTTPException(status_code=409, detail=f"A crew member named '{validated_name}' already exists")
 
         # Validate the image before creating anything, so a bad image leaves no half-created climber
@@ -117,8 +116,8 @@ async def submit_crew_member(
             image_data = await image.read()
             validate_image_file(image.content_type or "", len(image_data))
 
-        # Add climber to Redis
-        await redis_store.add_climber(
+        # Add climber to the store
+        await store.add_climber(
             name=validated_name,
             location=validated_location,
             skills=validated_skills,
@@ -127,18 +126,17 @@ async def submit_crew_member(
 
         if image_data:
             try:
-                await redis_store.store_image("climber", f"{validated_name}/face", image_data)
+                await store.store_image("climber", f"{validated_name}/face", image_data)
             except Exception as e:
                 logger.error(f"Failed to store image for {validated_name}: {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to store image: {str(e)}")
 
-        # Set resource ownership and increment count if permissions system is available
+        # Set resource ownership if permissions system is available
         if permissions_manager is not None:
             try:
                 await permissions_manager.set_resource_owner(ResourceType.CREW_MEMBER, validated_name, user_id)
-                await permissions_manager.increment_user_creation_count(user_id, ResourceType.CREW_MEMBER)
             except Exception as e:
-                logger.warning(f"Failed to set ownership/increment count: {e}")
+                logger.warning(f"Failed to set ownership: {e}")
 
         # Push delivery is slow; never block the response on it
         background_tasks.add_task(
@@ -149,9 +147,9 @@ async def submit_crew_member(
                 "creator": user.get("name", "Someone"),
                 "skills": validated_skills,
                 "location": validated_location,
-                "image_url": f"/redis-image/climber/{quote(validated_name)}/face",
+                "image_url": f"{IMAGE_URL_PREFIX}/climber/{quote(validated_name)}/face",
             },
-            redis_store=redis_store,
+            store=store,
             target_users=None,
         )
 
@@ -181,7 +179,7 @@ async def edit_crew_member(
     user: dict = Depends(require_auth_hybrid)
 ):
     """Edit an existing crew member with comprehensive validation and error handling."""
-    redis_store = get_redis_store()
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     # Track resources for cleanup on failure
@@ -207,7 +205,7 @@ async def edit_crew_member(
             raise HTTPException(status_code=400, detail=str(e))
 
         # === CHECK CREW MEMBER EXISTS ===
-        existing_member = await redis_store.get_climber(validated_original_name)
+        existing_member = await store.get_climber(validated_original_name)
         if not existing_member:
             logger.warning(f"Crew member not found: {validated_original_name}")
             raise HTTPException(status_code=404, detail=f"Crew member '{validated_original_name}' not found")
@@ -222,7 +220,7 @@ async def edit_crew_member(
         name_changed = validated_original_name != validated_name
         if name_changed:
             # Check if new name conflicts with existing crew member
-            existing_with_new_name = await redis_store.get_climber(validated_name)
+            existing_with_new_name = await store.get_climber(validated_name)
             if existing_with_new_name:
                 logger.warning(f"Name conflict: {validated_name} already exists")
                 raise HTTPException(
@@ -267,7 +265,7 @@ async def edit_crew_member(
         # === ATOMIC DATABASE UPDATE ===
         try:
             # Step 1: Update the crew member data
-            await redis_store.update_climber(
+            await store.update_climber(
                 original_name=validated_original_name,
                 name=validated_name,
                 location=validated_location,
@@ -280,7 +278,7 @@ async def edit_crew_member(
             if new_image_data:
                 try:
                     # Store new image
-                    image_path = await redis_store.store_image("climber", f"{validated_name}/face", new_image_data)
+                    image_path = await store.store_image("climber", f"{validated_name}/face", new_image_data)
                     cleanup_tasks.append(("delete_image", "climber", f"{validated_name}/face"))
                     logger.info(f"Successfully stored new image for {validated_name}: {image_path}")
 
@@ -305,7 +303,7 @@ async def edit_crew_member(
             for task in cleanup_tasks:
                 try:
                     if task[0] == "delete_image":
-                        await redis_store.delete_image(task[1], task[2])
+                        await store.delete_image(task[1], task[2])
                         logger.info(f"Cleanup: deleted image {task[1]}:{task[2]}")
                 except Exception as cleanup_error:
                     logger.error(f"Cleanup failed for {task}: {cleanup_error}")
@@ -343,7 +341,7 @@ async def edit_crew_member(
         for task in cleanup_tasks:
             try:
                 if task[0] == "delete_image":
-                    await redis_store.delete_image(task[1], task[2])
+                    await store.delete_image(task[1], task[2])
                     logger.info(f"Emergency cleanup: deleted image {task[1]}:{task[2]}")
             except Exception as cleanup_error:
                 logger.error(f"Emergency cleanup failed for {task}: {cleanup_error}")
@@ -353,8 +351,8 @@ async def edit_crew_member(
 
 @router.post("/add-skills")
 async def add_skills_to_crew_member(request: AddSkillsRequest, user: dict = Depends(require_auth_hybrid)):
-    """Add skills to an existing crew member in Redis (no GitHub)."""
-    redis_store = get_redis_store()
+    """Add skills to an existing crew member in the store (no GitHub)."""
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     # Validate input
@@ -369,7 +367,7 @@ async def add_skills_to_crew_member(request: AddSkillsRequest, user: dict = Depe
             raise HTTPException(status_code=401, detail="Authentication required")
 
         # Get current climber data
-        existing_member = await redis_store.get_climber(request.crew_name)
+        existing_member = await store.get_climber(request.crew_name)
         if not existing_member:
             raise HTTPException(status_code=404, detail="Crew member not found")
 
@@ -384,7 +382,7 @@ async def add_skills_to_crew_member(request: AddSkillsRequest, user: dict = Depe
         updated_skills = current_skills + [skill for skill in request.skills if skill not in current_skills]
 
         # Update climber with new skills
-        await redis_store.update_climber(
+        await store.update_climber(
             original_name=request.crew_name,
             name=request.crew_name,
             location=existing_member.get("location", []),
@@ -407,8 +405,8 @@ async def add_skills_to_crew_member(request: AddSkillsRequest, user: dict = Depe
 
 @router.post("/add-achievements")
 async def add_achievements_to_crew_member(request: AddAchievementsRequest, user: dict = Depends(require_auth_hybrid)):
-    """Add achievements to an existing crew member in Redis (no GitHub)."""
-    redis_store = get_redis_store()
+    """Add achievements to an existing crew member in the store (no GitHub)."""
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     # Validate input
@@ -423,7 +421,7 @@ async def add_achievements_to_crew_member(request: AddAchievementsRequest, user:
             raise HTTPException(status_code=401, detail="Authentication required")
 
         # Get current climber data
-        existing_member = await redis_store.get_climber(request.crew_name)
+        existing_member = await store.get_climber(request.crew_name)
         if not existing_member:
             raise HTTPException(status_code=404, detail="Crew member not found")
 
@@ -439,7 +437,7 @@ async def add_achievements_to_crew_member(request: AddAchievementsRequest, user:
             achievement for achievement in request.achievements if achievement not in current_achievements]
 
         # Update climber with new achievements
-        await redis_store.update_climber(
+        await store.update_climber(
             original_name=request.crew_name,
             name=request.crew_name,
             location=existing_member.get("location", []),
@@ -464,15 +462,15 @@ async def add_achievements_to_crew_member(request: AddAchievementsRequest, user:
 
 @router.delete("/delete")
 async def delete_crew_member(crew_name: str = Query(...), user: dict = Depends(require_auth_hybrid)):
-    """Delete a crew member from Redis."""
-    redis_store = get_redis_store()
+    """Delete a crew member from the store."""
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
     # Validate crew name
     if not crew_name or not crew_name.strip():
         raise HTTPException(status_code=400, detail="Crew name is required")
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
@@ -486,7 +484,7 @@ async def delete_crew_member(crew_name: str = Query(...), user: dict = Depends(r
             raise HTTPException(status_code=401, detail="Authentication required")
 
         # Check if crew member exists
-        existing_member = await redis_store.get_climber(validated_name)
+        existing_member = await store.get_climber(validated_name)
         if not existing_member:
             raise HTTPException(status_code=404, detail="Crew member not found")
 
@@ -497,7 +495,7 @@ async def delete_crew_member(crew_name: str = Query(...), user: dict = Depends(r
             )
 
         # Delete the crew member
-        deleted = await redis_store.delete_climber(validated_name)
+        deleted = await store.delete_climber(validated_name)
 
         if not deleted:
             raise HTTPException(status_code=500, detail="Failed to delete crew member")

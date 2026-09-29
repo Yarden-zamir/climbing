@@ -1,64 +1,38 @@
-#!/usr/bin/env python3
-"""
-Script to make a user an admin.
+"""Give a user the admin role.
+
 Usage: uv run python scripts/make_admin.py <user_email>
 """
 
 import asyncio
-import logging
+import os
 import sys
 from pathlib import Path
 
-# Add parent directory to path so we can import from the main project
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from redis_store import RedisDataStore
-from permissions import PermissionsManager
+from permissions import PermissionsManager  # noqa: E402
+from store import Store  # noqa: E402
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-async def main():
-    if len(sys.argv) != 2:
-        print("Usage: uv run python scripts/make_admin.py <user_email>")
-        print("Example: uv run python scripts/make_admin.py user@example.com")
-        sys.exit(1)
-    
-    user_email = sys.argv[1]
-    
-    try:
-        # Initialize Redis connection
-        redis_store = RedisDataStore(host='localhost', port=6379)
-        
-        # Initialize permissions manager
-        permissions_manager = PermissionsManager(redis_store)
-        
-        # Check if user exists
-        user = await permissions_manager.get_user_by_email(user_email)
-        if not user:
-            print(f"❌ User with email '{user_email}' not found.")
-            sys.exit(1)
-        
-        current_role = user.get("role", "user")
-        
-        if current_role == "admin":
-            print(f"✅ User '{user_email}' is already an admin.")
-            return
-        
-        # Update user role to admin
-        success = await permissions_manager.assign_admin_user(user_email)
-        
-        if success:
-            print(f"✅ Successfully made '{user_email}' an admin!")
-            print(f"   Previous role: {current_role}")
-            print(f"   New role: admin")
-        else:
-            print(f"❌ Failed to make '{user_email}' an admin.")
-        
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        print(f"❌ Error: {e}")
+async def main(email: str) -> None:
+    store = Store(
+        os.environ.get(
+            "CLIMBING_DB_PATH", str(Path(os.environ.get("KITSHN_DATA_DIR", ".")) / "climbing.duckdb")
+        )
+    )
+    permissions_manager = PermissionsManager(store)
+    user = await permissions_manager.get_user_by_email(email)
+    if not user:
+        sys.exit(f"User with email '{email}' not found.")
+    if user["role"] == "admin":
+        print(f"User '{email}' is already an admin.")
+        return
+    if not await permissions_manager.assign_admin_user(email):
+        sys.exit(f"Failed to make '{email}' an admin.")
+    print(f"Made '{email}' an admin (previous role: {user['role']}).")
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if len(sys.argv) != 2:
+        sys.exit("Usage: uv run python scripts/make_admin.py <user_email>")
+    asyncio.run(main(sys.argv[1]))

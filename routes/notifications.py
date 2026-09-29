@@ -1,7 +1,7 @@
 import json
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from urllib.parse import quote, urlparse
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
@@ -10,9 +10,9 @@ from pydantic import BaseModel, ValidationError as PydanticValidationError
 import aiohttp
 
 from auth import get_current_user_hybrid, require_auth_hybrid
-from dependencies import get_redis_store
+from dependencies import get_store
 from config import settings
-from validation import ValidationError
+from store import ValidationError
 from webpush import WebPushSubscription
 from webpush.types import WebPushKeys
 from pydantic import AnyHttpUrl
@@ -99,9 +99,9 @@ async def subscribe_to_notifications(
     user: dict = Depends(get_current_user_hybrid)
 ):
     """Subscribe device to push notifications"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Validate VAPID configuration
@@ -131,7 +131,7 @@ async def subscribe_to_notifications(
         raise HTTPException(status_code=400, detail=f"Invalid push subscription: {e}")
 
     try:
-        # Convert subscription to dict for Redis storage
+        # Convert subscription to dict for storage
         subscription_data = {
             "endpoint": request_data.subscription.endpoint,
             "keys": {
@@ -152,8 +152,8 @@ async def subscribe_to_notifications(
 
         background_tasks.add_task(test_subscription_validity, webpush_subscription)
 
-        # Store subscription in Redis with device ID
-        subscription_id = await redis_store.store_push_subscription(device_id, user_id, subscription_data, device_info)
+        # Store subscription with device ID
+        subscription_id = await store.store_push_subscription(device_id, user_id, subscription_data, device_info)
 
         # Send welcome notification in background
         background_tasks.add_task(
@@ -219,9 +219,9 @@ async def get_current_device_subscription(
     user: dict = Depends(get_current_user_hybrid)
 ):
     """Get push subscription for the current device"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Extract device ID from request headers or cookies
@@ -233,7 +233,7 @@ async def get_current_device_subscription(
         })
 
     try:
-        subscription = await redis_store.get_device_push_subscription(device_id)
+        subscription = await store.get_device_push_subscription(device_id)
 
         if not subscription:
             return JSONResponse({
@@ -250,8 +250,7 @@ async def get_current_device_subscription(
             "browser_name": subscription.get("browser_name"),
             "platform": subscription.get("platform"),
             "endpoint_domain": subscription.get("endpoint", "").split("/")[2]
-            if subscription.get("endpoint") else "unknown", "user_associated": subscription.get("user_id") !=
-            "anonymous",
+            if subscription.get("endpoint") else "unknown", "user_associated": subscription.get("user_id") is not None,
             "needs_user_association": bool(user) and subscription.get("user_id") != user.get("id")}
 
         return JSONResponse({
@@ -267,9 +266,9 @@ async def get_current_device_subscription(
 @router.get("/devices")
 async def get_user_devices(user: dict = Depends(require_auth_hybrid)):
     """Get all devices with push subscriptions for the current user"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     user_id = user.get("id")
@@ -277,22 +276,12 @@ async def get_user_devices(user: dict = Depends(require_auth_hybrid)):
         raise HTTPException(status_code=401, detail="Authentication required")
 
     try:
-        device_subscriptions = await redis_store.get_user_device_subscriptions(user_id)
+        device_subscriptions = await store.get_user_device_subscriptions(user_id)
 
         # Remove sensitive data before returning
         safe_devices = []
         for sub in device_subscriptions:
-            # Parse notification preferences
-            preferences_json = sub.get("notification_preferences", "{}")
-            try:
-                preferences = json.loads(preferences_json)
-            except json.JSONDecodeError:
-                preferences = {
-                    "album_created": True,
-                    "crew_member_added": True,
-                    "meme_uploaded": True,
-                    "system_announcements": True
-                }
+            preferences = sub.get("notification_preferences") or {}
 
             safe_device = {
                 "subscription_id": sub.get("subscription_id"),
@@ -326,9 +315,9 @@ async def get_device_notification_preferences(
     user: dict = Depends(require_auth_hybrid)
 ):
     """Get notification preferences for a specific device"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     user_id = user.get("id")
@@ -337,7 +326,7 @@ async def get_device_notification_preferences(
 
     try:
         # Verify device ownership
-        subscription = await redis_store.get_device_push_subscription(device_id)
+        subscription = await store.get_device_push_subscription(device_id)
         if not subscription:
             raise HTTPException(status_code=404, detail="Device not found")
 
@@ -345,7 +334,7 @@ async def get_device_notification_preferences(
             raise HTTPException(status_code=403, detail="Access denied - device belongs to another user")
 
         # Get preferences
-        preferences = await redis_store.get_device_notification_preferences(device_id)
+        preferences = await store.get_device_notification_preferences(device_id)
 
         return JSONResponse({
             "device_id": device_id[:15] + "...",
@@ -371,9 +360,9 @@ async def update_device_notification_preferences(
     user: dict = Depends(require_auth_hybrid)
 ):
     """Update notification preferences for a specific device"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     user_id = user.get("id")
@@ -382,7 +371,7 @@ async def update_device_notification_preferences(
 
     try:
         # Verify device ownership
-        subscription = await redis_store.get_device_push_subscription(device_id)
+        subscription = await store.get_device_push_subscription(device_id)
         if not subscription:
             raise HTTPException(status_code=404, detail="Device not found")
 
@@ -390,8 +379,8 @@ async def update_device_notification_preferences(
             raise HTTPException(status_code=403, detail="Access denied - device belongs to another user")
 
         # Update preferences
-        preferences_dict = preferences.dict()
-        success = await redis_store.update_device_notification_preferences(device_id, preferences_dict)
+        preferences_dict = preferences.model_dump()
+        success = await store.update_device_notification_preferences(device_id, preferences_dict)
 
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update preferences")
@@ -418,9 +407,9 @@ async def remove_device_subscription(
     user: dict = Depends(require_auth_hybrid)
 ):
     """Remove push notification subscription for a specific device"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     user_id = user.get("id")
@@ -429,7 +418,7 @@ async def remove_device_subscription(
 
     try:
         # Verify ownership of device
-        subscription = await redis_store.get_device_push_subscription(device_id)
+        subscription = await store.get_device_push_subscription(device_id)
         if not subscription:
             raise HTTPException(status_code=404, detail="Device subscription not found")
 
@@ -438,7 +427,7 @@ async def remove_device_subscription(
             raise HTTPException(status_code=403, detail="Access denied - device belongs to another user")
 
         # Delete device subscription
-        success = await redis_store.delete_device_push_subscription(device_id)
+        success = await store.delete_device_push_subscription(device_id)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to remove device subscription")
 
@@ -483,19 +472,16 @@ def age_seconds(iso_timestamp: Optional[str]) -> Optional[float]:
 
 
 def wants_notification(subscription: Dict[str, Any], event_type: str) -> bool:
-    try:
-        preferences = json.loads(subscription.get("notification_preferences", "{}"))
-    except json.JSONDecodeError:
-        return True
+    preferences = subscription.get("notification_preferences") or {}
     return preferences.get(event_type, True)
 
 
 @router.get("/health")
 async def check_notifications_health(user: dict = Depends(require_auth_hybrid)):
     """Check the health of push notification subscriptions for debugging"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     user_id = user.get("id")
@@ -503,7 +489,7 @@ async def check_notifications_health(user: dict = Depends(require_auth_hybrid)):
         raise HTTPException(status_code=401, detail="Authentication required")
 
     try:
-        subscriptions = await redis_store.get_user_device_subscriptions(user_id)
+        subscriptions = await store.get_user_device_subscriptions(user_id)
 
         browser_analysis: Dict[str, Dict[str, int]] = {}
         for sub in subscriptions:
@@ -542,13 +528,13 @@ async def check_notifications_health(user: dict = Depends(require_auth_hybrid)):
 async def get_notification_stats(user: dict = Depends(require_auth_hybrid)):
     """Get comprehensive notification statistics for admin panel"""
     require_admin(user)
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
-        all_subscriptions = await redis_store.get_all_device_push_subscriptions()
+        all_subscriptions = await store.get_all_device_push_subscriptions()
 
         browser_stats: Dict[str, int] = {}
         platform_stats: Dict[str, int] = {}
@@ -565,7 +551,7 @@ async def get_notification_stats(user: dict = Depends(require_auth_hybrid)):
             platform_stats[platform] = platform_stats.get(platform, 0) + 1
 
             user_id_sub = sub.get("user_id")
-            if user_id_sub and user_id_sub != "anonymous":
+            if user_id_sub:
                 user_stats[user_id_sub] = user_stats.get(user_id_sub, 0) + 1
             else:
                 anonymous_subscriptions += 1
@@ -601,20 +587,6 @@ async def get_notification_stats(user: dict = Depends(require_auth_hybrid)):
         raise HTTPException(status_code=500, detail="Failed to get notification stats")
 
 
-def daily_counter_key(day: str, counter: str) -> str:
-    return f"notifications:daily:{day}:{counter}"
-
-
-def record_send_counters(redis_store, sent: int, failed: int, cleaned: int) -> None:
-    day = datetime.now().strftime("%Y-%m-%d")
-    pipe = redis_store.redis.pipeline()
-    for counter, value in (("sent", sent), ("failed", failed), ("cleaned", cleaned)):
-        if value:
-            pipe.incrby(daily_counter_key(day, counter), value)
-            pipe.expire(daily_counter_key(day, counter), 90 * 24 * 3600)
-    pipe.execute()
-
-
 @router.get("/admin/reliability")
 async def get_notification_reliability(
     days: int = 7,
@@ -622,25 +594,20 @@ async def get_notification_reliability(
 ):
     """Send success and failure counts per day, from counters written by send_push_notification_to_subscriptions"""
     require_admin(user)
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     days = max(1, min(days, 90))
 
     try:
-        today = datetime.now().date()
-        day_labels = [(today - timedelta(days=days - i - 1)).isoformat() for i in range(days)]
-        keys = [daily_counter_key(day, counter) for day in day_labels for counter in ("sent", "failed", "cleaned")]
-        values = [int(v or 0) for v in redis_store.redis.mget(keys)]
-
         daily_breakdown = []
-        for index, day in enumerate(day_labels):
-            sent, failed, cleaned = values[index * 3: index * 3 + 3]
+        for counters in await store.get_notification_counters(days):
+            sent, failed, cleaned = counters["sent"], counters["failed"], counters["cleaned"]
             attempts = sent + failed
             daily_breakdown.append({
-                "date": day,
+                "date": counters["date"],
                 "attempts": attempts,
                 "successful": sent,
                 "failed": failed,
@@ -675,20 +642,20 @@ async def broadcast_notification(
 ):
     """Send a broadcast notification to all subscribers that allow system announcements (admin only)"""
     require_admin(user)
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
-        all_subscriptions = await redis_store.get_all_device_push_subscriptions()
+        all_subscriptions = await store.get_all_device_push_subscriptions()
         recipients = [sub for sub in all_subscriptions if wants_notification(sub, "system_announcements")]
 
         if not recipients:
             raise HTTPException(status_code=404, detail="No subscriptions accept system announcements")
 
         broadcast_payload = {
-            **notification_data.dict(),
+            **notification_data.model_dump(),
             "tag": f"admin_broadcast_{int(datetime.now().timestamp())}",
             "data": {
                 **(notification_data.data or {}),
@@ -702,7 +669,7 @@ async def broadcast_notification(
             send_push_notification_to_subscriptions,
             recipients,
             broadcast_payload,
-            redis_store
+            store
         )
 
         logger.info(f"Admin broadcast queued by {user.get('email')} to {len(recipients)} devices")
@@ -727,9 +694,9 @@ async def validate_subscriptions(
     user: dict = Depends(require_auth_hybrid)
 ):
     """Validate all device subscriptions for the current user and clean up invalid ones"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     user_id = user.get("id")
@@ -737,7 +704,7 @@ async def validate_subscriptions(
         raise HTTPException(status_code=401, detail="Authentication required")
 
     try:
-        all_subscriptions = await redis_store.get_user_device_subscriptions(user_id)
+        all_subscriptions = await store.get_user_device_subscriptions(user_id)
 
         if not all_subscriptions:
             return JSONResponse({
@@ -759,7 +726,7 @@ async def validate_subscriptions(
             validate_subscriptions_background,
             all_subscriptions,
             validation_payload,
-            redis_store,
+            store,
             user.get("email", "unknown")
         )
 
@@ -789,11 +756,11 @@ async def test_subscription_health(
     if not settings.validate_vapid_config():
         raise HTTPException(status_code=503, detail="Push notifications not configured")
 
-    redis_store = get_redis_store()
-    if not redis_store:
+    store = get_store()
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    own_subscriptions = await redis_store.get_user_device_subscriptions(user.get("id"))
+    own_subscriptions = await store.get_user_device_subscriptions(user.get("id"))
     if not any(sub.get("endpoint") == request_data.endpoint for sub in own_subscriptions):
         raise HTTPException(status_code=403, detail="Subscription does not belong to one of your devices")
 
@@ -849,9 +816,9 @@ async def send_test_notification(
     user: dict = Depends(require_auth_hybrid)
 ):
     """Send a test notification to the calling device, or to all of the user's devices when no X-Device-ID is sent"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     user_id = user.get("id")
@@ -861,24 +828,24 @@ async def send_test_notification(
     subscriptions: List[Dict[str, Any]] = []
     device_id = request.headers.get("X-Device-ID")
     if device_id:
-        device_subscription = await redis_store.get_device_push_subscription(device_id)
+        device_subscription = await store.get_device_push_subscription(device_id)
         if device_subscription and device_subscription.get("user_id") == user_id:
             subscriptions = [device_subscription]
     if not subscriptions:
-        subscriptions = await redis_store.get_user_device_subscriptions(user_id)
+        subscriptions = await store.get_user_device_subscriptions(user_id)
     if not subscriptions:
         raise HTTPException(
             status_code=400,
             detail="No push subscriptions found for your devices. Please enable notifications first."
         )
 
-    test_payload = {**payload.dict(), "tag": f"test_{int(datetime.now().timestamp())}"}
+    test_payload = {**payload.model_dump(), "tag": f"test_{int(datetime.now().timestamp())}"}
 
     background_tasks.add_task(
         send_push_notification_to_subscriptions,
         subscriptions,
         test_payload,
-        redis_store
+        store
     )
 
     return JSONResponse({
@@ -927,7 +894,7 @@ async def send_welcome_notification(subscription: WebPushSubscription):
 async def validate_subscriptions_background(
     subscriptions: List[Dict[str, Any]],
     validation_payload: Dict[str, Any],
-    redis_store,
+    store,
     user_email: str
 ):
     """
@@ -973,7 +940,7 @@ async def validate_subscriptions_background(
                             # Update last used timestamp
                             subscription_id = subscription.get("subscription_id")
                             if subscription_id:
-                                await redis_store.update_subscription_last_used(subscription_id)
+                                await store.update_subscription_last_used(subscription_id)
 
                         elif response.status in [404, 410]:
                             invalid_count += 1
@@ -985,7 +952,7 @@ async def validate_subscriptions_background(
                                 f"Validation found invalid subscription ({response.status}) for {endpoint_domain}")
 
                             if subscription_id:
-                                await redis_store.delete_push_subscription(subscription_id)
+                                await store.delete_push_subscription(subscription_id)
                                 logger.info(f"Cleaned up invalid subscription during validation: {subscription_id}")
 
                         else:
@@ -1006,7 +973,7 @@ async def validate_subscriptions_background(
 async def send_push_notification_to_subscriptions(
     subscriptions: List[Dict[str, Any]],
     notification_data: Dict[str, Any],
-    redis_store
+    store
 ):
     """
     Send push notification to a list of subscriptions.
@@ -1098,7 +1065,7 @@ async def send_push_notification_to_subscriptions(
                                     # Update last used timestamp
                                     subscription_id = subscription.get("subscription_id")
                                     if subscription_id:
-                                        await redis_store.update_subscription_last_used(subscription_id)
+                                        await store.update_subscription_last_used(subscription_id)
 
                                     logger.debug(f"Push notification sent successfully to {endpoint[:50]}...")
                                     break
@@ -1113,11 +1080,11 @@ async def send_push_notification_to_subscriptions(
                                         f"Invalid subscription ({response.status}) for {endpoint_domain}, cleaning up...")
 
                                     if subscription_id:
-                                        await redis_store.delete_push_subscription(subscription_id)
+                                        await store.delete_push_subscription(subscription_id)
                                         cleaned_subscriptions += 1
                                         logger.info(f"Cleaned up invalid subscription: {subscription_id}")
                                     elif device_id:
-                                        await redis_store.delete_device_push_subscription(device_id)
+                                        await store.delete_device_push_subscription(device_id)
                                         cleaned_subscriptions += 1
                                         logger.info(f"Cleaned up invalid device subscription: {device_id[:15]}...")
 
@@ -1185,7 +1152,9 @@ async def send_push_notification_to_subscriptions(
         logger.info(
             f"Notification batch complete: {successful_sends} sent, {failed_sends} failed, {cleaned_subscriptions} cleaned up")
         try:
-            record_send_counters(redis_store, successful_sends, failed_sends, cleaned_subscriptions)
+            await store.record_notification_counters(
+                sent=successful_sends, failed=failed_sends, cleaned=cleaned_subscriptions
+            )
         except Exception as e:
             logger.warning(f"Could not record notification counters: {e}")
 
@@ -1229,7 +1198,7 @@ def optimize_notification_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 async def send_notification_for_event(
     event_type: str,
     event_data: Dict[str, Any],
-    redis_store,
+    store,
     target_users: Optional[List[str]] = None
 ):
     """
@@ -1238,7 +1207,7 @@ async def send_notification_for_event(
     Args:
         event_type: Type of event (album_created, crew_added, etc.)
         event_data: Data about the event
-        redis_store: Redis store instance
+        store: Store instance
         target_users: Specific user IDs to notify (if None, notify all subscribed devices)
     """
     if not settings.validate_vapid_config():
@@ -1250,10 +1219,10 @@ async def send_notification_for_event(
         if target_users:
             all_subscriptions = []
             for user_id in target_users:
-                user_device_subs = await redis_store.get_user_device_subscriptions(user_id)
+                user_device_subs = await store.get_user_device_subscriptions(user_id)
                 all_subscriptions.extend(user_device_subs)
         else:
-            all_subscriptions = await redis_store.get_all_device_push_subscriptions()
+            all_subscriptions = await store.get_all_device_push_subscriptions()
 
         if not all_subscriptions:
             logger.debug(f"No device subscriptions found for event {event_type}")
@@ -1270,7 +1239,7 @@ async def send_notification_for_event(
                 await send_push_notification_to_subscriptions(
                     filtered_subscriptions,
                     notification_payload,
-                    redis_store
+                    store
                 )
                 logger.info(
                     f"Sent {event_type} notifications to {len(filtered_subscriptions)}/{len(all_subscriptions)} device subscriptions")

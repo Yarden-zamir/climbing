@@ -9,11 +9,16 @@ holds the club's data), see `.kitshn.yaml`.
 
 - `app`: this FastAPI app, built from `Dockerfile`. Uvicorn listens on the KitSHn Unix socket
   (`KITSHN_DEFAULT_SOCKET`), so no port and no socat sidecar. Runs with `ENVIRONMENT=production`.
-- `redis`: `redis:7-alpine` with a password, append-only persistence and `noeviction`. Data lives in
-  `${KITSHN_DATA_DIR}/redis` (`/persistent/Yarden-zamir/climbing/prod/redis` on the VPS).
+  `${KITSHN_DATA_DIR}` is mounted at `/data`: `climbing.duckdb` (the whole database), `backups/`
+  (daily snapshots, 14 kept) and `keys/` (VAPID keys written from params on start).
+- `redis`: legacy store kept for one release. When the database is empty on start, the app imports
+  everything from it (`scripts/migrate_redis_to_duckdb.py`). Remove the service, the `REDIS_*`
+  params in `compose.yml` and the `redis` dependency once the import has run.
 
-VAPID keys are written on start from the `VAPID_*_B64` params into `${KITSHN_DATA_DIR}/keys`. Keep
-these keys: existing push subscriptions are bound to them.
+Keep the VAPID keys: existing push subscriptions are bound to them.
+
+Restore from a snapshot: stop the app (`kitshn compose ... -- stop app`), replace
+`/persistent/Yarden-zamir/climbing/prod/climbing.duckdb` with the snapshot, start the app.
 
 ## Routing
 
@@ -47,8 +52,10 @@ kitshn compose Yarden-zamir/climbing --vps-host yarden-zamir-vps-2 -- exec redis
 kitshn try --vps-host yarden-zamir-vps-2 --params-file <params.env> --path /api/health
 ```
 
-Data scripts (for example `scripts/enrich_locations.py`) run inside the app container:
-`kitshn compose Yarden-zamir/climbing --vps-host yarden-zamir-vps-2 -- exec app uv run --no-sync python scripts/enrich_locations.py --apply`.
+Data scripts (for example `scripts/enrich_locations.py`) run inside the app container while the app is
+stopped, because DuckDB allows one writer process:
+`kitshn compose Yarden-zamir/climbing --vps-host yarden-zamir-vps-2 -- stop app`, then
+`kitshn compose Yarden-zamir/climbing --vps-host yarden-zamir-vps-2 -- run --rm app uv run --no-sync python scripts/enrich_locations.py --apply`, then `-- start app`.
 
 ## Origin
 

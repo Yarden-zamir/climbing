@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends, File, UploadFile
 from fastapi.responses import JSONResponse
 
 from auth import require_auth
-from dependencies import get_redis_store, get_permissions_manager
+from dependencies import get_store, get_permissions_manager
 from permissions import ResourceType
 from validation import ValidationError, validate_image_file
 from routes.notifications import send_notification_for_event
@@ -15,15 +15,15 @@ router = APIRouter(prefix="/api/memes", tags=["memes"])
 
 @router.get("")
 async def get_memes():
-    """Get all memes from Redis"""
-    redis_store = get_redis_store()
+    """Get all memes from the store"""
+    store = get_store()
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
-        memes = await redis_store.get_all_memes()
+        memes = await store.get_all_memes()
 
         # Convert to format expected by frontend
         memes_data = []
@@ -50,15 +50,15 @@ async def submit_meme(
     user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
-    redis_store = get_redis_store()
+    store = get_store()
 
     # Check if permissions system is available
     if permissions_manager is None:
         logger.error("Permissions system not available")
         raise HTTPException(status_code=503, detail="Permissions system unavailable")
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Check if user can create memes
@@ -91,15 +91,14 @@ async def submit_meme(
         meme_id = str(uuid.uuid4())
 
         # Create meme
-        await redis_store.add_meme(
+        await store.add_meme(
             meme_id=meme_id,
             image_data=image_data,
             creator_id=user_id
         )
 
-        # Set resource ownership and increment count
+        # Set resource ownership
         await permissions_manager.set_resource_owner(ResourceType.MEME, meme_id, user_id)
-        await permissions_manager.increment_user_creation_count(user_id, ResourceType.MEME)
 
         # Send notification for new meme
         try:
@@ -110,7 +109,7 @@ async def submit_meme(
                     "creator": user.get("name", "Someone"),
                     "creator_id": user_id
                 },
-                redis_store=redis_store,
+                store=store,
                 target_users=None  # Notify all users
             )
         except Exception as e:
@@ -138,19 +137,19 @@ async def delete_meme(meme_id: str, user: dict = Depends(require_auth)):
     user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
-    redis_store = get_redis_store()
+    store = get_store()
 
     # Check if permissions system is available
     if permissions_manager is None:
         logger.error("Permissions system not available")
         raise HTTPException(status_code=503, detail="Permissions system unavailable")
 
-    if not redis_store:
-        logger.error("Redis store not available")
+    if not store:
+        logger.error("Store not available")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     # Check if meme exists
-    meme = await redis_store.get_meme(meme_id)
+    meme = await store.get_meme(meme_id)
     if not meme:
         raise HTTPException(status_code=404, detail="Meme not found")
 
@@ -158,7 +157,7 @@ async def delete_meme(meme_id: str, user: dict = Depends(require_auth)):
 
     try:
         # Delete meme
-        success = await redis_store.delete_meme(meme_id)
+        success = await store.delete_meme(meme_id)
         if not success:
             raise HTTPException(status_code=404, detail="Meme not found")
 

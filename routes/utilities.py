@@ -1,11 +1,11 @@
 import logging
 import os
-import subprocess
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Form
-from fastapi.responses import JSONResponse, RedirectResponse, Response, FileResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from auth import get_current_user
-from dependencies import get_redis_store, get_permissions_manager
+from dependencies import get_store, get_permissions_manager
 from validation import ValidationError, validate_name, validate_image_file
 
 logger = logging.getLogger("climbing_app")
@@ -13,15 +13,30 @@ router = APIRouter(prefix="/api", tags=["utilities"])
 
 
 def _git_revision() -> str:
-    """Commit the running code was built from; deploy checks compare it to the pushed sha."""
+    """Commit the running code was built from; deploy checks compare it to the pushed sha.
+
+    Reads .git metadata directly so the container needs no git binary.
+    """
     if os.getenv("GIT_REVISION"):
         return os.environ["GIT_REVISION"]
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, check=True
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
+    git_dir = Path(__file__).resolve().parent.parent / ".git"
+    head = git_dir / "HEAD"
+    if not head.is_file():
         return ""
+    ref = head.read_text().strip()
+    if not ref.startswith("ref: "):
+        return ref
+    ref_name = ref.removeprefix("ref: ")
+    ref_file = git_dir / ref_name
+    if ref_file.is_file():
+        return ref_file.read_text().strip()
+    packed = git_dir / "packed-refs"
+    if packed.is_file():
+        for line in packed.read_text().splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[1] == ref_name:
+                return parts[0]
+    return ""
 
 
 REVISION = _git_revision()
@@ -30,16 +45,16 @@ REVISION = _git_revision()
 @router.get("/health")
 async def health_check():
     """Health check endpoint"""
-    redis_store = get_redis_store()
+    store = get_store()
 
-    if not redis_store:
+    if not store:
         return JSONResponse(
-            {"status": "unhealthy", "error": "Redis store not available"},
+            {"status": "unhealthy", "error": "Store not available"},
             status_code=500,
         )
 
     try:
-        health = await redis_store.health_check()
+        health = await store.health_check()
         health["revision"] = REVISION
         return JSONResponse(health)
     except Exception as e:
@@ -72,15 +87,15 @@ async def get_level_calculator():
 @router.get("/profile-picture/{user_id}")
 async def get_profile_picture(user_id: str):
     """Serve cached profile picture with fallback to Google URL"""
-    redis_store = get_redis_store()
+    store = get_store()
     permissions_manager = get_permissions_manager()
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
-        # Try to get cached image from Redis
-        image_data = await redis_store.get_image("profile", f"{user_id}/picture")
+        # Try to get the cached image from the store
+        image_data = await store.get_image("profile", f"{user_id}/picture")
 
         if image_data:
             headers = {"Cache-Control": "public, max-age=604800, immutable"}
@@ -113,7 +128,7 @@ async def upload_face_image(
     user: dict = Depends(get_current_user),
 ):
     """Upload a temporary face image for a person."""
-    redis_store = get_redis_store()
+    store = get_store()
 
     # Validate user authentication
     if not user:
@@ -127,7 +142,7 @@ async def upload_face_image(
     if not person_name or not person_name.strip():
         raise HTTPException(status_code=400, detail="Person name is required")
 
-    if not redis_store:
+    if not store:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
@@ -147,8 +162,8 @@ async def upload_face_image(
         image_data = await file.read()
         validate_image_file(file.content_type, len(image_data))
 
-        # Store as temporary image in Redis (expires after 1 hour)
-        temp_path = await redis_store.store_image("temp", validated_name, image_data)
+        # Store as temporary image (expires after 1 hour)
+        temp_path = await store.store_image("temp", validated_name, image_data)
 
         return JSONResponse(
             {

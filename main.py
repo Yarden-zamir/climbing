@@ -1,98 +1,22 @@
 import asyncio
-import base64
-import datetime
 import json
-import logging
-import math
-import os
-import re
-import shutil
-import sys
-import tempfile
-import uuid
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
-from typing import List, Optional
+from contextlib import asynccontextmanager
 
 import httpx
-from bs4 import BeautifulSoup
-from fastapi import (
-    FastAPI,
-    HTTPException,
-    Query,
-    Response,
-    Form,
-    File,
-    UploadFile,
-    Depends,
-    Path as PathParam,
-)
+from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import Path as PathParam
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from PIL import Image
-from PIL.ExifTags import TAGS
-from pydantic import BaseModel
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import HTMLResponse, FileResponse
 
-# OAuth imports
-from auth import oauth_handler, get_current_user, require_auth, SessionRefreshMiddleware
+from auth import SessionRefreshMiddleware, initialize_jwt_manager
 from config import settings
-
-# Redis datastore import
-from redis_store import RedisDataStore
-
-# Permissions system import
-from permissions import PermissionsManager, ResourceType, UserRole
-
-# Validation utilities
-from validation import (
-    ValidationError,
-    validate_name,
-    validate_google_photos_url,
-    validate_skill_list,
-    validate_location_list,
-    validate_achievements_list,
-    validate_image_file,
-    validate_crew_list,
-    validate_json_input,
-    validate_and_sanitize_metadata,
-    validate_form_json_field,
-    validate_required_string,
-    validate_optional_image_upload,
-    validate_user_role,
-    validate_resource_type,
-    validate_skill_name,
-    validate_achievement_name,
-    validate_and_raise_http_exception,
-    validate_crew_form_data,
-    validate_crew_edit_form_data,
-)
-
-# Import extracted utilities
+from store import Store
+from permissions import PermissionsManager
 from utils.logging_setup import setup_logging
 from utils.metadata_parser import inject_css_version, fetch_url, parse_meta_tags
-from utils.background_tasks import (
-    perform_album_metadata_refresh,
-    refresh_album_metadata,
-    refresh_new_climbers,
-)
-from utils.export_utils import export_redis_database
-
-# Import middleware
+from utils.background_tasks import backup_database, refresh_album_metadata
 from middleware.app_middleware import CaseInsensitiveMiddleware, NoCacheMiddleware
 from middleware.pretty_json_middleware import PrettyJSONMiddleware
-
-# Import models
-from models.api_models import (
-    NewPerson,
-    AlbumSubmission,
-    AlbumCrewEdit,
-    AddSkillsRequest,
-    AddAchievementsRequest,
-)
-
-# Import route modules
 from routes.auth import router as auth_router, api_router as auth_api_router
 from routes.crew import router as crew_router
 from routes.memes import router as memes_router
@@ -102,64 +26,45 @@ from routes.users import router as users_router
 from routes.albums import router as albums_router
 from routes.utilities import router as utilities_router
 from routes.notifications import router as notifications_router
-
-# Import dependencies
+from scripts.migrate_redis_to_duckdb import migrate_if_empty
 import dependencies
-
-# Import auth initialization
-from auth import initialize_jwt_manager
 
 # Set up logging
 logger = setup_logging()
 
-# Initialize FastAPI app
+logger.info("Starting Climbing App...")
+
+store = Store(settings.DB_PATH)
+logger.info(f"✅ Store opened: {settings.DB_PATH}")
+
+initialize_jwt_manager(store)
+permissions_manager = PermissionsManager(store)
+
+from auth import jwt_manager  # noqa: E402  (set by initialize_jwt_manager)
+
+dependencies.initialize_dependencies(store, permissions_manager, logger, jwt_manager)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    migrated = migrate_if_empty(store)
+    if migrated:
+        logger.info(f"✅ Legacy Redis data imported: {migrated}")
+    logger.info(f"✅ Store healthy: {await store.health_check()}")
+    tasks = [
+        asyncio.create_task(refresh_album_metadata(store)),
+        asyncio.create_task(backup_database(store, settings.BACKUP_DIR)),
+    ]
+    yield
+    for task in tasks:
+        task.cancel()
+    store.close()
+
+
 app = FastAPI(
-    title="Climbing App", description="A climbing album and crew management system"
-)
-
-# Simple app initialization - no version tracking needed
-
-logger.info("Starting Redis-based Climbing App initialization...")
-
-# Initialize Redis datastore
-try:
-    redis_store = RedisDataStore(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        password=settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
-        ssl=settings.REDIS_SSL,
-    )
-    logger.info("✅ Redis datastore initialized successfully")
-except Exception as e:
-    logger.error(f"❌ Failed to initialize Redis: {e}")
-    raise
-
-# Initialize JWT manager with Redis store
-try:
-    initialize_jwt_manager(redis_store)
-    logger.info("✅ JWT manager initialized successfully")
-except Exception as e:
-    logger.error(f"❌ Failed to initialize JWT manager: {e}")
-    raise
-
-# Initialize Permissions Manager
-try:
-    permissions_manager = PermissionsManager(redis_store)
-    logger.info("✅ Permissions manager initialized successfully")
-
-    # Test basic functionality
-    test_permissions = permissions_manager.get_user_permissions("user")
-    logger.info(f"✅ Permissions manager test successful: {test_permissions}")
-except Exception as e:
-    logger.error(f"❌ Failed to initialize Permissions Manager: {e}", exc_info=True)
-    # Create a fallback permissions manager that won't break the app
-    permissions_manager = None
-
-# Initialize dependencies (get jwt_manager after initialization)
-from auth import jwt_manager
-
-dependencies.initialize_dependencies(
-    redis_store, permissions_manager, logger, jwt_manager
+    title="Climbing App",
+    description="A climbing album and crew management system",
+    lifespan=lifespan,
 )
 
 # Register route modules
@@ -173,50 +78,6 @@ app.include_router(users_router)
 app.include_router(albums_router)
 app.include_router(utilities_router)
 app.include_router(notifications_router)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize Redis health check and run migrations on startup"""
-    logger.info("FastAPI startup event triggered")
-    try:
-        health = await redis_store.health_check()
-        if health["status"] == "healthy":
-            logger.info(f"✅ Redis healthy: {health}")
-        else:
-            logger.error(f"❌ Redis unhealthy: {health}")
-    except Exception as e:
-        logger.error(f"Redis health check failed: {e}")
-
-    # Run ownership format migration if permissions manager is available
-    if permissions_manager is not None:
-        try:
-            logger.info("Running ownership format migration...")
-            migrated = await permissions_manager.migrate_ownership_to_sets()
-            logger.info(f"✅ Ownership migration completed: {migrated}")
-        except Exception as e:
-            logger.error(f"❌ Ownership migration failed: {e}")
-
-    # Clean up stored level values (run once after switching to dynamic calculation)
-    try:
-        logger.info("Running level values cleanup...")
-        cleanup_result = await redis_store.cleanup_stored_level_values()
-        if cleanup_result["total_fields_removed"] > 0:
-            logger.info(f"✅ Level cleanup completed: {cleanup_result}")
-        else:
-            logger.info(
-                "✅ Level cleanup completed: No stored level values found to clean"
-            )
-    except Exception as e:
-        logger.error(f"❌ Level cleanup failed: {e}")
-
-
-@app.on_event("startup")
-async def start_background_tasks():
-    """Start background tasks on startup"""
-    logger.info("🚀 Starting background metadata refresh task...")
-    asyncio.create_task(refresh_album_metadata(redis_store))
-    asyncio.create_task(refresh_new_climbers(redis_store))
 
 
 # === API Routes ===
@@ -242,7 +103,7 @@ async def get_meta(url: str = Query(..., description="URL to fetch metadata from
         - Stale-while-revalidate for up to 24 hours
     """
     # Check cache first
-    cached_meta = await redis_store.get_cached_metadata(url)
+    cached_meta = store.get_cached_metadata(url)
     if cached_meta:
         logger.info(f"Returning cached metadata for: {url}")
         headers = {
@@ -260,7 +121,7 @@ async def get_meta(url: str = Query(..., description="URL to fetch metadata from
         meta_data = parse_meta_tags(response.text, url)
 
         # Cache for 5 minutes
-        await redis_store.cache_album_metadata(url, meta_data, ttl=300)
+        store.cache_album_metadata(url, meta_data, ttl=300)
 
         headers = {
             "Cache-Control": "public, max-age=5,stale-while-revalidate=86400, immutable"
@@ -325,7 +186,7 @@ async def get_redis_image(
         500: Server error while serving image
     """
     try:
-        image_data = await redis_store.get_image(image_type, identifier)
+        image_data = await store.get_image(image_type, identifier)
         if not image_data:
             raise HTTPException(status_code=404, detail="Image not found")
 
@@ -470,7 +331,7 @@ async def read_admin():
 
 
 # Custom OpenAPI schema endpoint
-from fastapi.openapi.utils import get_openapi
+from fastapi.openapi.utils import get_openapi  # noqa: E402
 
 
 def custom_openapi():
@@ -544,6 +405,8 @@ def custom_openapi():
 app.openapi = custom_openapi
 
 # Mount static files and add middleware
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 

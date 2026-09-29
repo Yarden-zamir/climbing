@@ -31,8 +31,13 @@ class Settings:
                 "Set SECRET_KEY to a secure random value before deploying."
             )
 
-        # Redis Configuration
-        self.REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+        # Storage: one DuckDB file plus a backup directory, both under the deployment data dir
+        data_dir = Path(os.getenv("KITSHN_DATA_DIR", "."))
+        self.DB_PATH = Path(os.getenv("CLIMBING_DB_PATH", str(data_dir / "climbing.duckdb")))
+        self.BACKUP_DIR = Path(os.getenv("CLIMBING_BACKUP_DIR", str(data_dir / "backups")))
+
+        # Legacy Redis, only read by the one-off migration on first start
+        self.REDIS_HOST: str = os.getenv("REDIS_HOST", "")
         self.REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
         self.REDIS_PASSWORD: str = os.getenv("REDIS_PASSWORD", "")
         self.REDIS_SSL: bool = os.getenv("REDIS_SSL", "false").lower() == "true"
@@ -121,7 +126,7 @@ class Settings:
                     format=serialization.PublicFormat.SubjectPublicKeyInfo
                 ))
             
-            print(f"✅ Generated VAPID keys:")
+            print("✅ Generated VAPID keys:")
             print(f"   Private: {self.PRIVATE_KEY_PATH}")
             print(f"   Public: {self.PUBLIC_KEY_PATH}")
             print(f"🌐 Raw public key: {self.get_raw_public_key()}")

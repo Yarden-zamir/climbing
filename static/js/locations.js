@@ -2619,9 +2619,11 @@ document.addEventListener('DOMContentLoaded', () => {
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
 
-    const proxyImageUrl = `/get-image?url=${encodeURIComponent(meta.imageUrl)}`;
+    const imageTag = meta.imageUrl
+      ? `<img class="mini-album-img" src="/get-image?url=${encodeURIComponent(meta.imageUrl)}" alt="${escapeHtml(meta.title || '')}" loading="lazy" onerror="this.style.display='none'">`
+      : '';
     a.innerHTML = `
-      <img class="mini-album-img" src="${proxyImageUrl}" alt="${escapeHtml(meta.title || '')}" loading="lazy" onerror="this.style.display='none'">
+      ${imageTag}
       <div class="mini-album-content">
         <div class="mini-album-title" dir="auto">${escapeHtml(meta.title || 'Album')}</div>
         <div class="mini-album-sub" dir="auto">${escapeHtml(meta.date || '')}</div>

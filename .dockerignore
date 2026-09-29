@@ -1,4 +1,7 @@
-.git
+.git/*
+!.git/HEAD
+!.git/refs
+!.git/packed-refs
 .venv
 .ruff_cache
 __pycache__
@@ -9,7 +12,6 @@ keys
 *.pem
 .env
 frontend
-data
 static/albums.html.backup
 static/js/albums.js.backup
 redis_store_backup.py

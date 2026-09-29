@@ -198,11 +198,11 @@ class OAuthHandler:
 class JWTManager:
     """Handles JWT token generation and validation"""
 
-    def __init__(self, redis_store=None):
+    def __init__(self, store=None):
         self.secret_key = settings.SECRET_KEY
         self.algorithm = "HS256"
         self.default_token_expire_hours = 24  # Default 24 hours
-        self.redis_store = redis_store
+        self.store = store
 
     def create_access_token(
         self,
@@ -250,7 +250,7 @@ class JWTManager:
         token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
 
         # Store token metadata in Redis for management
-        if self.redis_store:
+        if self.store:
             user_id_str = user_data.get("id")
             if user_id_str:
                 self._store_token_metadata(
@@ -279,12 +279,12 @@ class JWTManager:
             payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
 
             # Check if token is blacklisted
-            if self.redis_store and self._is_token_blacklisted(payload.get("jti")):
+            if self.store and self._is_token_blacklisted(payload.get("jti")):
                 logger.warning(f"Blacklisted JWT token attempted: {payload.get('jti')}")
                 return None
 
             # Update last used timestamp for access tokens
-            if payload.get("type") == "access" and self.redis_store:
+            if payload.get("type") == "access" and self.store:
                 self._update_token_last_used(payload.get("sub"), payload.get("jti"))
 
             return payload
@@ -310,153 +310,57 @@ class JWTManager:
             }
         return None
 
-    # Token management methods
-    def _store_token_metadata(
-        self, user_id: str, token_id: str, metadata: Dict[str, Any]
-    ) -> None:
-        """Store token metadata in Redis"""
-        if not self.redis_store:
+    # Token management (persisted in the store)
+
+    def _store_token_metadata(self, user_id: str, token_id: str, metadata: Dict[str, Any]) -> None:
+        if not self.store:
             return
-
-        key = f"token_metadata:{user_id}:{token_id}"
-        self.redis_store.redis.hset(key, mapping=metadata)
-
-        # Set expiry based on token expiry hours
-        expiry_hours = int(
-            metadata.get("expires_in_hours", self.default_token_expire_hours)
+        # The JWT payload uses naive UTC; the store compares against local current_timestamp
+        expires_local = (
+            datetime.fromisoformat(metadata["expires_at"]).replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
         )
-        self.redis_store.redis.expire(key, expiry_hours * 3600)
-
-        # Add to user's token index
-        self.redis_store.redis.sadd(f"user_tokens:{user_id}", token_id)
+        self.store.create_token(
+            token_id,
+            user_id,
+            metadata["name"],
+            json.loads(metadata.get("permissions") or "{}"),
+            expires_local,
+        )
 
     def _update_token_last_used(self, user_id: str, token_id: str) -> None:
-        """Update token's last used timestamp"""
-        if not self.redis_store or not token_id:
-            return
-
-        key = f"token_metadata:{user_id}:{token_id}"
-        self.redis_store.redis.hset(key, "last_used", datetime.utcnow().isoformat())
+        if self.store and token_id:
+            self.store.touch_token(token_id)
 
     def _is_token_blacklisted(self, token_id: str) -> bool:
-        """Check if a token is blacklisted"""
-        if not self.redis_store or not token_id:
+        if not self.store or not token_id:
             return False
-
-        return bool(self.redis_store.redis.exists(f"blacklisted_token:{token_id}"))
-
-    def blacklist_token(self, token_id: str, ttl_seconds: Optional[int] = None) -> None:
-        """Add a token to the blacklist"""
-        if not self.redis_store or not token_id:
-            return
-
-        ttl = (
-            ttl_seconds
-            if ttl_seconds is not None
-            else (self.default_token_expire_hours * 3600)
-        )
-        if ttl <= 0:
-            ttl = self.default_token_expire_hours * 3600
-
-        # Store each token blacklist entry independently so one token's TTL
-        # never affects another token's validity window.
-        self.redis_store.redis.set(f"blacklisted_token:{token_id}", "1", ex=ttl)
+        return self.store.is_token_revoked(token_id)
 
     def blacklist_all_user_tokens(self, user_id: str) -> int:
-        """Blacklist all tokens for a user (when role changes)"""
-        if not self.redis_store:
+        """Revoke every token of a user (when the role changes)"""
+        if not self.store:
             return 0
-
-        # Get all user's tokens
-        user_tokens = self.redis_store.redis.smembers(f"user_tokens:{user_id}")
-
-        # Blacklist each token
-        blacklisted_count = 0
-        for token_id in user_tokens:
-            ttl_seconds = None
-            metadata = self.redis_store.redis.hgetall(
-                f"token_metadata:{user_id}:{token_id}"
-            )
-            expires_at_raw = metadata.get("expires_at") if metadata else None
-            if expires_at_raw:
-                try:
-                    expiry_dt = datetime.fromisoformat(expires_at_raw)
-                    ttl_seconds = int((expiry_dt - datetime.utcnow()).total_seconds())
-                except (TypeError, ValueError):
-                    ttl_seconds = None
-
-            self.blacklist_token(token_id, ttl_seconds=ttl_seconds)
-            blacklisted_count += 1
-
-        # Clear user's token index
-        self.redis_store.redis.delete(f"user_tokens:{user_id}")
-
-        logger.info(f"Blacklisted {blacklisted_count} tokens for user {user_id}")
-        return blacklisted_count
+        count = self.store.revoke_user_tokens(user_id)
+        logger.info(f"Revoked {count} tokens for user {user_id}")
+        return count
 
     def get_user_tokens(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get all active tokens for a user"""
-        if not self.redis_store:
+        if not self.store:
             return []
-
-        token_ids = self.redis_store.redis.smembers(f"user_tokens:{user_id}")
-        tokens = []
-
-        for token_id in token_ids:
-            # Skip blacklisted tokens
-            if self._is_token_blacklisted(token_id):
-                continue
-
-            key = f"token_metadata:{user_id}:{token_id}"
-            metadata = self.redis_store.redis.hgetall(key)
-
-            if metadata:
-                tokens.append(
-                    {
-                        "id": token_id,
-                        "name": metadata.get("name", "API Token"),
-                        "created_at": metadata.get("created_at"),
-                        "expires_at": metadata.get("expires_at"),
-                        "last_used": metadata.get("last_used"),
-                        "expires_in_hours": metadata.get(
-                            "expires_in_hours", str(self.default_token_expire_hours)
-                        ),
-                        "permissions": json.loads(metadata.get("permissions", "{}"))
-                        if metadata.get("permissions")
-                        else {},
-                    }
-                )
-
-        return sorted(tokens, key=lambda x: x.get("created_at", ""), reverse=True)
+        tokens = self.store.list_tokens(user_id)
+        for token in tokens:
+            created = datetime.fromisoformat(token["created_at"])
+            expires = datetime.fromisoformat(token["expires_at"])
+            token["expires_in_hours"] = str(int((expires - created).total_seconds() // 3600))
+        return tokens
 
     def revoke_token(self, user_id: str, token_id: str) -> bool:
-        """Revoke a specific token"""
-        if not self.redis_store:
+        if not self.store:
             return False
-
-        # Blacklist the token
-        ttl_seconds = None
-        metadata = self.redis_store.redis.hgetall(
-            f"token_metadata:{user_id}:{token_id}"
-        )
-        expires_at_raw = metadata.get("expires_at") if metadata else None
-        if expires_at_raw:
-            try:
-                expiry_dt = datetime.fromisoformat(expires_at_raw)
-                ttl_seconds = int((expiry_dt - datetime.utcnow()).total_seconds())
-            except (TypeError, ValueError):
-                ttl_seconds = None
-
-        self.blacklist_token(token_id, ttl_seconds=ttl_seconds)
-
-        # Remove from user's token index
-        self.redis_store.redis.srem(f"user_tokens:{user_id}", token_id)
-
-        # Remove metadata
-        self.redis_store.redis.delete(f"token_metadata:{user_id}:{token_id}")
-
-        logger.info(f"Revoked token {token_id} for user {user_id}")
-        return True
+        revoked = self.store.revoke_token(user_id, token_id)
+        if revoked:
+            logger.info(f"Revoked token {token_id} for user {user_id}")
+        return revoked
 
 
 # Global instances - JWT manager needs Redis store injection
@@ -465,10 +369,10 @@ oauth_handler = OAuthHandler(session_manager)
 jwt_manager = None  # Will be initialized with Redis store
 
 
-def initialize_jwt_manager(redis_store):
+def initialize_jwt_manager(store):
     """Initialize JWT manager with Redis store"""
     global jwt_manager
-    jwt_manager = JWTManager(redis_store)
+    jwt_manager = JWTManager(store)
 
 
 # Dependency functions for FastAPI

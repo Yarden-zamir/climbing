@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime
 
-from redis_store import YEAR_PATTERN, parse_album_date
+from dates import YEAR_PATTERN, parse_album_date
 
 
 def inject_css_version(html_path):

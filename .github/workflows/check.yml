@@ -25,19 +25,13 @@ jobs:
         run: uv sync --frozen
 
       - name: Compile Python sources
-        run: uv run python -m compileall -q auth.py config.py dependencies.py main.py permissions.py redis_store.py validation.py routes utils middleware models scripts
+        run: uv run python -m compileall -q auth.py config.py dependencies.py main.py permissions.py store.py dates.py validation.py routes utils middleware models scripts tests
 
-      - name: Import the application without Redis
-        env:
-          SECRET_KEY: ci-only-secret
-        run: |
-          uv run python - <<'EOF'
-          import importlib
-          for module in ["auth", "config", "permissions", "validation", "utils.metadata_parser", "models.api_models"]:
-              importlib.import_module(module)
-          from redis_store import parse_album_date
-          assert parse_album_date("Dec 27 – 28, 2024").year == 2024
-          EOF
+      - name: Lint
+        run: uvx ruff check --select F --exclude .venv .
+
+      - name: End-to-end tests
+        run: uv run pytest -q
 
       - name: Syntax-check JavaScript
         run: |

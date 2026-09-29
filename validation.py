@@ -4,9 +4,9 @@ Input validation and sanitization utilities for the climbing app.
 
 import re
 import json
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from urllib.parse import urlparse
-from fastapi import HTTPException, Form, UploadFile
+from fastapi import HTTPException, UploadFile
 
 
 class ValidationError(Exception):
@@ -85,7 +85,7 @@ def validate_location_list(locations: List[str]) -> List[str]:
         return []
     
     validated_locations = []
-    # Use the same allowed characters as canonical Location names in redis_store._validate_name
+    # Use the same allowed characters as canonical Location names in store.validate_name
     # Allowed: letters, numbers, spaces, hyphen, underscore, apostrophe, period, parentheses
     location_pattern = re.compile(r"^[a-zA-Z0-9\s\-_'.()]+$")
     for location in locations:
