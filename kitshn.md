@@ -22,10 +22,8 @@ Restore from a snapshot: stop the app (`kitshn compose ... -- stop app`), replac
 
 ## Routing
 
-`Caddyfile.j2` serves `climbing.yarden-zamir.com`, `onion-climbers.com`, `www.onion-climbers.com`
-and `climbing-next.yarden-zamir.com`. The last one resolves through the `*.yarden-zamir.com`
-wildcard and is the way to check the deployment before the DNS records of the other hosts move to
-this VPS. Remove it after the move.
+`Caddyfile.j2` serves `climbing.yarden-zamir.com`, `onion-climbers.com` and `www.onion-climbers.com`.
+DNS for all three moved to this VPS on 2026-09-29 (Netlify DNS, A records, TTL 300).
 
 ## Params
 

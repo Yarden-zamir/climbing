@@ -1,5 +1,5 @@
 {% if environment == "prod" -%}
-climbing.yarden-zamir.com, onion-climbers.com, www.onion-climbers.com, climbing-next.yarden-zamir.com
+climbing.yarden-zamir.com, onion-climbers.com, www.onion-climbers.com
 {%- else -%}
 pr.{{ environment.removeprefix("pr-") }}.climbing.yarden-zamir.com
 {%- endif %} {
