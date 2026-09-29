@@ -3,7 +3,7 @@
  * No version tracking, just smart caching strategies
  */
 
-const CACHE_NAME = 'climbing-app-cache';
+const CACHE_NAME = 'climbing-app-cache-v2';
 const NOTIFICATION_TAG = 'climbing-notification';
 
 // Resources to cache on install (static assets only)
@@ -95,8 +95,11 @@ self.addEventListener('fetch', (event) => {
                ['/crew', '/albums', '/memes', '/knowledge', '/admin'].includes(url.pathname)) {
         // HTML pages: Stale-while-revalidate (instant load + background update)
         event.respondWith(staleWhileRevalidate(request));
+    } else if (url.pathname.startsWith('/static/js/') || url.pathname.endsWith('.js')) {
+        // Client code: serve cached copy, refresh in background so deploys reach installed PWAs
+        event.respondWith(staleWhileRevalidate(request));
     } else if (url.pathname.startsWith('/static/') || 
-               url.pathname.match(/\.(css|js|png|jpg|jpeg|gif|webp|svg|ico)$/i) ||
+               url.pathname.match(/\.(css|png|jpg|jpeg|gif|webp|svg|ico)$/i) ||
                url.hostname.includes('googleusercontent.com')) {
         // Static assets and Google Photos images: Cache-first with long expiry
         event.respondWith(cacheFirst(request));
@@ -219,56 +222,65 @@ async function cacheFirst(request) {
     }
 }
 
-// Push notification handling (unchanged)
+// Push notification handling
 self.addEventListener('push', (event) => {
     console.log('Service Worker: Push event received');
-    
-    let notificationData = {
+
+    let pushData = {};
+    if (event.data) {
+        try {
+            pushData = event.data.json();
+        } catch (error) {
+            console.error('Service Worker: Failed to parse push data:', error);
+        }
+    }
+
+    // Silent pushes are subscription probes (health check, validation): never show them
+    if (pushData.silent === true || pushData.tag === 'health_check' || pushData.data?.type === 'health_check') {
+        return;
+    }
+
+    const { originalActions, ...webNotificationFeatures } = pushData.data?.webNotificationFeatures || {};
+
+    const notificationData = {
         title: 'Climbing App',
         body: 'You have a new notification',
         icon: '/static/favicon/android-chrome-192x192.png',
         badge: '/static/favicon/favicon-32x32.png',
         tag: NOTIFICATION_TAG,
         requireInteraction: false,
-        data: {
-            url: '/'
-        }
+        data: { url: '/' },
+        ...pushData,
+        ...webNotificationFeatures
     };
-    
-    // Parse push data if available
-    if (event.data) {
-        try {
-            const pushData = event.data.json();
-            notificationData = {
-                ...notificationData,
-                ...pushData
-            };
-        } catch (error) {
-            console.error('Service Worker: Failed to parse push data:', error);
-        }
-    }
-    
+
     event.waitUntil(
         self.registration.showNotification(notificationData.title, notificationData)
     );
 });
 
-// Notification click handling (unchanged)
+// Notification click handling
 self.addEventListener('notificationclick', (event) => {
-    console.log('Service Worker: Notification clicked');
+    console.log('Service Worker: Notification clicked', event.action || '(body)');
     event.notification.close();
-    
-    const urlToOpen = event.notification.data?.url || '/';
-    
+
+    const data = event.notification.data || {};
+    const clickedAction = event.action
+        ? (data.webNotificationFeatures?.originalActions || []).find(action => action.action === event.action)
+        : null;
+    const urlToOpen = new URL(clickedAction?.data?.url || data.url || '/', self.location.origin).href;
+    const sameOrigin = urlToOpen.startsWith(self.location.origin);
+
     event.waitUntil(
-        clients.matchAll({ type: 'window' }).then((clientList) => {
-            // Check if we already have the app open
-            for (const client of clientList) {
-                if (client.url.startsWith(self.location.origin) && 'focus' in client) {
-                    return client.focus();
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientList) => {
+            const existing = clientList.find(client => client.url.startsWith(self.location.origin));
+            if (existing && sameOrigin) {
+                await existing.focus();
+                if ('navigate' in existing && existing.url !== urlToOpen) {
+                    return existing.navigate(urlToOpen);
                 }
+                return existing;
             }
-            // No existing window found, open a new one
             if (clients.openWindow) {
                 return clients.openWindow(urlToOpen);
             }

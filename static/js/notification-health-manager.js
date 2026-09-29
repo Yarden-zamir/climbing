@@ -1,13 +1,12 @@
 /**
  * Notification Health Manager
- * Handles aggressive token refresh and subscription validation
+ * Local subscription checks when the app becomes visible, plus a manual
+ * server-side probe (runSubscriptionTest) that refreshes a dead subscription.
+ * No periodic pushes: a dead endpoint is cleaned up on the next real send (404/410).
  */
 
 class NotificationHealthManager {
     constructor() {
-        this.isMonitoring = false;
-        this.healthCheckInterval = null;
-        this.lastSuccessfulNotification = localStorage.getItem('lastNotificationReceived');
         this.subscriptionStats = this.loadStats();
         this.lastHealthCheckTime = 0;
         
@@ -15,90 +14,19 @@ class NotificationHealthManager {
     }
 
     init() {
-        // Start monitoring when page becomes visible
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
-                // Only perform health check if we haven't done one recently
-                const lastCheckTime = this.lastHealthCheckTime || 0;
-                const timeSinceLastCheck = Date.now() - lastCheckTime;
-                
-                // Only check if it's been more than 30 seconds since last check
-                if (timeSinceLastCheck > 30000) {
-                    this.performHealthCheck();
-                }
-                this.startMonitoring();
-            } else {
-                this.stopMonitoring();
+            if (!document.hidden && Date.now() - this.lastHealthCheckTime > 30000) {
+                this.performHealthCheck();
             }
         });
 
-        // Initial health check (only when online)
         if (!document.hidden && navigator.onLine) {
             setTimeout(() => {
                 if (navigator.onLine) {
                     this.performHealthCheck();
                 }
             }, 2000);
-            this.startMonitoring();
         }
-
-        // Listen for notification received events
-        this.setupNotificationReceiptTracking();
-        
-        // Listen for online/offline events
-        window.addEventListener('online', () => {
-            console.log('NotificationHealthManager: Back online - starting monitoring');
-            if (!document.hidden) {
-                setTimeout(() => {
-                    if (navigator.onLine) {
-                        this.performHealthCheck();
-                    }
-                }, 2000);
-                this.startMonitoring();
-            }
-        });
-        
-        window.addEventListener('offline', () => {
-            console.log('NotificationHealthManager: Going offline - stopping monitoring');
-            this.stopMonitoring();
-        });
-    }
-
-    startMonitoring() {
-        if (this.isMonitoring) return;
-        
-        // Don't start monitoring when offline
-        if (!navigator.onLine) {
-            console.log('Offline mode - not starting notification health monitoring');
-            return;
-        }
-        
-        this.isMonitoring = true;
-        
-        // Check every 5 minutes when app is active
-        this.healthCheckInterval = setInterval(() => {
-            // Skip health check if offline
-            if (!navigator.onLine) {
-                console.log('Offline during interval - skipping health check');
-                return;
-            }
-            this.performHealthCheck();
-        }, 5 * 60 * 1000);
-
-        console.log('Notification health monitoring started');
-    }
-
-    stopMonitoring() {
-        if (!this.isMonitoring) return;
-        
-        this.isMonitoring = false;
-        
-        if (this.healthCheckInterval) {
-            clearInterval(this.healthCheckInterval);
-            this.healthCheckInterval = null;
-        }
-
-        console.log('Notification health monitoring stopped');
     }
 
     async performHealthCheck() {
@@ -109,11 +37,7 @@ class NotificationHealthManager {
                 return;
             }
 
-            // Track when we perform health checks
             this.lastHealthCheckTime = Date.now();
-            
-            // Add stack trace to see where health check is being called from
-            console.log('Performing notification health check...', new Error().stack.split('\n')[2].trim());
             
             // Check if PWA is installed
             if (!window.pwaManager?.isPWAInstalled()) {
@@ -144,19 +68,8 @@ class NotificationHealthManager {
                 return;
             }
 
-            // Mark that we have an active subscription
             this.markSubscriptionActive();
-
-            // Test subscription health
-            const isHealthy = await this.testSubscriptionHealth(subscription);
-            
-            if (!isHealthy) {
-                console.log('Subscription unhealthy - refreshing token');
-                await this.refreshSubscription(subscription);
-            } else {
-                console.log('Subscription healthy');
-                this.updateStats('health_check_passed');
-            }
+            this.updateStats('health_check_passed');
 
         } catch (error) {
             console.error('Health check failed:', error);
@@ -164,19 +77,22 @@ class NotificationHealthManager {
         }
     }
 
+    /**
+     * Manual diagnostic: ask the server to push a silent probe to this device's subscription.
+     * Returns true (valid), false (push service says the subscription is gone), or null (unknown: server or network error).
+     */
     async testSubscriptionHealth(subscription) {
-        try {
-            // Skip health test when offline
-            if (!navigator.onLine) {
-                console.log('Offline mode - assuming subscription is healthy');
-                return true;
-            }
+        if (!navigator.onLine) {
+            return null;
+        }
 
+        try {
             const response = await fetch('/api/notifications/test-subscription', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
                 body: JSON.stringify({
                     endpoint: subscription.endpoint,
                     keys: {
@@ -186,19 +102,39 @@ class NotificationHealthManager {
                 })
             });
 
+            if (!response.ok) {
+                console.warn('Subscription health test inconclusive:', response.status);
+                return null;
+            }
+
             const result = await response.json();
             return result.valid === true;
 
         } catch (error) {
-            // If offline, don't treat network errors as subscription failures
-            if (!navigator.onLine) {
-                console.log('Network error during health test (offline) - assuming healthy');
-                return true;
-            }
-            
             console.error('Subscription health test failed:', error);
-            return false;
+            return null;
         }
+    }
+
+    /**
+     * Manual diagnostic: probe the current subscription and refresh it only when the push service reports it gone.
+     */
+    async runSubscriptionTest() {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+            console.log('No subscription to test');
+            return null;
+        }
+
+        const isHealthy = await this.testSubscriptionHealth(subscription);
+        if (isHealthy === false) {
+            console.log('Subscription gone - refreshing token');
+            await this.refreshSubscription(subscription);
+        } else {
+            console.log(isHealthy ? 'Subscription healthy' : 'Subscription health unknown - leaving it alone');
+        }
+        return isHealthy;
     }
 
     async refreshSubscription(oldSubscription) {
@@ -251,8 +187,10 @@ class NotificationHealthManager {
             throw new Error('Cannot update subscription while offline');
         }
 
-        const deviceId = await this.getDeviceId();
-        const deviceInfo = await this.getDeviceInfo();
+        if (!window.notificationsManager) {
+            throw new Error('NotificationsManager not loaded');
+        }
+        const deviceInfo = window.notificationsManager.getDeviceInfo();
 
         const subscriptionData = {
             endpoint: subscription.endpoint,
@@ -267,7 +205,9 @@ class NotificationHealthManager {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-Device-ID': deviceInfo.deviceId
             },
+            credentials: 'include',
             body: JSON.stringify({
                 subscription: subscriptionData,
                 deviceInfo: deviceInfo
@@ -296,35 +236,6 @@ class NotificationHealthManager {
             console.error('Failed to get VAPID key:', error);
             throw error;
         }
-    }
-
-    async getDeviceId() {
-        // Get device ID from localStorage or generate new one
-        let deviceId = localStorage.getItem('deviceId');
-        if (!deviceId) {
-            deviceId = 'device_' + Math.random().toString(36).substr(2, 16) + Date.now().toString(36);
-            localStorage.setItem('deviceId', deviceId);
-        }
-        return deviceId;
-    }
-
-    async getDeviceInfo() {
-        return {
-            deviceId: await this.getDeviceId(),
-            browserName: this.getBrowserName(),
-            platform: navigator.platform || 'unknown',
-            userAgent: navigator.userAgent,
-            lastActive: new Date().toISOString()
-        };
-    }
-
-    getBrowserName() {
-        const userAgent = navigator.userAgent;
-        if (userAgent.includes('Chrome')) return 'Chrome';
-        if (userAgent.includes('Firefox')) return 'Firefox';
-        if (userAgent.includes('Safari')) return 'Safari';
-        if (userAgent.includes('Edge')) return 'Edge';
-        return 'Unknown';
     }
 
     hadPreviousSubscription() {
@@ -444,35 +355,6 @@ class NotificationHealthManager {
         }
     }
 
-    setupNotificationReceiptTracking() {
-        // Listen for service worker messages about received notifications
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.addEventListener('message', (event) => {
-                if (event.data.type === 'NOTIFICATION_RECEIVED') {
-                    this.recordNotificationReceived();
-                }
-            });
-        }
-
-        // Track page focus as potential notification interaction
-        window.addEventListener('focus', () => {
-            // If user focused from a notification, consider it received
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('from') === 'notification') {
-                this.recordNotificationReceived();
-            }
-        });
-    }
-
-    recordNotificationReceived() {
-        const now = Date.now();
-        localStorage.setItem('lastNotificationReceived', now.toString());
-        this.lastSuccessfulNotification = now.toString();
-        this.updateStats('notification_received');
-        
-        console.log('Notification receipt recorded');
-    }
-
     updateStats(eventType) {
         const now = Date.now();
         this.subscriptionStats.events.push({
@@ -527,19 +409,11 @@ class NotificationHealthManager {
         const healthChecks = recentEvents.filter(e => e.type === 'health_check_passed').length;
         const refreshes = recentEvents.filter(e => e.type === 'subscription_refreshed').length;
         const failures = recentEvents.filter(e => e.type === 'health_check_failed' || e.type === 'refresh_failed').length;
-        const received = recentEvents.filter(e => e.type === 'notification_received').length;
-
-        const lastNotificationAge = this.lastSuccessfulNotification 
-            ? now - parseInt(this.lastSuccessfulNotification)
-            : null;
 
         return {
             healthChecks,
             refreshes,
             failures,
-            received,
-            lastNotificationAge,
-            lastNotificationAgeHours: lastNotificationAge ? Math.round(lastNotificationAge / (60 * 60 * 1000)) : null,
             totalEvents: recentEvents.length,
             reliability: healthChecks > 0 ? ((healthChecks - failures) / healthChecks * 100) : 0
         };

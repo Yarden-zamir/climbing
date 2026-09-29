@@ -1,19 +1,19 @@
 import json
 import logging
-import base64
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+from urllib.parse import quote, urlparse
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError as PydanticValidationError
 import aiohttp
 
 from auth import get_current_user_hybrid, require_auth_hybrid
 from dependencies import get_redis_store
 from config import settings
 from validation import ValidationError
-from webpush import WebPush, WebPushSubscription
+from webpush import WebPushSubscription
 from webpush.types import WebPushKeys
 from pydantic import AnyHttpUrl
 
@@ -49,13 +49,6 @@ class SubscriptionRequest(BaseModel):
     deviceInfo: DeviceInfo
 
 
-class SubscriptionReplacementRequest(BaseModel):
-    """Request to replace an expired subscription with a new one"""
-    oldSubscription: PushSubscriptionData
-    newSubscription: PushSubscriptionData
-    deviceInfo: DeviceInfo
-
-
 class NotificationPreferences(BaseModel):
     """Notification preferences for a device"""
     album_created: bool = True
@@ -72,16 +65,16 @@ class NotificationPayload(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
-def get_session_id_from_request(request: Request) -> Optional[str]:
-    """Extract session ID from request cookies"""
-    session_token = request.cookies.get("session")
-    if not session_token:
-        return None
+def require_admin(user: dict) -> None:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
 
-    # The session token itself serves as our unique session identifier
-    # We could hash it for shorter IDs, but the full token works fine
-    import hashlib
-    return hashlib.md5(session_token.encode()).hexdigest()
+
+def to_webpush_subscription(endpoint: str, keys: Dict[str, str]) -> WebPushSubscription:
+    return WebPushSubscription(
+        endpoint=AnyHttpUrl(endpoint),
+        keys=WebPushKeys(p256dh=keys["p256dh"], auth=keys["auth"])
+    )
 
 
 @router.get("/vapid-public-key")
@@ -123,14 +116,21 @@ async def subscribe_to_notifications(
     if not device_id or len(device_id) < 10:
         raise HTTPException(status_code=400, detail="Valid device ID required")
 
+    if not request_data.subscription.endpoint:
+        raise HTTPException(status_code=400, detail="Subscription endpoint required")
+
+    if not request_data.subscription.keys.p256dh or not request_data.subscription.keys.auth:
+        raise HTTPException(status_code=400, detail="Subscription keys (p256dh, auth) required")
+
     try:
-        # Validate subscription data
-        if not request_data.subscription.endpoint:
-            raise HTTPException(status_code=400, detail="Subscription endpoint required")
+        webpush_subscription = to_webpush_subscription(
+            request_data.subscription.endpoint,
+            {"p256dh": request_data.subscription.keys.p256dh, "auth": request_data.subscription.keys.auth}
+        )
+    except PydanticValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid push subscription: {e}")
 
-        if not request_data.subscription.keys.p256dh or not request_data.subscription.keys.auth:
-            raise HTTPException(status_code=400, detail="Subscription keys (p256dh, auth) required")
-
+    try:
         # Convert subscription to dict for Redis storage
         subscription_data = {
             "endpoint": request_data.subscription.endpoint,
@@ -150,23 +150,7 @@ async def subscribe_to_notifications(
             "lastActive": request_data.deviceInfo.lastActive or datetime.now().isoformat()
         }
 
-        # Test the subscription before storing by sending a validation notification
-        try:
-            webpush_subscription = WebPushSubscription(
-                endpoint=AnyHttpUrl(request_data.subscription.endpoint),
-                keys=WebPushKeys(
-                    p256dh=request_data.subscription.keys.p256dh,
-                    auth=request_data.subscription.keys.auth
-                )
-            )
-
-            # Quick validation test (don't block on this)
-            background_tasks.add_task(
-                test_subscription_validity,
-                webpush_subscription
-            )
-        except Exception as e:
-            logger.warning(f"Could not validate subscription during subscribe: {e}")
+        background_tasks.add_task(test_subscription_validity, webpush_subscription)
 
         # Store subscription in Redis with device ID
         subscription_id = await redis_store.store_push_subscription(device_id, user_id, subscription_data, device_info)
@@ -187,6 +171,8 @@ async def subscribe_to_notifications(
             "message": f"Successfully subscribed device to notifications ({request_data.deviceInfo.browserName})"
         })
 
+    except HTTPException:
+        raise
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -227,77 +213,6 @@ async def test_subscription_validity(subscription: WebPushSubscription):
         logger.warning(f"Subscription validation test failed: {e}")
 
 
-@router.post("/replace-subscription")
-async def replace_push_subscription(
-    request_data: SubscriptionReplacementRequest,
-    background_tasks: BackgroundTasks,
-    user: dict = Depends(get_current_user_hybrid)
-):
-    """Replace an expired/changed push subscription with a new one"""
-    redis_store = get_redis_store()
-
-    if not redis_store:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
-    try:
-        # Convert old subscription to dict
-        old_subscription_data = {
-            "endpoint": request_data.oldSubscription.endpoint,
-            "keys": {
-                "p256dh": request_data.oldSubscription.keys.p256dh,
-                "auth": request_data.oldSubscription.keys.auth
-            },
-            "expirationTime": request_data.oldSubscription.expirationTime
-        }
-
-        # Convert new subscription to dict
-        new_subscription_data = {
-            "endpoint": request_data.newSubscription.endpoint,
-            "keys": {
-                "p256dh": request_data.newSubscription.keys.p256dh,
-                "auth": request_data.newSubscription.keys.auth
-            },
-            "expirationTime": request_data.newSubscription.expirationTime
-        }
-
-        # Convert device info to dict
-        device_info = {
-            "deviceId": request_data.deviceInfo.deviceId,
-            "browserName": request_data.deviceInfo.browserName,
-            "platform": request_data.deviceInfo.platform,
-            "userAgent": request_data.deviceInfo.userAgent,
-            "lastActive": request_data.deviceInfo.lastActive
-        }
-
-        # Replace subscription in Redis
-        new_subscription_id = await redis_store.replace_push_subscription(
-            old_subscription_data, 
-            new_subscription_data, 
-            device_info
-        )
-
-        if not new_subscription_id:
-            raise HTTPException(
-                status_code=404, 
-                detail="Original subscription not found - unable to replace"
-            )
-
-        user_info = f"user {user.get('email')}" if user else "anonymous user"
-        logger.info(f"Replaced push subscription for {user_info}: {new_subscription_id[:8]}...")
-
-        return JSONResponse({
-            "success": True,
-            "new_subscription_id": new_subscription_id,
-            "message": f"Successfully replaced push subscription ({request_data.deviceInfo.browserName})"
-        })
-
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error replacing push subscription: {e}")
-        raise HTTPException(status_code=500, detail="Failed to replace push subscription")
-
-
 @router.get("/subscriptions")
 async def get_current_device_subscription(
     request: Request,
@@ -336,7 +251,8 @@ async def get_current_device_subscription(
             "platform": subscription.get("platform"),
             "endpoint_domain": subscription.get("endpoint", "").split("/")[2]
             if subscription.get("endpoint") else "unknown", "user_associated": subscription.get("user_id") !=
-            "anonymous"}
+            "anonymous",
+            "needs_user_association": bool(user) and subscription.get("user_id") != user.get("id")}
 
         return JSONResponse({
             "subscription": safe_subscription,
@@ -541,49 +457,41 @@ async def remove_device_subscription(
         raise HTTPException(status_code=500, detail="Failed to remove device subscription")
 
 
-@router.delete("/unsubscribe-session")
-async def unsubscribe_session(
-    request: Request,
-    user: dict = Depends(require_auth_hybrid)
-):
-    """Unsubscribe all notifications for the current session"""
-    redis_store = get_redis_store()
+BROWSER_BY_ENDPOINT_HOST = {
+    "fcm.googleapis.com": "Chrome/Chromium",
+    "mozilla.com": "Firefox",
+    "push.apple.com": "Safari",
+    "wns.windows.com": "Edge",
+}
 
-    if not redis_store:
-        raise HTTPException(status_code=503, detail="Database unavailable")
 
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+def browser_from_endpoint(endpoint: str) -> str:
+    for host, browser in BROWSER_BY_ENDPOINT_HOST.items():
+        if host in endpoint:
+            return browser
+    return "Unknown"
 
-    # Get session ID from request
-    session_id = get_session_id_from_request(request)
-    if not session_id:
-        raise HTTPException(status_code=400, detail="Valid session required")
 
+def age_seconds(iso_timestamp: Optional[str]) -> Optional[float]:
+    if not iso_timestamp:
+        return None
     try:
-        # Clean up all subscriptions for this session
-        cleaned_count = await redis_store.cleanup_session_subscriptions(session_id)
+        return (datetime.now() - datetime.fromisoformat(iso_timestamp)).total_seconds()
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid ISO timestamp: {iso_timestamp}")
+        return None
 
-        logger.info(
-            f"Session {session_id[:8]}... for user {user.get('email')} unsubscribed {cleaned_count} notifications")
 
-        return JSONResponse({
-            "success": True,
-            "message": f"Successfully unsubscribed {cleaned_count} notifications for this session",
-            "count": cleaned_count
-        })
-
-    except Exception as e:
-        logger.error(f"Error unsubscribing session: {e}")
-        raise HTTPException(status_code=500, detail="Failed to unsubscribe session")
+def wants_notification(subscription: Dict[str, Any], event_type: str) -> bool:
+    try:
+        preferences = json.loads(subscription.get("notification_preferences", "{}"))
+    except json.JSONDecodeError:
+        return True
+    return preferences.get(event_type, True)
 
 
 @router.get("/health")
-async def check_notifications_health(
-    request: Request,
-    user: dict = Depends(require_auth_hybrid)
-):
+async def check_notifications_health(user: dict = Depends(require_auth_hybrid)):
     """Check the health of push notification subscriptions for debugging"""
     redis_store = get_redis_store()
 
@@ -594,72 +502,34 @@ async def check_notifications_health(
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    # Get session ID from request
-    session_id = get_session_id_from_request(request)
-
     try:
-        # Get session subscriptions
-        session_subscriptions = await redis_store.get_session_push_subscriptions(session_id) if session_id else []
+        subscriptions = await redis_store.get_user_device_subscriptions(user_id)
 
-        # Get all user subscriptions
-        all_user_subscriptions = await redis_store.get_user_push_subscriptions(user_id)
-
-        # Analyze subscriptions by browser
-        browser_analysis = {}
-        for sub in all_user_subscriptions:
-            endpoint = sub.get("endpoint", "")
-            if "fcm.googleapis.com" in endpoint:
-                browser = "Chrome/Chromium"
-            elif "mozilla.com" in endpoint:
-                browser = "Firefox"
-            elif "push.apple.com" in endpoint:
-                browser = "Safari"
-            elif "wns.windows.com" in endpoint:
-                browser = "Edge"
+        browser_analysis: Dict[str, Dict[str, int]] = {}
+        for sub in subscriptions:
+            browser = browser_from_endpoint(sub.get("endpoint", ""))
+            stats = browser_analysis.setdefault(browser, {"count": 0, "recent": 0, "old": 0})
+            stats["count"] += 1
+            age = age_seconds(sub.get("created_at"))
+            if age is not None and age < 7 * 24 * 3600:
+                stats["recent"] += 1
             else:
-                browser = "Unknown"
-
-            if browser not in browser_analysis:
-                browser_analysis[browser] = {
-                    "count": 0,
-                    "recent": 0,
-                    "old": 0
-                }
-
-            browser_analysis[browser]["count"] += 1
-
-            # Check age of subscription
-            created_at = sub.get("created_at")
-            if created_at:
-                import time
-                try:
-                    # Handle both string timestamps and float timestamps
-                    created_timestamp = float(created_at) if isinstance(created_at, (int, float, str)) else time.time()
-                    age_days = (time.time() - created_timestamp) / (24 * 3600)
-                    if age_days < 7:
-                        browser_analysis[browser]["recent"] += 1
-                    else:
-                        browser_analysis[browser]["old"] += 1
-                except (ValueError, TypeError):
-                    # If conversion fails, consider it an old subscription
-                    browser_analysis[browser]["old"] += 1
-                    logger.warning(f"Invalid created_at timestamp format: {created_at}")
+                stats["old"] += 1
 
         return JSONResponse({
             "vapid_configured": settings.validate_vapid_config(),
-            "session_id": session_id[:8] + "..." if session_id else None,
-            "current_session_subscriptions": len(session_subscriptions),
-            "total_user_subscriptions": len(all_user_subscriptions),
+            "total_user_subscriptions": len(subscriptions),
             "browser_breakdown": browser_analysis,
-            "session_subscriptions_details": [
+            "subscriptions_details": [
                 {
                     "subscription_id": sub.get("subscription_id"),
-                    "browser": "Chrome" if "fcm.googleapis.com" in sub.get("endpoint", "") else "Other",
+                    "device_id": sub.get("device_id", "unknown")[:15] + "...",
+                    "browser": browser_from_endpoint(sub.get("endpoint", "")),
                     "created_at": sub.get("created_at"),
                     "last_used": sub.get("last_used"),
                     "endpoint_domain": sub.get("endpoint", "").split("/")[2] if sub.get("endpoint") else "unknown"
                 }
-                for sub in session_subscriptions
+                for sub in subscriptions
             ]
         })
 
@@ -671,93 +541,78 @@ async def check_notifications_health(
 @router.get("/admin/stats")
 async def get_notification_stats(user: dict = Depends(require_auth_hybrid)):
     """Get comprehensive notification statistics for admin panel"""
+    require_admin(user)
     redis_store = get_redis_store()
-    
+
     if not redis_store:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
-    # Check if user is admin (you may want to add proper admin check)
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     try:
-        # Get all device subscriptions
         all_subscriptions = await redis_store.get_all_device_push_subscriptions()
-        
-        # Analyze subscriptions by browser
-        browser_stats = {}
-        user_stats = {}
-        device_stats = {"total": len(all_subscriptions), "by_browser": {}, "by_platform": {}}
-        
+
+        browser_stats: Dict[str, int] = {}
+        platform_stats: Dict[str, int] = {}
+        user_stats: Dict[str, int] = {}
+        anonymous_subscriptions = 0
+        healthy_subscriptions = 0
+        stale_subscriptions = 0
+
         for sub in all_subscriptions:
-            # Browser analysis
-            endpoint = sub.get("endpoint", "")
-            browser = "Unknown"
-            if "fcm.googleapis.com" in endpoint:
-                browser = "Chrome/Chromium"
-            elif "mozilla.com" in endpoint:
-                browser = "Firefox"
-            elif "push.apple.com" in endpoint:
-                browser = "Safari"
-            elif "wns.windows.com" in endpoint:
-                browser = "Edge"
-            
+            browser = browser_from_endpoint(sub.get("endpoint", ""))
             browser_stats[browser] = browser_stats.get(browser, 0) + 1
-            device_stats["by_browser"][browser] = device_stats["by_browser"].get(browser, 0) + 1
-            
-            # Platform analysis
+
             platform = sub.get("platform", "unknown")
-            device_stats["by_platform"][platform] = device_stats["by_platform"].get(platform, 0) + 1
-            
-            # User analysis
+            platform_stats[platform] = platform_stats.get(platform, 0) + 1
+
             user_id_sub = sub.get("user_id")
             if user_id_sub and user_id_sub != "anonymous":
                 user_stats[user_id_sub] = user_stats.get(user_id_sub, 0) + 1
-        
-        # Get recent notification events from logs (last 7 days)
-        import time
-        week_ago = time.time() - (7 * 24 * 60 * 60)
-        
-        # Count subscription health
-        healthy_subscriptions = 0
-        stale_subscriptions = 0
-        current_time = time.time()
-        
-        for sub in all_subscriptions:
-            last_used = sub.get("last_used")
-            if last_used:
-                try:
-                    last_used_time = float(last_used)
-                    age_hours = (current_time - last_used_time) / 3600
-                    if age_hours < 24:
-                        healthy_subscriptions += 1
-                    elif age_hours > 168:  # 1 week
-                        stale_subscriptions += 1
-                except (ValueError, TypeError):
-                    pass
-        
+            else:
+                anonymous_subscriptions += 1
+
+            age = age_seconds(sub.get("last_used"))
+            if age is None:
+                continue
+            if age < 24 * 3600:
+                healthy_subscriptions += 1
+            elif age > 7 * 24 * 3600:
+                stale_subscriptions += 1
+
         return JSONResponse({
             "device_subscriptions": {
                 "total": len(all_subscriptions),
                 "healthy": healthy_subscriptions,
                 "stale": stale_subscriptions,
-                "by_browser": device_stats["by_browser"],
-                "by_platform": device_stats["by_platform"]
+                "by_browser": browser_stats,
+                "by_platform": platform_stats
             },
             "user_stats": {
                 "users_with_notifications": len(user_stats),
                 "avg_devices_per_user": sum(user_stats.values()) / len(user_stats) if user_stats else 0,
-                "anonymous_subscriptions": browser_stats.get("anonymous", 0)
+                "anonymous_subscriptions": anonymous_subscriptions
             },
             "browser_distribution": browser_stats,
             "vapid_configured": settings.validate_vapid_config(),
-            "generated_at": current_time
+            "generated_at": datetime.now().timestamp()
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting notification stats: {e}")
         raise HTTPException(status_code=500, detail="Failed to get notification stats")
+
+
+def daily_counter_key(day: str, counter: str) -> str:
+    return f"notifications:daily:{day}:{counter}"
+
+
+def record_send_counters(redis_store, sent: int, failed: int, cleaned: int) -> None:
+    day = datetime.now().strftime("%Y-%m-%d")
+    pipe = redis_store.redis.pipeline()
+    for counter, value in (("sent", sent), ("failed", failed), ("cleaned", cleaned)):
+        if value:
+            pipe.incrby(daily_counter_key(day, counter), value)
+            pipe.expire(daily_counter_key(day, counter), 90 * 24 * 3600)
+    pipe.execute()
 
 
 @router.get("/admin/reliability")
@@ -765,65 +620,48 @@ async def get_notification_reliability(
     days: int = 7,
     user: dict = Depends(require_auth_hybrid)
 ):
-    """Get notification reliability metrics from logs"""
+    """Send success and failure counts per day, from counters written by send_push_notification_to_subscriptions"""
+    require_admin(user)
     redis_store = get_redis_store()
-    
+
     if not redis_store:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
+
+    days = max(1, min(days, 90))
+
     try:
-        # This would ideally parse application logs, but for now we'll simulate
-        # In a real implementation, you'd parse the log files for:
-        # - "Notification batch complete: X sent, Y failed, Z cleaned up"
-        # - "Invalid subscription (410)" patterns
-        # - "Cleaned up expired subscription" patterns
-        
-        import time
-        from datetime import datetime, timedelta
-        
-        # Simulate parsing recent log data
-        # In production, you'd want to parse actual log files or store metrics in Redis
-        current_time = time.time()
-        
-        # Mock data - replace with actual log parsing
-        reliability_data = {
-            "period_days": days,
-            "total_attempts": 150,  # From logs: sum of all "sent" and "failed"
-            "successful_sends": 128,  # From logs: sum of all "sent"
-            "failed_sends": 22,     # From logs: sum of all "failed"
-            "cleaned_subscriptions": 8,  # From logs: count of "cleaned up"
-            "reliability_percentage": 85.3,  # (successful / total) * 100
-            "error_types": {
-                "410_gone": 15,      # FCM token expired
-                "404_not_found": 5,  # Subscription not found
-                "413_too_large": 2,  # Payload too large
-                "other": 0
-            },
-            "daily_breakdown": [],
-            "browser_reliability": {
-                "Chrome": {"sent": 95, "failed": 18, "rate": 84.1},
-                "Firefox": {"sent": 25, "failed": 3, "rate": 89.3},
-                "Safari": {"sent": 8, "failed": 1, "rate": 88.9}
-            }
-        }
-        
-        # Generate daily breakdown for the chart
-        for i in range(days):
-            date = datetime.now() - timedelta(days=days-i-1)
-            reliability_data["daily_breakdown"].append({
-                "date": date.strftime("%Y-%m-%d"),
-                "attempts": 20 + (i * 2),
-                "successful": 17 + (i * 2),
-                "failed": 3,
-                "rate": 85 + (i * 0.5) if i < 5 else 87.5
+        today = datetime.now().date()
+        day_labels = [(today - timedelta(days=days - i - 1)).isoformat() for i in range(days)]
+        keys = [daily_counter_key(day, counter) for day in day_labels for counter in ("sent", "failed", "cleaned")]
+        values = [int(v or 0) for v in redis_store.redis.mget(keys)]
+
+        daily_breakdown = []
+        for index, day in enumerate(day_labels):
+            sent, failed, cleaned = values[index * 3: index * 3 + 3]
+            attempts = sent + failed
+            daily_breakdown.append({
+                "date": day,
+                "attempts": attempts,
+                "successful": sent,
+                "failed": failed,
+                "cleaned": cleaned,
+                "rate": (sent / attempts * 100) if attempts else None
             })
-        
-        return JSONResponse(reliability_data)
-        
+
+        successful_sends = sum(d["successful"] for d in daily_breakdown)
+        failed_sends = sum(d["failed"] for d in daily_breakdown)
+        total_attempts = successful_sends + failed_sends
+
+        return JSONResponse({
+            "period_days": days,
+            "total_attempts": total_attempts,
+            "successful_sends": successful_sends,
+            "failed_sends": failed_sends,
+            "cleaned_subscriptions": sum(d["cleaned"] for d in daily_breakdown),
+            "reliability_percentage": (successful_sends / total_attempts * 100) if total_attempts else None,
+            "daily_breakdown": daily_breakdown
+        })
+
     except Exception as e:
         logger.error(f"Error getting reliability stats: {e}")
         raise HTTPException(status_code=500, detail="Failed to get reliability stats")
@@ -835,31 +673,23 @@ async def broadcast_notification(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_auth_hybrid)
 ):
-    """Send a broadcast notification to all subscribers (admin only)"""
+    """Send a broadcast notification to all subscribers that allow system announcements (admin only)"""
+    require_admin(user)
     redis_store = get_redis_store()
-    
+
     if not redis_store:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
-    # Add admin check here if needed
-    # if not await is_admin_user(user_id):
-    #     raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     try:
-        # Get all active subscriptions
         all_subscriptions = await redis_store.get_all_device_push_subscriptions()
-        
-        if not all_subscriptions:
-            raise HTTPException(status_code=404, detail="No active subscriptions found")
-        
-        # Add admin broadcast metadata
+        recipients = [sub for sub in all_subscriptions if wants_notification(sub, "system_announcements")]
+
+        if not recipients:
+            raise HTTPException(status_code=404, detail="No subscriptions accept system announcements")
+
         broadcast_payload = {
             **notification_data.dict(),
-            "tag": "admin_broadcast",
+            "tag": f"admin_broadcast_{int(datetime.now().timestamp())}",
             "data": {
                 **(notification_data.data or {}),
                 "type": "admin_broadcast",
@@ -867,24 +697,25 @@ async def broadcast_notification(
                 "timestamp": datetime.now().isoformat()
             }
         }
-        
-        # Send in background
+
         background_tasks.add_task(
             send_push_notification_to_subscriptions,
-            all_subscriptions,
+            recipients,
             broadcast_payload,
             redis_store
         )
-        
-        logger.info(f"Admin broadcast queued by {user.get('email')} to {len(all_subscriptions)} devices")
-        
+
+        logger.info(f"Admin broadcast queued by {user.get('email')} to {len(recipients)} devices")
+
         return JSONResponse({
             "success": True,
-            "message": f"Broadcast notification queued for {len(all_subscriptions)} devices",
-            "recipients": len(all_subscriptions),
+            "message": f"Broadcast notification queued for {len(recipients)} devices",
+            "recipients": len(recipients),
             "payload": broadcast_payload
         })
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error sending admin broadcast: {e}")
         raise HTTPException(status_code=500, detail="Failed to send broadcast notification")
@@ -892,11 +723,10 @@ async def broadcast_notification(
 
 @router.post("/validate-subscriptions")
 async def validate_subscriptions(
-    request: Request,
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_auth_hybrid)
 ):
-    """Validate all subscriptions for the current user and clean up invalid ones"""
+    """Validate all device subscriptions for the current user and clean up invalid ones"""
     redis_store = get_redis_store()
 
     if not redis_store:
@@ -907,8 +737,7 @@ async def validate_subscriptions(
         raise HTTPException(status_code=401, detail="Authentication required")
 
     try:
-        # Get all user subscriptions
-        all_subscriptions = await redis_store.get_user_push_subscriptions(user_id)
+        all_subscriptions = await redis_store.get_user_device_subscriptions(user_id)
 
         if not all_subscriptions:
             return JSONResponse({
@@ -919,15 +748,13 @@ async def validate_subscriptions(
                 "removed": 0
             })
 
-        # Send a silent validation notification to each subscription
         validation_payload = {
-            "title": "🔍 Validating notifications...",
-            "body": "This is a silent test to validate your notification subscription",
+            "title": "Validating notifications",
+            "body": "Silent subscription validation",
             "silent": True,
             "tag": "validation_test"
         }
 
-        # Track validation results
         background_tasks.add_task(
             validate_subscriptions_background,
             all_subscriptions,
@@ -948,42 +775,46 @@ async def validate_subscriptions(
         raise HTTPException(status_code=500, detail="Failed to validate subscriptions")
 
 
+class SubscriptionTestRequest(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+
+
 @router.post("/test-subscription")
 async def test_subscription_health(
-    request_data: dict,
-    user: dict = Depends(get_current_user_hybrid)
+    request_data: SubscriptionTestRequest,
+    user: dict = Depends(require_auth_hybrid)
 ):
-    """Test if a subscription endpoint is still valid by sending a silent notification"""
+    """Send a silent push to one of the caller's own subscriptions. valid=false only on 404/410; other failures are 502."""
     if not settings.validate_vapid_config():
         raise HTTPException(status_code=503, detail="Push notifications not configured")
 
+    redis_store = get_redis_store()
+    if not redis_store:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    own_subscriptions = await redis_store.get_user_device_subscriptions(user.get("id"))
+    if not any(sub.get("endpoint") == request_data.endpoint for sub in own_subscriptions):
+        raise HTTPException(status_code=403, detail="Subscription does not belong to one of your devices")
+
     try:
-        endpoint = request_data.get("endpoint")
-        keys = request_data.get("keys", {})
-        
-        if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
-            raise HTTPException(status_code=400, detail="Invalid subscription data")
-
-        # Create WebPushSubscription
-        webpush_subscription = WebPushSubscription(
-            endpoint=AnyHttpUrl(endpoint),
-            keys=WebPushKeys(
-                p256dh=keys["p256dh"],
-                auth=keys["auth"]
-            )
+        webpush_subscription = to_webpush_subscription(
+            request_data.endpoint, {"p256dh": request_data.keys.p256dh, "auth": request_data.keys.auth}
         )
+    except PydanticValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid push subscription: {e}")
 
-        # Send silent test notification
-        wp = settings.get_webpush_instance()
-        test_payload = {
-            "title": "Health Check",
-            "body": "Testing subscription validity",
-            "silent": True,
-            "tag": "health_check",
-            "data": {"type": "health_check"}
-        }
+    test_payload = {
+        "title": "Health Check",
+        "body": "Testing subscription validity",
+        "silent": True,
+        "tag": "health_check",
+        "data": {"type": "health_check"}
+    }
+    endpoint_domain = urlparse(request_data.endpoint).netloc or "unknown"
 
-        message = wp.get(
+    try:
+        message = settings.get_webpush_instance().get(
             message=json.dumps(test_payload),
             subscription=webpush_subscription
         )
@@ -995,23 +826,19 @@ async def test_subscription_health(
                 data=message.encrypted,
                 headers={k: str(v) for k, v in message.headers.items()},
             ) as response:
-                is_valid = response.status in [200, 201]
-                
-                if not is_valid:
-                    logger.warning(f"Subscription health test failed: {response.status} for {endpoint[:50]}...")
-                
-                return JSONResponse({
-                    "valid": is_valid,
-                    "status": response.status,
-                    "endpoint_domain": endpoint.split("/")[2] if "/" in endpoint else "unknown"
-                })
-
+                status = response.status
     except Exception as e:
-        logger.error(f"Subscription health test error: {e}")
-        return JSONResponse({
-            "valid": False,
-            "error": str(e)
-        })
+        logger.error(f"Subscription health test error for {endpoint_domain}: {e}")
+        raise HTTPException(status_code=502, detail="Push service unreachable")
+
+    if status in (200, 201):
+        return JSONResponse({"valid": True, "status": status, "endpoint_domain": endpoint_domain})
+    if status in (404, 410):
+        logger.info(f"Subscription health test: subscription gone ({status}) for {endpoint_domain}")
+        return JSONResponse({"valid": False, "status": status, "endpoint_domain": endpoint_domain})
+
+    logger.warning(f"Subscription health test: push service returned {status} for {endpoint_domain}")
+    raise HTTPException(status_code=502, detail=f"Push service returned {status}")
 
 
 @router.post("/test")
@@ -1021,7 +848,7 @@ async def send_test_notification(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_auth_hybrid)
 ):
-    """Send a test notification to the current session's devices"""
+    """Send a test notification to the calling device, or to all of the user's devices when no X-Device-ID is sent"""
     redis_store = get_redis_store()
 
     if not redis_store:
@@ -1031,30 +858,32 @@ async def send_test_notification(
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    # Get session ID from request
-    session_id = get_session_id_from_request(request)
-    if not session_id:
-        raise HTTPException(status_code=400, detail="Valid session required")
-
-    # Get current session's subscriptions
-    subscriptions = await redis_store.get_session_push_subscriptions(session_id)
+    subscriptions: List[Dict[str, Any]] = []
+    device_id = request.headers.get("X-Device-ID")
+    if device_id:
+        device_subscription = await redis_store.get_device_push_subscription(device_id)
+        if device_subscription and device_subscription.get("user_id") == user_id:
+            subscriptions = [device_subscription]
+    if not subscriptions:
+        subscriptions = await redis_store.get_user_device_subscriptions(user_id)
     if not subscriptions:
         raise HTTPException(
             status_code=400,
-            detail="No push subscriptions found for this session. Please enable notifications first."
+            detail="No push subscriptions found for your devices. Please enable notifications first."
         )
 
-    # Send notification in background
+    test_payload = {**payload.dict(), "tag": f"test_{int(datetime.now().timestamp())}"}
+
     background_tasks.add_task(
         send_push_notification_to_subscriptions,
         subscriptions,
-        payload.dict(),
+        test_payload,
         redis_store
     )
 
     return JSONResponse({
         "success": True,
-        "message": f"Test notification queued for {len(subscriptions)} device(s) in this session",
+        "message": f"Test notification queued for {len(subscriptions)} device(s)",
         "devices": len(subscriptions)
     })
 
@@ -1151,10 +980,9 @@ async def validate_subscriptions_background(
                             endpoint_domain = subscription["endpoint"].split(
                                 "/")[2] if subscription.get("endpoint") else "unknown"
                             subscription_id = subscription.get("subscription_id")
-                            session_id = subscription.get("session_id", "unknown")[:8]
 
                             logger.info(
-                                f"Validation found invalid subscription ({response.status}) for {endpoint_domain} (session: {session_id}...)")
+                                f"Validation found invalid subscription ({response.status}) for {endpoint_domain}")
 
                             if subscription_id:
                                 await redis_store.delete_push_subscription(subscription_id)
@@ -1257,7 +1085,6 @@ async def send_push_notification_to_subscriptions(
                     )
 
                     # Send the notification with retries
-                    success = False
                     for attempt in range(2):  # Try twice
                         try:
                             async with session.post(
@@ -1267,7 +1094,6 @@ async def send_push_notification_to_subscriptions(
                             ) as response:
                                 if response.status in [200, 201]:
                                     successful_sends += 1
-                                    success = True
 
                                     # Update last used timestamp
                                     subscription_id = subscription.get("subscription_id")
@@ -1352,15 +1178,16 @@ async def send_push_notification_to_subscriptions(
                             failed_sends += 1
                             break
 
-                    if not success and attempt == 1:
-                        failed_sends += 1
-
                 except Exception as e:
                     failed_sends += 1
                     logger.error(f"Error processing subscription: {e}")
 
         logger.info(
             f"Notification batch complete: {successful_sends} sent, {failed_sends} failed, {cleaned_subscriptions} cleaned up")
+        try:
+            record_send_counters(redis_store, successful_sends, failed_sends, cleaned_subscriptions)
+        except Exception as e:
+            logger.warning(f"Could not record notification counters: {e}")
 
     except Exception as e:
         logger.error(f"Critical error in send_push_notification_to_subscriptions: {e}")
@@ -1436,21 +1263,7 @@ async def send_notification_for_event(
         notification_payload = create_notification_payload(event_type, event_data)
 
         if notification_payload:
-            # Filter subscriptions based on their notification preferences
-            filtered_subscriptions = []
-            for subscription in all_subscriptions:
-                preferences_json = subscription.get("notification_preferences", "{}")
-                try:
-                    preferences = json.loads(preferences_json)
-                    # Check if this device wants this type of notification
-                    if preferences.get(event_type, True):  # Default to True if preference not set
-                        filtered_subscriptions.append(subscription)
-                    else:
-                        logger.debug(
-                            f"Skipping {event_type} notification for device {subscription.get('device_id', 'unknown')[:15]}... (disabled by user)")
-                except json.JSONDecodeError:
-                    # If preferences can't be parsed, send notification (fail-safe)
-                    filtered_subscriptions.append(subscription)
+            filtered_subscriptions = [sub for sub in all_subscriptions if wants_notification(sub, event_type)]
 
             if filtered_subscriptions:
                 # Send notifications in background
@@ -1475,25 +1288,29 @@ def create_notification_payload(event_type: str, event_data: Dict[str, Any]) -> 
 
     if event_type == "album_created":
         title = event_data.get("title", "New Album")
-        crew = event_data.get("crew", [])
-        crew_text = f" with {', '.join(crew[:4])}" if crew else ""
-        if len(crew) > 2:
-            crew_text += f" and {len(crew) - 2} others"
+        creator = event_data.get("creator", "Someone")
+        crew = event_data.get("crew") or []
+        shown = crew[:3]
+        rest = len(crew) - len(shown)
+        body = f"{creator} added an album"
+        if shown:
+            body += f" with {', '.join(shown)}"
+            if rest:
+                body += f" and {rest} more"
 
-        # Use album cover image as notification icon if available
         image_url = event_data.get("image_url")
-        icon = f"/get-image?url={image_url}" if image_url else "/static/favicon/android-chrome-192x192.png"
+        icon = f"/get-image?url={quote(image_url, safe='')}" if image_url else "/static/favicon/android-chrome-192x192.png"
+        album_url = event_data.get("url") or "/albums"
 
         return {
             "title": f"🧗‍♂️ New Album: {title}",
-            "body": f"{crew_text}",
+            "body": body,
             "icon": icon,
             "badge": "/static/favicon/favicon-32x32.png",
-            "tag": "album_created",
+            "tag": f"album_created:{album_url}",
             "requireInteraction": False,
             "data": {
-                "url": "/albums",
-                "album_url": event_data.get("url")
+                "url": album_url
             }
         }
 
@@ -1509,7 +1326,7 @@ def create_notification_payload(event_type: str, event_data: Dict[str, Any]) -> 
             "body": f"Welcome {name} to the climbing crew!",
             "icon": icon,
             "badge": "/static/favicon/favicon-32x32.png",
-            "tag": "crew_added",
+            "tag": f"crew_added:{name}",
             "requireInteraction": False,
             "data": {
                 "url": "/crew",
@@ -1524,7 +1341,7 @@ def create_notification_payload(event_type: str, event_data: Dict[str, Any]) -> 
             "body": f"{creator} shared a new climbing meme",
             "icon": "/static/favicon/android-chrome-192x192.png",
             "badge": "/static/favicon/favicon-32x32.png",
-            "tag": "meme_uploaded",
+            "tag": f"meme_uploaded:{event_data.get('meme_id')}",
             "requireInteraction": False,
             "data": {
                 "url": "/memes",

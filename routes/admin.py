@@ -9,14 +9,14 @@ import hashlib
 from PIL import Image
 import io
 
-from auth import get_current_user
+from auth import require_auth
 from dependencies import get_redis_store, get_permissions_manager, get_jwt_manager
 from permissions import ResourceType, UserRole
 from utils.export_utils import export_redis_database
 from utils.background_tasks import perform_album_metadata_refresh
 from routes.notifications import send_push_notification_to_subscriptions
 from config import settings
-from validation import validate_image_file
+from validation import ValidationError, validate_image_file
 
 logger = logging.getLogger("climbing_app")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -25,11 +25,9 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 @router.get("/stats")
-async def get_admin_stats(user: dict = Depends(get_current_user)):
+async def get_admin_stats(user: dict = Depends(require_auth)):
     """Get system statistics (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
     redis_store = get_redis_store()
@@ -46,6 +44,8 @@ async def get_admin_stats(user: dict = Depends(get_current_user)):
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -95,11 +95,9 @@ async def get_admin_stats(user: dict = Depends(get_current_user)):
 
 
 @router.get("/users")
-async def get_all_users_admin(user: dict = Depends(get_current_user)):
+async def get_all_users_admin(user: dict = Depends(require_auth)):
     """Get all users with their roles and resource counts (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
 
@@ -111,6 +109,8 @@ async def get_all_users_admin(user: dict = Depends(get_current_user)):
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -168,11 +168,9 @@ async def get_all_users_admin(user: dict = Depends(get_current_user)):
 
 
 @router.post("/users/{target_user_id}/role")
-async def change_user_role(target_user_id: str, new_role: str = Form(...), user: dict = Depends(get_current_user)):
+async def change_user_role(target_user_id: str, new_role: str = Form(...), user: dict = Depends(require_auth)):
     """Change a user's role (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
 
@@ -184,6 +182,8 @@ async def change_user_role(target_user_id: str, new_role: str = Form(...), user:
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -223,17 +223,17 @@ async def change_user_role(target_user_id: str, new_role: str = Form(...), user:
             "security_note": "All existing API tokens have been invalidated due to permission changes"
         })
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error changing user role: {e}")
         raise HTTPException(status_code=500, detail="Failed to change user role")
 
 
 @router.get("/resources/all")
-async def get_all_resources_with_owners(user: dict = Depends(get_current_user)):
+async def get_all_resources_with_owners(user: dict = Depends(require_auth)):
     """Get all resources with their owner information (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
     redis_store = get_redis_store()
@@ -250,6 +250,8 @@ async def get_all_resources_with_owners(user: dict = Depends(get_current_user)):
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -358,11 +360,9 @@ async def get_all_resources_with_owners(user: dict = Depends(get_current_user)):
 
 
 @router.get("/resources/unowned")
-async def get_unowned_resources(user: dict = Depends(get_current_user)):
+async def get_unowned_resources(user: dict = Depends(require_auth)):
     """Get all resources without owners (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
     redis_store = get_redis_store()
@@ -379,6 +379,8 @@ async def get_unowned_resources(user: dict = Depends(get_current_user)):
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -441,12 +443,10 @@ async def assign_resource_owner(
     resource_type: str = Form(...),
     resource_id: str = Form(...),
     target_user_id: str = Form(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_auth)
 ):
     """Assign ownership of a resource to a user (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
 
@@ -458,6 +458,8 @@ async def assign_resource_owner(
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -486,6 +488,8 @@ async def assign_resource_owner(
             "message": f"Resource ownership assigned to {target_user.get('name', target_user_id)}"
         })
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error assigning resource owner: {e}")
         raise HTTPException(status_code=500, detail="Failed to assign resource owner")
@@ -496,12 +500,10 @@ async def remove_resource_owner(
     resource_type: str = Form(...),
     resource_id: str = Form(...),
     target_user_id: str = Form(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_auth)
 ):
     """Remove ownership of a resource from a user (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
 
@@ -513,6 +515,8 @@ async def remove_resource_owner(
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -536,17 +540,17 @@ async def remove_resource_owner(
             "message": "Resource ownership removed successfully"
         })
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error removing resource owner: {e}")
         raise HTTPException(status_code=500, detail="Failed to remove resource owner")
 
 
 @router.post("/migrate-resources")
-async def migrate_existing_resources(user: dict = Depends(get_current_user)):
+async def migrate_existing_resources(user: dict = Depends(require_auth)):
     """Migrate existing resources to system ownership (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
 
@@ -558,6 +562,8 @@ async def migrate_existing_resources(user: dict = Depends(get_current_user)):
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -577,11 +583,9 @@ async def migrate_existing_resources(user: dict = Depends(get_current_user)):
 
 
 @router.post("/refresh-metadata")
-async def refresh_album_metadata_admin(user: dict = Depends(get_current_user)):
+async def refresh_album_metadata_admin(user: dict = Depends(require_auth)):
     """Refresh all album metadata (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
     redis_store = get_redis_store()
@@ -598,6 +602,8 @@ async def refresh_album_metadata_admin(user: dict = Depends(get_current_user)):
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -618,11 +624,9 @@ async def refresh_album_metadata_admin(user: dict = Depends(get_current_user)):
 
 
 @router.get("/export")
-async def export_redis_database_admin(user: dict = Depends(get_current_user)):
+async def export_redis_database_admin(user: dict = Depends(require_auth)):
     """Export Redis database (admin only)"""
-    user_id = user.get("id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
     redis_store = get_redis_store()
@@ -639,6 +643,8 @@ async def export_redis_database_admin(user: dict = Depends(get_current_user)):
     # Check admin permissions
     try:
         await permissions_manager.require_permission(user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -708,11 +714,9 @@ class UserNotificationPreferences(BaseModel):
 
 
 @router.get("/users/{user_id}/notifications")
-async def get_user_notifications(user_id: str, user: dict = Depends(get_current_user)):
+async def get_user_notifications(user_id: str, user: dict = Depends(require_auth)):
     """Get notification settings for a specific user (admin only)"""
-    current_user_id = user.get("id")
-    if not current_user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    current_user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
     redis_store = get_redis_store()
@@ -725,6 +729,8 @@ async def get_user_notifications(user_id: str, user: dict = Depends(get_current_
     # Check admin permissions
     try:
         await permissions_manager.require_permission(current_user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -771,6 +777,8 @@ async def get_user_notifications(user_id: str, user: dict = Depends(get_current_
             "devices": devices
         })
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting user notifications: {e}")
         raise HTTPException(status_code=500, detail="Failed to get user notifications")
@@ -781,12 +789,10 @@ async def update_user_device_notifications(
     user_id: str,
     device_id: str,
     preferences: UserNotificationPreferences,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_auth)
 ):
     """Update notification preferences for a user's device (admin only)"""
-    current_user_id = user.get("id")
-    if not current_user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    current_user_id = user["id"]
 
     permissions_manager = get_permissions_manager()
     redis_store = get_redis_store()
@@ -799,6 +805,8 @@ async def update_user_device_notifications(
     # Check admin permissions
     try:
         await permissions_manager.require_permission(current_user_id, "manage_users")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Permission check failed: {e}")
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -813,7 +821,7 @@ async def update_user_device_notifications(
             raise HTTPException(status_code=403, detail="Device does not belong to target user")
 
         # Update preferences
-        preferences_dict = preferences.dict()
+        preferences_dict = preferences.model_dump()
         success = await redis_store.update_device_notification_preferences(device_id, preferences_dict)
 
         if not success:
@@ -838,7 +846,7 @@ async def update_user_device_notifications(
 @router.post("/notifications/upload-image")
 async def upload_notification_image(
     image: UploadFile = File(...),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_auth)
 ):
     """Upload an optimized image for use in notifications (stored in Redis)"""
     redis_store = get_redis_store()
@@ -860,8 +868,10 @@ async def upload_notification_image(
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=400, detail="Image must be less than 5MB")
 
-    # Validate image file
-    validate_image_file(image.content_type, len(content))
+    try:
+        validate_image_file(image.content_type, len(content))
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     try:
         # Optimize image for notifications (resize and compress)
@@ -956,7 +966,7 @@ def optimize_notification_image(image_data: bytes, max_size: int = 50 * 1024) ->
 
 
 @router.get("/notifications/images")
-async def list_notification_images(user: dict = Depends(get_current_user)):
+async def list_notification_images(user: dict = Depends(require_auth)):
     """List available notification images from Redis"""
     redis_store = get_redis_store()
 
@@ -1007,7 +1017,7 @@ async def list_notification_images(user: dict = Depends(get_current_user)):
 @router.post("/notifications/system")
 async def send_system_notification(
     notification: SystemNotificationRequest,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_auth)
 ):
     """Send system notification to users with FCM-compatible payload handling"""
     redis_store = get_redis_store()
@@ -1164,6 +1174,8 @@ async def send_system_notification(
             "filtered_by_preferences": len(all_subscriptions) - len(filtered_subscriptions)
         })
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error sending system notification: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to send notification: {str(e)}")

@@ -84,31 +84,10 @@ class NotificationsManager {
             // Check existing subscription state
             await this.checkSubscriptionStatus();
 
-            // Listen for service worker messages
-            this.setupServiceWorkerListener();
-
             console.log('NotificationsManager initialized successfully');
 
         } catch (error) {
             console.error('Failed to initialize NotificationsManager:', error);
-        }
-    }
-
-    setupServiceWorkerListener() {
-        if (navigator.serviceWorker) {
-            navigator.serviceWorker.addEventListener('message', (event) => {
-                console.log('📨 Message from Service Worker:', event.data);
-                
-                if (event.data.type === 'PUSH_RECEIVED') {
-                    console.log('🔔 Push notification received by service worker:', event.data);
-                } else if (event.data.type === 'NOTIFICATION_SHOWN') {
-                    console.log('✅ Notification successfully shown:', event.data);
-                } else if (event.data.type === 'NOTIFICATION_ERROR') {
-                    console.error('❌ Notification error:', event.data);
-                }
-            });
-            
-            console.log('📡 Service worker message listener set up');
         }
     }
 
@@ -191,6 +170,11 @@ class NotificationsManager {
                         this.subscription = subscription;
                         this.isEnabled = true;
                         console.log('Valid subscription found:', data.subscription.subscription_id);
+                        if (data.subscription.needs_user_association) {
+                            // Subscribed while logged out (or as another user): re-send so the server links it to this user
+                            console.log('Subscription not linked to current user, re-sending');
+                            await this.sendSubscriptionToServer(subscription);
+                        }
                         return true;
                     }
                 }
@@ -835,7 +819,7 @@ window.debugNotifications = {
             diagnostic.recommendations.push('Notifications are blocked. Please enable them in your browser settings');
         }
         
-        if (browserSupport.browser.includes('Chrome') && subscriptionHealth?.current_session_subscriptions === 0) {
+        if (browserSupport.browser.includes('Chrome') && subscriptionHealth?.total_user_subscriptions === 0) {
             diagnostic.recommendations.push('Chrome detected but no active subscriptions. Try subscribing again or check if notifications are enabled');
         }
         
