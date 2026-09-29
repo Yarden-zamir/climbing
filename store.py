@@ -1,11 +1,12 @@
 """DuckDB-backed data store.
 
 One process owns the database file (DuckDB is single-writer). All access goes through
-`Store`, whose methods are async so call sites read naturally, while the work itself is
-short synchronous SQL under one lock. Derived facts (climb counts, levels, "new" climbers,
+`Store`, an async facade that runs the synchronous SQL of `SyncStore` in worker threads
+under one connection lock. Derived facts (climb counts, levels, "new" climbers,
 creation counts per user) are computed in queries and never stored.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -103,7 +104,11 @@ def clean_items(items: Optional[Iterable[Any]], what: str) -> List[str]:
 
 
 class Database:
-    """Thin lock-guarded wrapper over one DuckDB connection."""
+    """One DuckDB connection, a cursor per thread for reads, one lock for writes.
+
+    Cursors share the database and give reads MVCC isolation, so heavy list queries do not
+    hold up small ones. Writes and transactions take the lock, so they never interleave.
+    """
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -111,6 +116,7 @@ class Database:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = duckdb.connect(str(self.path))
         self.lock = threading.RLock()
+        self._local = threading.local()
         with self.lock:
             sql = "\n".join(
                 line for line in SCHEMA_PATH.read_text().splitlines() if not line.lstrip().startswith("--")
@@ -119,20 +125,29 @@ class Database:
                 if statement.strip():
                     self.conn.execute(statement)
 
+    def _cursor(self) -> duckdb.DuckDBPyConnection:
+        # Inside a transaction every statement must run on the connection that opened it
+        if getattr(self._local, "in_transaction", False):
+            return self.conn
+        cursor = getattr(self._local, "cursor", None)
+        if cursor is None:
+            with self.lock:
+                cursor = self.conn.cursor()
+            self._local.cursor = cursor
+        return cursor
+
     def rows(self, sql: str, params: Sequence[Any] = ()) -> List[dict]:
-        with self.lock:
-            cursor = self.conn.execute(sql, list(params))
-            columns = [d[0] for d in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        cursor = self._cursor().execute(sql, list(params))
+        columns = [d[0] for d in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
     def row(self, sql: str, params: Sequence[Any] = ()) -> Optional[dict]:
         result = self.rows(sql, params)
         return result[0] if result else None
 
     def value(self, sql: str, params: Sequence[Any] = ()) -> Any:
-        with self.lock:
-            row = self.conn.execute(sql, list(params)).fetchone()
-            return row[0] if row else None
+        row = self._cursor().execute(sql, list(params)).fetchone()
+        return row[0] if row else None
 
     def run(self, sql: str, params: Sequence[Any] = ()) -> None:
         with self.lock:
@@ -148,15 +163,18 @@ class Database:
     def transaction(self):
         with self.lock:
             self.conn.execute("BEGIN")
+            self._local.in_transaction = True
             try:
                 yield
             except Exception:
                 self.conn.execute("ROLLBACK")
                 raise
+            finally:
+                self._local.in_transaction = False
             self.conn.execute("COMMIT")
 
 
-class Store:
+class SyncStore:
     def __init__(self, path: str | Path):
         self.db = Database(path)
         self._metadata_cache: Dict[str, tuple[datetime, Dict]] = {}
@@ -180,7 +198,7 @@ class Store:
 
     # ---------------------------------------------------------------- climbers
 
-    async def add_climber(
+    def add_climber(
         self,
         name: str,
         location: Optional[List[str]] = None,
@@ -308,16 +326,16 @@ class Store:
             grouped.setdefault(row["climber"], []).append(row)
         return grouped
 
-    async def get_climber(self, name: str) -> Optional[Dict]:
+    def get_climber(self, name: str) -> Optional[Dict]:
         rows = self._climber_rows([name])
         return rows[0] if rows else None
 
-    async def get_all_climbers(self) -> List[Dict]:
+    def get_all_climbers(self) -> List[Dict]:
         climbers = self._climber_rows()
         climbers.sort(key=lambda c: (-c["level"], c["name"]))
         return climbers
 
-    async def get_new_climbers(self) -> set[str]:
+    def get_new_climbers(self) -> set[str]:
         return {c["name"] for c in self._climber_rows() if c["is_new"]}
 
     def _climber_items(self, name: str) -> Optional[Dict]:
@@ -333,7 +351,7 @@ class Store:
             "tags": [r["tag"] for r in self.db.rows("SELECT tag FROM climber_tags WHERE climber = ? ORDER BY tag", [name])],
         }
 
-    async def update_climber(
+    def update_climber(
         self,
         original_name: str,
         name: Optional[str] = None,
@@ -375,7 +393,7 @@ class Store:
             self._set_climber_items(new_name, skills, tags, achievements)
         logger.info(f"Updated climber: {original_name} -> {new_name}")
 
-    async def delete_climber(self, name: str) -> bool:
+    def delete_climber(self, name: str) -> bool:
         name = validate_name(name)
         if not self.db.value("SELECT count(*) FROM climbers WHERE name = ?", [name]):
             return False
@@ -387,7 +405,7 @@ class Store:
         logger.info(f"Deleted climber: {name}")
         return True
 
-    async def record_learned_items(
+    def record_learned_items(
         self, name: str, album_url: str, skills: List[str], achievements: List[str]
     ) -> Dict[str, List[str]]:
         """Add items gained in one album; items the climber already has are ignored."""
@@ -416,20 +434,20 @@ class Store:
             logger.info(f"{name} learned {new_skills} / {new_achievements} in {album_url}")
         return {"skills": new_skills, "achievements": new_achievements}
 
-    async def get_all_skills(self) -> List[str]:
+    def get_all_skills(self) -> List[str]:
         return [r["name"] for r in self.db.rows("SELECT name FROM skills ORDER BY name")]
 
-    async def get_all_achievements(self) -> List[str]:
+    def get_all_achievements(self) -> List[str]:
         return [r["name"] for r in self.db.rows("SELECT name FROM achievements ORDER BY name")]
 
-    async def get_all_tags(self) -> List[str]:
+    def get_all_tags(self) -> List[str]:
         return [r["name"] for r in self.db.rows("SELECT name FROM tags ORDER BY name")]
 
-    async def add_catalog_item(self, table: str, name: str) -> None:
+    def add_catalog_item(self, table: str, name: str) -> None:
         self._check_catalog(table)
         self.db.run(f"INSERT OR IGNORE INTO {table} VALUES (?)", [name.strip()])
 
-    async def delete_catalog_item(self, table: str, name: str) -> int:
+    def delete_catalog_item(self, table: str, name: str) -> int:
         """Remove a skill or achievement everywhere. Returns how many climbers lost it."""
         self._check_catalog(table)
         link_table, column = {
@@ -471,7 +489,7 @@ class Store:
         )
         return moment.date() if moment else None
 
-    async def add_album(
+    def add_album(
         self, url: str, crew: List[str], metadata: Optional[Dict] = None, location: Optional[str] = None
     ) -> None:
         url = validate_album_url(url)
@@ -515,14 +533,14 @@ class Store:
         }
         return [n for n in names if n not in existing]
 
-    async def get_album(self, url: str) -> Optional[Dict]:
+    def get_album(self, url: str) -> Optional[Dict]:
         row = self.db.row("SELECT * FROM albums WHERE url = ?", [url])
         if not row:
             return None
         crew = [r["climber"] for r in self.db.rows("SELECT climber FROM album_crew WHERE album_url = ? ORDER BY climber", [url])]
         return self._album_dict(row, crew)
 
-    async def get_all_albums(self) -> List[Dict]:
+    def get_all_albums(self) -> List[Dict]:
         """Newest climb first, then most recently updated."""
         rows = self.db.rows(
             "SELECT * FROM albums ORDER BY climb_date DESC NULLS LAST, updated_at DESC"
@@ -532,7 +550,7 @@ class Store:
             crew_by_album.setdefault(r["album_url"], []).append(r["climber"])
         return [self._album_dict(r, crew_by_album.get(r["url"], [])) for r in rows]
 
-    async def update_album_crew(self, url: str, new_crew: List[str]) -> None:
+    def update_album_crew(self, url: str, new_crew: List[str]) -> None:
         url = validate_album_url(url)
         new_crew = [validate_name(m) for m in new_crew]
         if not self.db.value("SELECT count(*) FROM albums WHERE url = ?", [url]):
@@ -546,7 +564,7 @@ class Store:
             self.db.run("UPDATE albums SET updated_at = current_timestamp WHERE url = ?", [url])
         logger.info(f"Updated album crew: {url} -> {new_crew}")
 
-    async def update_album_metadata(
+    def update_album_metadata(
         self, url: str, metadata: Dict, location: Optional[str] = None
     ) -> None:
         """Replace title, description, date and images. location=None keeps the current one, "" clears it."""
@@ -577,7 +595,7 @@ class Store:
                 ],
             )
 
-    async def delete_album(self, url: str) -> bool:
+    def delete_album(self, url: str) -> bool:
         url = validate_album_url(url)
         if not self.db.value("SELECT count(*) FROM albums WHERE url = ?", [url]):
             return False
@@ -607,7 +625,7 @@ class Store:
     def _ensure_location(self, name: str) -> None:
         self.db.run("INSERT OR IGNORE INTO locations (name) VALUES (?)", [validate_name(name)])
 
-    async def ensure_location_exists(self, name: str) -> None:
+    def ensure_location_exists(self, name: str) -> None:
         self._ensure_location(name)
 
     def _location_dict(self, row: dict, attributes: List[dict], owners: List[str]) -> Dict:
@@ -624,7 +642,7 @@ class Store:
             "updated_at": _iso(row["updated_at"]),
         }
 
-    async def get_all_locations(self) -> List[Dict]:
+    def get_all_locations(self) -> List[Dict]:
         rows = self.db.rows("SELECT * FROM locations ORDER BY name")
         attributes: Dict[str, List[dict]] = {}
         for a in self.db.rows("SELECT location, key, value FROM location_attributes ORDER BY key"):
@@ -636,10 +654,10 @@ class Store:
             owners.setdefault(o["resource_id"], []).append(o["user_id"])
         return [self._location_dict(r, attributes.get(r["name"], []), owners.get(r["name"], [])) for r in rows]
 
-    async def get_location(self, name: str) -> Optional[Dict]:
-        return next((loc for loc in await self.get_all_locations() if loc["name"] == name), None)
+    def get_location(self, name: str) -> Optional[Dict]:
+        return next((loc for loc in self.get_all_locations() if loc["name"] == name), None)
 
-    async def add_location(
+    def add_location(
         self,
         name: str,
         description: Optional[str] = None,
@@ -686,7 +704,7 @@ class Store:
             [*changes.values(), name],
         )
 
-    async def update_location(
+    def update_location(
         self,
         name: str,
         description: Optional[str] = None,
@@ -702,7 +720,7 @@ class Store:
             self._update_location_fields(name, description, latitude, longitude, approach, custom_markers)
         return True
 
-    async def set_location_attributes(
+    def set_location_attributes(
         self, name: str, attributes: List[str] | List[Dict[str, str]]
     ) -> bool:
         """Replace a location's attributes. Accepts ["key", ...] or [{"key", "value"}, ...]."""
@@ -729,16 +747,16 @@ class Store:
             self.db.run("UPDATE locations SET updated_at = current_timestamp WHERE name = ?", [name])
         return True
 
-    async def get_all_location_attributes(self) -> List[str]:
+    def get_all_location_attributes(self) -> List[str]:
         return [r["name"] for r in self.db.rows("SELECT name FROM attribute_keys ORDER BY name")]
 
-    async def add_location_attribute_key(self, key: str) -> None:
+    def add_location_attribute_key(self, key: str) -> None:
         key = key.strip()
         if not key:
             raise ValidationError("Attribute name cannot be empty")
         self.db.run("INSERT OR IGNORE INTO attribute_keys VALUES (?)", [key])
 
-    async def delete_location_attribute_global(self, key: str) -> bool:
+    def delete_location_attribute_global(self, key: str) -> bool:
         key = (key or "").strip()
         if not key:
             return False
@@ -747,7 +765,7 @@ class Store:
             self.db.run("DELETE FROM attribute_keys WHERE name = ?", [key])
         return True
 
-    async def rename_location(self, old_name: str, new_name: str) -> bool:
+    def rename_location(self, old_name: str, new_name: str) -> bool:
         """Rename everywhere: albums, attributes, ownership and climbers' home locations."""
         old_name, new_name = validate_name(old_name), validate_name(new_name)
         if old_name == new_name:
@@ -777,7 +795,7 @@ class Store:
         logger.info(f"Renamed location: {old_name} -> {new_name}")
         return True
 
-    async def delete_location(
+    def delete_location(
         self, name: str, force_clear: bool = False, reassign_to: Optional[str] = None
     ) -> Dict[str, Any]:
         """Delete a location. Albums tagged with it block the delete unless reassigned or cleared."""
@@ -799,7 +817,7 @@ class Store:
 
     # ------------------------------------------------------------------ images
 
-    async def store_image(
+    def store_image(
         self,
         kind: str,
         identifier: str,
@@ -816,22 +834,21 @@ class Store:
         )
         return f"{IMAGE_URL_PREFIX}/{kind}/{identifier}"
 
-    async def get_image(self, kind: str, identifier: str) -> Optional[bytes]:
-        found = await self.get_image_with_type(kind, identifier)
+    def get_image(self, kind: str, identifier: str) -> Optional[bytes]:
+        found = self.get_image_with_type(kind, identifier)
         return found[0] if found else None
 
-    async def get_image_with_type(self, kind: str, identifier: str) -> Optional[tuple[bytes, Optional[str]]]:
+    def get_image_with_type(self, kind: str, identifier: str) -> Optional[tuple[bytes, Optional[str]]]:
         row = self.db.row(
             "SELECT data, content_type FROM images WHERE kind = ? AND identifier = ? AND (expires_at IS NULL OR expires_at > current_timestamp)",
             [kind, identifier],
         )
         return (bytes(row["data"]), row["content_type"]) if row else None
 
-    def shrink_stored_faces(self, larger_than: int = 60_000) -> int:
+    def shrink_stored_faces(self) -> int:
         """One-off for images stored before shrinking existed. Returns how many were re-encoded."""
         rows = self.db.rows(
-            "SELECT kind, identifier, data FROM images WHERE kind IN ('climber', 'profile') AND octet_length(data) > ? AND content_type IS DISTINCT FROM 'image/webp'",
-            [larger_than],
+            "SELECT kind, identifier, data FROM images WHERE kind IN ('climber', 'profile') AND content_type IS DISTINCT FROM 'image/webp'"
         )
         for r in rows:
             data, content_type = shrink_image(bytes(r["data"]))
@@ -843,12 +860,12 @@ class Store:
             logger.info(f"Re-encoded {len(rows)} stored faces as 256px WebP")
         return len(rows)
 
-    async def delete_image(self, kind: str, identifier: str) -> bool:
+    def delete_image(self, kind: str, identifier: str) -> bool:
         existed = self.db.value("SELECT count(*) FROM images WHERE kind = ? AND identifier = ?", [kind, identifier])
         self.db.run("DELETE FROM images WHERE kind = ? AND identifier = ?", [kind, identifier])
         return bool(existed)
 
-    async def list_images(self, kind: str) -> List[Dict]:
+    def list_images(self, kind: str) -> List[Dict]:
         return [
             {
                 "identifier": r["identifier"],
@@ -879,26 +896,26 @@ class Store:
             "created_at": _iso(row["created_at"]),
         }
 
-    async def add_meme(self, meme_id: str, image_data: bytes, creator_id: str) -> Dict:
+    def add_meme(self, meme_id: str, image_data: bytes, creator_id: str) -> Dict:
         with self.db.transaction():
             self.db.run("INSERT INTO memes (id, creator_id) VALUES (?, ?)", [meme_id, creator_id])
-            await self.store_image("meme", meme_id, image_data)
-        return await self.get_meme(meme_id)
+            self.store_image("meme", meme_id, image_data)
+        return self.get_meme(meme_id)
 
-    async def get_meme(self, meme_id: str) -> Optional[Dict]:
+    def get_meme(self, meme_id: str) -> Optional[Dict]:
         row = self.db.row("SELECT * FROM memes WHERE id = ?", [meme_id])
         return self._meme_dict(row) if row else None
 
-    async def get_all_memes(self) -> List[Dict]:
+    def get_all_memes(self) -> List[Dict]:
         return [self._meme_dict(r) for r in self.db.rows("SELECT * FROM memes ORDER BY created_at DESC")]
 
-    async def get_memes_by_creator(self, creator_id: str) -> List[Dict]:
+    def get_memes_by_creator(self, creator_id: str) -> List[Dict]:
         return [
             self._meme_dict(r)
             for r in self.db.rows("SELECT * FROM memes WHERE creator_id = ? ORDER BY created_at DESC", [creator_id])
         ]
 
-    async def delete_meme(self, meme_id: str) -> bool:
+    def delete_meme(self, meme_id: str) -> bool:
         if not self.db.value("SELECT count(*) FROM memes WHERE id = ?", [meme_id]):
             return False
         with self.db.transaction():
@@ -930,24 +947,24 @@ class Store:
         FROM users u
     """
 
-    async def get_user(self, user_id: str) -> Optional[Dict]:
+    def get_user(self, user_id: str) -> Optional[Dict]:
         row = self.db.row(self.USER_QUERY + " WHERE u.id = ?", [user_id])
         return self._user_dict(row) if row else None
 
-    async def get_user_by_email(self, email: str) -> Optional[Dict]:
+    def get_user_by_email(self, email: str) -> Optional[Dict]:
         row = self.db.row(self.USER_QUERY + " WHERE lower(u.email) = lower(?)", [email])
         return self._user_dict(row) if row else None
 
-    async def get_all_users(self) -> List[Dict]:
+    def get_all_users(self) -> List[Dict]:
         return [self._user_dict(r) for r in self.db.rows(self.USER_QUERY + " ORDER BY u.created_at DESC")]
 
-    async def get_users_by_role(self, role: str) -> List[Dict]:
+    def get_users_by_role(self, role: str) -> List[Dict]:
         return [
             self._user_dict(r)
             for r in self.db.rows(self.USER_QUERY + " WHERE u.role = ? ORDER BY u.created_at DESC", [role])
         ]
 
-    async def upsert_user(self, user_id: str, email: str, name: str, picture: str) -> Dict:
+    def upsert_user(self, user_id: str, email: str, name: str, picture: str) -> Dict:
         """Create a pending user on first login; refresh name, picture and last_login afterwards."""
         with self.db.transaction():
             if self.db.value("SELECT count(*) FROM users WHERE id = ?", [user_id]):
@@ -960,9 +977,9 @@ class Store:
                     "INSERT INTO users (id, email, name, picture, role) VALUES (?, ?, ?, ?, 'pending')",
                     [user_id, email, name, picture],
                 )
-        return await self.get_user(user_id)
+        return self.get_user(user_id)
 
-    async def set_user_role(self, user_id: str, role: str) -> bool:
+    def set_user_role(self, user_id: str, role: str) -> bool:
         if not self.db.value("SELECT count(*) FROM users WHERE id = ?", [user_id]):
             return False
         self.db.run("UPDATE users SET role = ? WHERE id = ?", [role, user_id])
@@ -970,40 +987,40 @@ class Store:
 
     # preferences
 
-    async def set_user_preference(self, user_id: str, key: str, value: Any) -> None:
+    def set_user_preference(self, user_id: str, key: str, value: Any) -> None:
         if not user_id or not key:
             raise ValidationError("User ID and preference key are required")
         self.db.run(
             "INSERT OR REPLACE INTO user_preferences VALUES (?, ?, ?)", [user_id, key, json.dumps(value)]
         )
 
-    async def get_user_preference(self, user_id: str, key: str, default: Any = None) -> Any:
+    def get_user_preference(self, user_id: str, key: str, default: Any = None) -> Any:
         row = self.db.row("SELECT value FROM user_preferences WHERE user_id = ? AND key = ?", [user_id, key])
         return json.loads(row["value"]) if row else default
 
-    async def get_all_user_preferences(self, user_id: str) -> Dict[str, Any]:
+    def get_all_user_preferences(self, user_id: str) -> Dict[str, Any]:
         return {
             r["key"]: json.loads(r["value"])
             for r in self.db.rows("SELECT key, value FROM user_preferences WHERE user_id = ?", [user_id])
         }
 
-    async def delete_user_preference(self, user_id: str, key: str) -> bool:
+    def delete_user_preference(self, user_id: str, key: str) -> bool:
         existed = self.db.value("SELECT count(*) FROM user_preferences WHERE user_id = ? AND key = ?", [user_id, key])
         self.db.run("DELETE FROM user_preferences WHERE user_id = ? AND key = ?", [user_id, key])
         return bool(existed)
 
     # --------------------------------------------------------------- ownership
 
-    async def add_owner(self, resource_type: str, resource_id: str, user_id: str) -> None:
+    def add_owner(self, resource_type: str, resource_id: str, user_id: str) -> None:
         self.db.run("INSERT OR IGNORE INTO ownership VALUES (?, ?, ?)", [resource_type, resource_id, user_id])
 
-    async def remove_owner(self, resource_type: str, resource_id: str, user_id: str) -> None:
+    def remove_owner(self, resource_type: str, resource_id: str, user_id: str) -> None:
         self.db.run(
             "DELETE FROM ownership WHERE resource_type = ? AND resource_id = ? AND user_id = ?",
             [resource_type, resource_id, user_id],
         )
 
-    async def get_owners(self, resource_type: str, resource_id: str) -> List[str]:
+    def get_owners(self, resource_type: str, resource_id: str) -> List[str]:
         return [
             r["user_id"]
             for r in self.db.rows(
@@ -1012,7 +1029,7 @@ class Store:
             )
         ]
 
-    async def is_owner(self, resource_type: str, resource_id: str, user_id: str) -> bool:
+    def is_owner(self, resource_type: str, resource_id: str, user_id: str) -> bool:
         return bool(
             self.db.value(
                 "SELECT count(*) FROM ownership WHERE resource_type = ? AND resource_id = ? AND user_id = ?",
@@ -1020,7 +1037,7 @@ class Store:
             )
         )
 
-    async def get_user_resources(self, user_id: str, resource_type: str) -> set[str]:
+    def get_user_resources(self, user_id: str, resource_type: str) -> set[str]:
         return {
             r["resource_id"]
             for r in self.db.rows(
@@ -1028,7 +1045,7 @@ class Store:
             )
         }
 
-    async def count_owned(self, user_id: str, resource_type: str) -> int:
+    def count_owned(self, user_id: str, resource_type: str) -> int:
         return int(
             self.db.value(
                 "SELECT count(*) FROM ownership WHERE user_id = ? AND resource_type = ?", [user_id, resource_type]
@@ -1036,17 +1053,17 @@ class Store:
             or 0
         )
 
-    async def release_resource(self, resource_type: str, resource_id: str) -> None:
+    def release_resource(self, resource_type: str, resource_id: str) -> None:
         self.db.run("DELETE FROM ownership WHERE resource_type = ? AND resource_id = ?", [resource_type, resource_id])
 
-    async def rename_resource(self, resource_type: str, old_id: str, new_id: str) -> None:
+    def rename_resource(self, resource_type: str, old_id: str, new_id: str) -> None:
         if old_id != new_id:
             self.db.run(
                 "UPDATE ownership SET resource_id = ? WHERE resource_type = ? AND resource_id = ?",
                 [new_id, resource_type, old_id],
             )
 
-    async def get_owner_map(self, resource_type: str) -> Dict[str, List[str]]:
+    def get_owner_map(self, resource_type: str) -> Dict[str, List[str]]:
         """resource_id -> owner user ids, for listing pages that show owners of everything."""
         owners: Dict[str, List[str]] = {}
         for r in self.db.rows(
@@ -1055,7 +1072,7 @@ class Store:
             owners.setdefault(r["resource_id"], []).append(r["user_id"])
         return owners
 
-    async def get_unowned_resources(self, resource_type: str) -> List[str]:
+    def get_unowned_resources(self, resource_type: str) -> List[str]:
         source = {"album": ("albums", "url"), "crew_member": ("climbers", "name"), "location": ("locations", "name"), "meme": ("memes", "id")}
         table, column = source[resource_type]
         return [
@@ -1067,7 +1084,7 @@ class Store:
             )
         ]
 
-    async def count_rows(self, table: str) -> int:
+    def count_rows(self, table: str) -> int:
         if table not in ("albums", "climbers", "locations", "memes", "users", "push_devices", "images"):
             raise ValueError(f"Unknown table: {table}")
         return int(self.db.value(f"SELECT count(*) FROM {table}") or 0)
@@ -1134,7 +1151,7 @@ class Store:
             "last_used": _iso(row["last_used"]),
         }
 
-    async def store_push_subscription(
+    def store_push_subscription(
         self,
         device_id: str,
         user_id: Optional[str],
@@ -1173,47 +1190,47 @@ class Store:
         )
         return subscription_id
 
-    async def get_device_push_subscription(self, device_id: str) -> Optional[Dict]:
+    def get_device_push_subscription(self, device_id: str) -> Optional[Dict]:
         row = self.db.row("SELECT * FROM push_devices WHERE device_id = ?", [device_id])
         return self._device_dict(row) if row else None
 
-    async def get_push_subscription(self, subscription_id: str) -> Optional[Dict]:
+    def get_push_subscription(self, subscription_id: str) -> Optional[Dict]:
         row = self.db.row("SELECT * FROM push_devices WHERE subscription_id = ?", [subscription_id])
         return self._device_dict(row) if row else None
 
-    async def get_user_device_subscriptions(self, user_id: str) -> List[Dict]:
+    def get_user_device_subscriptions(self, user_id: str) -> List[Dict]:
         return [
             self._device_dict(r)
             for r in self.db.rows("SELECT * FROM push_devices WHERE user_id = ? ORDER BY created_at", [user_id])
         ]
 
-    async def get_all_device_push_subscriptions(self) -> List[Dict]:
+    def get_all_device_push_subscriptions(self) -> List[Dict]:
         return [self._device_dict(r) for r in self.db.rows("SELECT * FROM push_devices ORDER BY created_at")]
 
-    async def delete_device_push_subscription(self, device_id: str) -> bool:
+    def delete_device_push_subscription(self, device_id: str) -> bool:
         existed = self.db.value("SELECT count(*) FROM push_devices WHERE device_id = ?", [device_id])
         self.db.run("DELETE FROM push_devices WHERE device_id = ?", [device_id])
         return bool(existed)
 
-    async def delete_push_subscription(self, subscription_id: str) -> bool:
+    def delete_push_subscription(self, subscription_id: str) -> bool:
         existed = self.db.value("SELECT count(*) FROM push_devices WHERE subscription_id = ?", [subscription_id])
         self.db.run("DELETE FROM push_devices WHERE subscription_id = ?", [subscription_id])
         return bool(existed)
 
-    async def update_device_notification_preferences(self, device_id: str, preferences: Dict[str, bool]) -> bool:
+    def update_device_notification_preferences(self, device_id: str, preferences: Dict[str, bool]) -> bool:
         if not self.db.value("SELECT count(*) FROM push_devices WHERE device_id = ?", [device_id]):
             return False
         self.db.run("UPDATE push_devices SET preferences = ? WHERE device_id = ?", [json.dumps(preferences), device_id])
         return True
 
-    async def get_device_notification_preferences(self, device_id: str) -> Optional[Dict[str, bool]]:
+    def get_device_notification_preferences(self, device_id: str) -> Optional[Dict[str, bool]]:
         row = self.db.row("SELECT preferences FROM push_devices WHERE device_id = ?", [device_id])
         return _json_dict(row["preferences"]) if row else None
 
-    async def update_subscription_last_used(self, subscription_id: str) -> None:
+    def update_subscription_last_used(self, subscription_id: str) -> None:
         self.db.run("UPDATE push_devices SET last_used = current_timestamp WHERE subscription_id = ?", [subscription_id])
 
-    async def record_notification_counters(self, sent: int = 0, failed: int = 0, cleaned: int = 0) -> None:
+    def record_notification_counters(self, sent: int = 0, failed: int = 0, cleaned: int = 0) -> None:
         if not (sent or failed or cleaned):
             return
         self.db.run(
@@ -1222,7 +1239,7 @@ class Store:
             [sent, failed, cleaned],
         )
 
-    async def get_notification_counters(self, days: int) -> List[Dict]:
+    def get_notification_counters(self, days: int) -> List[Dict]:
         """One entry per day for the last `days` days, oldest first, zeros where nothing happened."""
         start = date.today() - timedelta(days=days - 1)
         rows = {
@@ -1241,7 +1258,7 @@ class Store:
 
     # -------------------------------------------------------- health & backups
 
-    async def health_check(self) -> Dict[str, Any]:
+    def health_check(self) -> Dict[str, Any]:
         counts = {
             table: int(self.db.value(f"SELECT count(*) FROM {table}") or 0)
             for table in ("climbers", "albums", "locations", "memes", "users", "push_devices", "images")
@@ -1253,9 +1270,9 @@ class Store:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"climbing-{datetime.now():%Y%m%d-%H%M%S}.duckdb"
+        # COPY FROM DATABASE reads a consistent snapshot; no checkpoint needed (a forced one
+        # would wait on the read cursors of other threads and deadlock).
         with self.db.lock:
-            # Fold the write-ahead log into the main file first, so the file on disk is complete too
-            self.db.conn.execute("CHECKPOINT")
             self.db.conn.execute(f"ATTACH '{target}' AS backup_target")
             try:
                 self.db.conn.execute("COPY FROM DATABASE memory TO backup_target" if str(self.db.path) == ":memory:" else f"COPY FROM DATABASE \"{self.db.path.stem}\" TO backup_target")
@@ -1275,3 +1292,34 @@ class Store:
 def copy_file_backup(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
+
+
+# Methods that are cheap or already sync; they run inline instead of in a worker thread.
+SYNC_PASSTHROUGH = {
+    "cache_album_metadata", "get_cached_metadata", "backup", "close", "purge_expired_images",
+    "shrink_stored_faces", "create_token", "touch_token", "is_token_revoked", "revoke_token",
+    "revoke_user_tokens", "list_tokens", "calculate_climber_level", "calculate_climbs_to_next_level",
+}
+
+
+class Store:
+    """Async facade over SyncStore.
+
+    DuckDB calls are synchronous; running them on the event loop would make every other
+    request wait behind them. Each public method runs in a worker thread instead, with the
+    connection lock serializing database access.
+    """
+
+    def __init__(self, path: str | Path):
+        self.sync = SyncStore(path)
+        self.db = self.sync.db
+
+    def __getattr__(self, name: str):
+        attr = getattr(self.sync, name)
+        if not callable(attr) or name.startswith("_") or name in SYNC_PASSTHROUGH:
+            return attr
+
+        async def in_thread(*args, **kwargs):
+            return await asyncio.to_thread(attr, *args, **kwargs)
+
+        return in_thread

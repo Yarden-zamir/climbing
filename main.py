@@ -145,7 +145,7 @@ def sized_google_image_url(url: str, size: int) -> str:
     """Google renders the size itself from the `=s<px>` suffix; strip any existing size first."""
     if "googleusercontent.com" not in url:
         return url
-    return f"{url.split('=')[0]}=s{size}"
+    return f"{url.split('=')[0]}=s{size}-rw"  # -rw: WebP when the browser accepts it
 
 
 @app.get("/get-image", tags=["utilities"])
@@ -216,7 +216,7 @@ async def get_redis_image(
         if image_type == "climber" or image_type == "profile":
             # For profile images that can be updated, use shorter cache with validation
             headers = {
-                "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+                "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
                 "ETag": f'"{hashlib.md5(image_data).hexdigest()}"',
             }
         else:

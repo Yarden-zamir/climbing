@@ -446,5 +446,5 @@ def test_cover_proxy_requests_a_sized_variant_and_caches_it(client, monkeypatch)
     second = client.get("/get-image", params={"url": original, "w": 400})
     assert first.status_code == second.status_code == 200
     assert first.headers["content-type"] == "image/png"
-    assert seen == ["https://lh3.googleusercontent.com/pw/AP1Gcz_example=s400"]
+    assert seen == ["https://lh3.googleusercontent.com/pw/AP1Gcz_example=s400-rw"]
     assert client.get("/get-image", params={"url": original, "w": 5000}).status_code == 422
