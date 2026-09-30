@@ -2755,6 +2755,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const mapEl = document.getElementById('overview-map');
     const section = document.getElementById('locations-overview');
     if (!mapEl || !section || typeof L === 'undefined') return;
+    // A map built while the document is prerendered or hidden measures a wrong container and
+    // ends up with blank tiles at its starting zoom. Build it once the page is actually shown.
+    if (document.prerendering) {
+      document.addEventListener('prerenderingchange', initOverviewMap, { once: true });
+      return;
+    }
+    if (document.visibilityState === 'hidden') {
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') initOverviewMap(); }, { once: true });
+      return;
+    }
+    if (overview) return;
     const points = locations.map(loc => ({ loc, ...(locationCoords(loc) || {}) })).filter(p => Number.isFinite(p.lat));
     if (!points.length) { section.style.display = 'none'; return; }
 
@@ -2771,13 +2782,34 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       pins.set(loc.name, marker);
     });
-    map.fitBounds(mainClusterBounds(points), { padding: [24, 24], maxZoom: 9 });
+    const homeBounds = mainClusterBounds(points);
+    map.fitBounds(homeBounds, { padding: [24, 24], maxZoom: 9 });
     overview = { map, pins, points };
 
     document.getElementById('overview-clear')?.addEventListener('click', () => setOverviewFilter(null));
     document.getElementById('overview-select-area')?.addEventListener('click', toggleAreaSelection);
     document.getElementById('overview-locate')?.addEventListener('click', locateVisitor);
-    setTimeout(() => map.invalidateSize(), 200);
+
+    // Leaflet caches the container size; re-measure whenever it changes (late CSS or font
+    // layout, orientation change, back/forward cache restore) and re-fit until the visitor
+    // has interacted with the map.
+    let touched = false;
+    map.once('zoomstart dragstart', () => { touched = true; });
+    const remeasure = () => {
+      map.invalidateSize({ animate: false });
+      if (!touched && !userPosition) map.fitBounds(homeBounds, { padding: [24, 24], maxZoom: 9, animate: false });
+    };
+    if (typeof ResizeObserver !== 'undefined') {
+      let lastSize = `${mapEl.clientWidth}x${mapEl.clientHeight}`;
+      new ResizeObserver(() => {
+        const size = `${mapEl.clientWidth}x${mapEl.clientHeight}`;
+        if (size !== lastSize) { lastSize = size; remeasure(); }
+      }).observe(mapEl);
+    }
+    window.addEventListener('pageshow', remeasure);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') remeasure(); });
+    setTimeout(remeasure, 200);
+    setTimeout(remeasure, 1200);
   }
 
   // Drag a rectangle on the map; everything inside becomes the filter
