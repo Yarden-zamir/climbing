@@ -143,6 +143,22 @@ function apiGetShared(url, ttlMs = 15000) {
 }
 
 window.apiGetShared = apiGetShared;
+// Prerender the other tabs when the pointer heads for them, so a tab switch paints at once.
+// Browsers without speculation rules ignore this.
+function addTabPrerenderRules() {
+    if (!HTMLScriptElement.supports || !HTMLScriptElement.supports('speculationrules')) return;
+    const links = [...document.querySelectorAll('nav > a[href^="/"]')]
+        .map((a) => a.getAttribute('href'))
+        .filter((href) => href !== location.pathname);
+    if (!links.length) return;
+    const rules = document.createElement('script');
+    rules.type = 'speculationrules';
+    rules.textContent = JSON.stringify({ prerender: [{ urls: links, eagerness: 'moderate' }] });
+    document.head.appendChild(rules);
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addTabPrerenderRules);
+else addTabPrerenderRules();
+
 window.ApiError = ApiError;
 window.apiFetch = apiFetch;
 window.showToast = showToast;

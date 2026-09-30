@@ -92,7 +92,7 @@ self.addEventListener('fetch', (event) => {
         // API: Network-first (always try to get fresh data)
         event.respondWith(networkFirst(request));
     } else if (url.pathname.endsWith('.html') || url.pathname === '/' || 
-               ['/crew', '/albums', '/memes', '/knowledge', '/admin'].includes(url.pathname)) {
+               ['/crew', '/albums', '/locations', '/memes', '/knowledge', '/admin'].includes(url.pathname)) {
         // HTML pages: Stale-while-revalidate (instant load + background update)
         event.respondWith(staleWhileRevalidate(request));
     } else if (url.pathname.startsWith('/static/js/') || url.pathname.endsWith('.js')) {

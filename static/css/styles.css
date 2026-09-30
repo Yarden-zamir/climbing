@@ -326,6 +326,23 @@ nav > a {
     animation: navItemFadeIn 0.4s ease-out forwards;
 }
 
+/* Switching tabs (same-origin referrer): no entrance animations, one cross-fade between pages */
+@view-transition {
+    navigation: auto;
+}
+nav {
+    view-transition-name: main-nav;
+}
+html.quick-nav nav > a,
+html.quick-nav .auth-element,
+html.quick-nav h1 {
+    animation: none;
+    opacity: 1;
+}
+html.quick-nav .album-card.loading {
+    animation-duration: 0.2s;
+}
+
 nav > a:nth-of-type(1) { animation-delay: 0.1s; }
 nav > a:nth-of-type(2) { animation-delay: 0.2s; }
 nav > a:nth-of-type(3) { animation-delay: 0.3s; }

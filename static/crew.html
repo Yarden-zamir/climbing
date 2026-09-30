@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+	<script>if (document.referrer.startsWith(location.origin)) document.documentElement.classList.add("quick-nav");</script>
     <link id="favicon" rel="icon" type="image/x-icon" href="/static/favicon/favicon.ico">
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -1197,12 +1198,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     container.innerHTML = loadingHTML;
                 }
                 
-                const response = await fetch("/api/crew");
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const newData = await response.json();
+                const newData = await apiGetShared("/api/crew");
                 
                 // Update global data
                 crewData = newData;
@@ -1378,6 +1374,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
          }
 
          async function initializePage() {
+             // Start the crew request now; the auth check and sort preference run alongside it
+             apiGetShared("/api/crew").catch(() => {});
              await whenAuthReady();
              // Load sort preferences first
              await loadSortPreference();

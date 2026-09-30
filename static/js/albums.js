@@ -191,8 +191,9 @@ const typewriter = (element, text, speed = 20) => {
 		const card = document.createElement("a");
 		card.className = "album-card loading";
 		card.href = "#";
-		// Stagger only the first screen; beyond that every card would wait seconds for its turn
-		card.style.animationDelay = `${Math.min(index, 12) * 60}ms`;
+		// Stagger only the first screen; beyond that every card would wait seconds for its turn.
+		// Coming from another tab: no stagger at all.
+		card.style.animationDelay = QUICK_NAV ? '0ms' : `${Math.min(index, 12) * 60}ms`;
 		card.innerHTML = `
       <div class="placeholder placeholder-img"></div>
       <div class="placeholder-content">
@@ -205,6 +206,8 @@ const typewriter = (element, text, speed = 20) => {
 	};
 
 let coverCount = 0;
+// Set in the document head when the visitor arrived from another tab of this site
+const QUICK_NAV = document.documentElement.classList.contains('quick-nav');
 
 const populateCard = async (card, meta) => {
 	card.href = meta.url;
@@ -243,7 +246,7 @@ const populateCard = async (card, meta) => {
 	const dateEl = card.querySelector(".album-date");
 
 	// Typewriter effect only for the first screen of cards; the rest render at once
-	const typeSpeed = eager || coverCount <= 12 ? 20 : 0;
+	const typeSpeed = !QUICK_NAV && (eager || coverCount <= 12) ? 20 : 0;
 	await typewriter(titleEl, meta.title, typeSpeed);
 	await typewriter(descriptionEl, meta.description, typeSpeed);
 

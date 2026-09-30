@@ -19,7 +19,7 @@ class UpdateNotifier {
                     // Only show notification for HTML pages, not API calls
                     if (event.data.url.includes('.html') || 
                         event.data.url === location.origin + '/' ||
-                        ['/crew', '/albums', '/memes', '/knowledge', '/admin'].some(path => 
+                        ['/crew', '/albums', '/locations', '/memes', '/knowledge', '/admin'].some(path => 
                             event.data.url === location.origin + path)) {
                         this.showUpdateNotification();
                     }
