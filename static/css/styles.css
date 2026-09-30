@@ -309,6 +309,12 @@ nav a.active::after {
 	background: #03dac6;
 }
 
+/* Underline jumps to the pressed tab at once; the page follows a moment later */
+nav a.active-instant,
+nav a.active-instant::after {
+	transition: none;
+}
+
 /* Nav Item Animations */
 @keyframes navItemFadeIn {
     from {

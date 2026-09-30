@@ -143,6 +143,16 @@ function apiGetShared(url, ttlMs = 15000) {
 }
 
 window.apiGetShared = apiGetShared;
+// Move the active underline to the pressed tab immediately, before the navigation happens
+function markPressedTabActive(event) {
+    const link = event.target.closest('nav > a[href^="/"]');
+    if (!link || link.classList.contains('active')) return;
+    document.querySelectorAll('nav > a.active').forEach((a) => a.classList.remove('active'));
+    link.classList.add('active', 'active-instant');
+}
+document.addEventListener('pointerdown', markPressedTabActive);
+document.addEventListener('click', markPressedTabActive);
+
 // Prerender the other tabs when the pointer heads for them, so a tab switch paints at once.
 // Browsers without speculation rules ignore this.
 function addTabPrerenderRules() {
