@@ -358,6 +358,7 @@
 			<span class="add-meme-fab-icon">➕</span>
 		</button>
 	</main>
+<footer class="site-footer"><a href="/privacy">Privacy policy</a></footer>
 
 			<!-- Add Meme Modal -->
 	<div class="add-meme-modal-overlay" id="add-meme-modal-overlay">
@@ -502,47 +503,6 @@
 		<script src="/static/js/update-notifier.js" defer></script>
 		<script src="/static/js/auth.js" defer></script>
 
-		<!-- Privacy Link -->
-		<a href="/privacy" class="privacy-link" title="Privacy Policy">
-			<span class="privacy-link-icon">🔒</span>
-			<span class="privacy-link-text">Privacy</span>
-		</a>
 
-		<script>
-			// Privacy link scroll detection
-			function handlePrivacyLinkVisibility() {
-				const privacyLink = document.querySelector('.privacy-link');
-				const scrollHeight = document.documentElement.scrollHeight;
-				const scrollTop = document.documentElement.scrollTop;
-				const clientHeight = document.documentElement.clientHeight;
-				
-				// Show when scrolled to within 100px of bottom
-				if (scrollTop + clientHeight >= scrollHeight - 100) {
-					privacyLink.classList.add('visible');
-				} else {
-					privacyLink.classList.remove('visible');
-				}
-			}
-
-			// Throttled scroll listener
-			let ticking = false;
-			function onScroll() {
-				if (!ticking) {
-					requestAnimationFrame(() => {
-						handlePrivacyLinkVisibility();
-						ticking = false;
-					});
-					ticking = true;
-				}
-			}
-
-			window.addEventListener('scroll', onScroll);
-			window.addEventListener('resize', handlePrivacyLinkVisibility);
-			
-			// Check initial state
-			document.addEventListener('DOMContentLoaded', () => {
-				setTimeout(handlePrivacyLinkVisibility, 100);
-			});
-		</script>
 	</body>
 </html>
