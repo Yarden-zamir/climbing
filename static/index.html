@@ -12,6 +12,7 @@
 			if (user && user.id) {
 				var picture = user.picture && (user.picture.indexOf("/redis-image/") === 0 || user.picture.indexOf("/api/profile-picture/") === 0) ? user.picture : "/api/profile-picture/" + user.id;
 				root.style.setProperty("--auth-avatar", "url(\"" + picture.replace(/"/g, "") + "\")");
+				root.style.setProperty("--auth-name", JSON.stringify(String(user.name || "").slice(0, 24)));
 				root.classList.add("has-user");
 			}
 		} catch (_) {}
@@ -45,7 +46,7 @@
 			<a href="/locations">Locations</a>
 			<a href="/knowledge" class="active">Knowledge</a>
 			<a href="/memes">Memes</a>
-			<span class="auth-slot"></span>
+			<span class="auth-slot"><span class="user-profile-btn auth-placeholder" aria-hidden="true"><span class="user-avatar"></span><span class="user-name"></span><span class="dropdown-arrow">▼</span></span></span>
 		</nav>
 		<iframe
 			src="https://link.excalidraw.com/readonly/AtAowLIPvMThzN3XHsEf"

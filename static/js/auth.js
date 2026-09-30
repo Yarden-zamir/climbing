@@ -306,6 +306,7 @@ class AuthManager {
         const slot = nav.querySelector('.auth-slot') || nav;
         const existingDropdown = nav.querySelector('.user-profile-dropdown.auth-element');
         const existingLogin = nav.querySelector('.login-btn.auth-element');
+        const placeholder = slot.querySelector('.auth-placeholder');
 
         if (this.isAuthenticated && this.currentUser) {
             if (existingDropdown) {
@@ -318,9 +319,11 @@ class AuthManager {
                 const dropdown = this.createUserProfileDropdown();
                 slot.appendChild(dropdown);
             }
+            if (placeholder) placeholder.remove();
         } else {
             // Not authenticated: ensure dropdown removed and login button present
             if (existingDropdown) existingDropdown.remove();
+            if (placeholder) placeholder.remove();
             if (!existingLogin) this.addLoginButton(slot);
         }
     }

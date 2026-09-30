@@ -12,6 +12,7 @@
 			if (user && user.id) {
 				var picture = user.picture && (user.picture.indexOf("/redis-image/") === 0 || user.picture.indexOf("/api/profile-picture/") === 0) ? user.picture : "/api/profile-picture/" + user.id;
 				root.style.setProperty("--auth-avatar", "url(\"" + picture.replace(/"/g, "") + "\")");
+				root.style.setProperty("--auth-name", JSON.stringify(String(user.name || "").slice(0, 24)));
 				root.classList.add("has-user");
 			}
 		} catch (_) {}
@@ -64,7 +65,8 @@
     .overview-pin.dimmed { opacity: 0.35; }
     .overview-pin.selected { transform: scale(1.35); }
     .overview-user { width: 16px; height: 16px; border-radius: 50%; background: #4285f4; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(66,133,244,0.3); }
-    .location-distance { color: #03dac6; font-size: 0.85rem; font-weight: 500; white-space: nowrap; }
+    .location-distance { color: #03dac6; font-size: 0.85rem; font-weight: 500; margin: 0.25rem 0 0 1.9rem; min-height: 0; }
+    .location-distance:empty { display: none; }
     @media (max-width: 600px) { .overview-map { height: 240px; } }
     .locations-header { display: flex; gap: 0.75rem; align-items: center; margin: 0.5rem 0 1rem; justify-content: space-between; }
     .locations-count { color: #aaa; font-size: 0.95rem; }
@@ -318,7 +320,7 @@
     <a href="/locations" class="active">Locations</a>
     <a href="/knowledge">Knowledge</a>
     <a href="/memes">Memes</a>
-  	<span class="auth-slot"></span>
+  	<span class="auth-slot"><span class="user-profile-btn auth-placeholder" aria-hidden="true"><span class="user-avatar"></span><span class="user-name"></span><span class="dropdown-arrow">▼</span></span></span>
   </nav>
   <main class="page-fade locations-page">
     <section id="locations-overview" class="locations-overview" aria-label="All locations on a map">

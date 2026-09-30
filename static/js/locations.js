@@ -948,10 +948,14 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="location-title">
         <span class="pin">📍</span>
         <span data-role="name-text">${escapeHtml(loc.name)}</span>
-        <span class="location-distance" data-role="distance">${distanceLabel(loc.name)}</span>
       </div>
         <div class="location-actions">${actions.join('')}</div>
     `;
+
+    const distanceRow = document.createElement('div');
+    distanceRow.className = 'location-distance';
+    distanceRow.setAttribute('data-role', 'distance');
+    distanceRow.textContent = distanceLabel(loc.name);
 
     const body = document.createElement('div');
     body.className = 'location-body';
@@ -1229,6 +1233,8 @@ document.addEventListener('DOMContentLoaded', () => {
     body.appendChild(infoDiv);
 
     section.appendChild(title);
+
+    section.appendChild(distanceRow);
     const divider = document.createElement('div');
     divider.className = 'section-divider';
     section.appendChild(divider);
