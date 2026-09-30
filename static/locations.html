@@ -54,6 +54,18 @@
     }
     /* Page scaffold */
     .locations-page { padding: 1rem; }
+    .locations-overview { margin: 0 0 1rem; border: 1px solid #2f2f2f; border-radius: 16px; overflow: hidden; background: #161616; }
+    .overview-map { height: 320px; width: 100%; background: #101010; }
+    .overview-map.selecting { cursor: crosshair; }
+    .overview-map.selecting .leaflet-container { cursor: crosshair; }
+    .overview-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.6rem 0.75rem; }
+    .overview-controls .location-btn.active { background: #03dac6; color: #111; border-color: #03dac6; }
+    .overview-pin { font-size: 22px; line-height: 22px; text-shadow: 0 2px 4px #000; transition: transform 0.15s ease; }
+    .overview-pin.dimmed { opacity: 0.35; }
+    .overview-pin.selected { transform: scale(1.35); }
+    .overview-user { width: 16px; height: 16px; border-radius: 50%; background: #4285f4; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(66,133,244,0.3); }
+    .location-distance { color: #03dac6; font-size: 0.85rem; font-weight: 500; white-space: nowrap; }
+    @media (max-width: 600px) { .overview-map { height: 240px; } }
     .locations-header { display: flex; gap: 0.75rem; align-items: center; margin: 0.5rem 0 1rem; justify-content: space-between; }
     .locations-count { color: #aaa; font-size: 0.95rem; }
 
@@ -309,6 +321,15 @@
   	<span class="auth-slot"></span>
   </nav>
   <main class="page-fade locations-page">
+    <section id="locations-overview" class="locations-overview" aria-label="All locations on a map">
+      <div id="overview-map" class="overview-map"></div>
+      <div class="overview-controls">
+        <button id="overview-locate" class="location-btn" type="button" title="Sort by distance from where you are">📍 Near me</button>
+        <button id="overview-select-area" class="location-btn" type="button" title="Drag a rectangle on the map to keep only the crags inside it">▭ Select area</button>
+        <button id="overview-clear" class="location-btn" type="button" style="display:none">✕ Show all</button>
+        <span id="overview-status" class="locations-count"></span>
+      </div>
+    </section>
     <div id="locations-header" class="locations-header">
       <div id="locations-count" class="locations-count"></div>
     </div>

@@ -15,6 +15,12 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentUser = null;
   let allLocationAttributes = [];
   let keysUsedWithValues = new Set();
+  // Overview map state: a set of names to show (null = all), the visitor's position and per-location distances
+  let overviewFilter = null;
+  let userPosition = null;
+  const distanceKm = new Map();
+  const driveMinutes = new Map();
+  let overview = null;
 
   init();
 
@@ -87,6 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
       render();
       wireSearch();
       wireSearchPopup();
+      initOverviewMap();
     } catch (e) {
       container.innerHTML = `<div style="color:#cf6679; padding:1rem; text-align:center;">${e.message}</div>`;
     }
@@ -122,30 +129,34 @@ document.addEventListener('DOMContentLoaded', () => {
     return map;
   }
 
+  // Text search and the overview map filter both narrow the same list
+  function applyFilters() {
+    const q = (searchInput ? searchInput.value || '' : '').trim().toLowerCase();
+    try {
+      const url = new URL(window.location);
+      if (q) url.searchParams.set('q', q); else url.searchParams.delete('q');
+      history.replaceState({}, '', url.toString());
+    } catch (_) {}
+    const sections = Array.from(container.querySelectorAll('[data-location-section]'));
+    let visible = 0;
+    sections.forEach(section => {
+      const rawName = section.getAttribute('data-name') || '';
+      const name = rawName.toLowerCase();
+      const desc = (section.getAttribute('data-desc') || '').toLowerCase();
+      const textMatch = !q || name.includes(q) || desc.includes(q);
+      const mapMatch = !overviewFilter || overviewFilter.has(rawName);
+      const matches = textMatch && mapMatch;
+      section.style.display = matches ? '' : 'none';
+      if (matches) visible += 1;
+    });
+    updateCount(visible, sections.length);
+    // Show a geocoded map card when there are no matches
+    updateNoResultsGeoCard(q, visible);
+  }
+
   function wireSearch() {
     if (!searchInput) return;
-    const apply = () => {
-      const q = (searchInput.value || '').trim().toLowerCase();
-      // Sync query to URL for shareability
-      try {
-        const url = new URL(window.location);
-        if (q) url.searchParams.set('q', q); else url.searchParams.delete('q');
-        history.replaceState({}, '', url.toString());
-      } catch (_) {}
-      const sections = Array.from(container.querySelectorAll('[data-location-section]'));
-      let visible = 0;
-      sections.forEach(section => {
-        const name = (section.getAttribute('data-name') || '').toLowerCase();
-        const desc = (section.getAttribute('data-desc') || '').toLowerCase();
-        const matches = !q || name.includes(q) || desc.includes(q);
-        section.style.display = matches ? '' : 'none';
-        if (matches) visible += 1;
-      });
-      updateCount(visible, sections.length);
-      // Show a geocoded map card when there are no matches
-      updateNoResultsGeoCard((searchInput.value || '').trim(), visible);
-    };
-    searchInput.addEventListener('input', apply);
+    searchInput.addEventListener('input', applyFilters);
     // Apply initial filter from URL param if present
     applyFilterFromUrl();
   }
@@ -674,7 +685,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateCount(visible, total) {
     if (!countLabel) return;
-    const hasQuery = !!(searchInput && (searchInput.value || '').trim());
+    const hasQuery = !!(searchInput && (searchInput.value || '').trim()) || !!overviewFilter;
     if (!hasQuery) {
       countLabel.textContent = '';
       if (headerEl) headerEl.style.display = 'none';
@@ -937,6 +948,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="location-title">
         <span class="pin">📍</span>
         <span data-role="name-text">${escapeHtml(loc.name)}</span>
+        <span class="location-distance" data-role="distance">${distanceLabel(loc.name)}</span>
       </div>
         <div class="location-actions">${actions.join('')}</div>
     `;
@@ -2658,6 +2670,207 @@ document.addEventListener('DOMContentLoaded', () => {
   // Removed legacy saveLocation/claimLocation helpers (edit flow uses inline save and owner claim via API elsewhere)
 
   function cssId(name) { return String(name).replace(/[^a-z0-9]+/gi, '-').toLowerCase(); }
+
+  // ---------------------------------------------------------------- overview map
+
+  function locationCoords(loc) {
+    const markers = Array.isArray(loc.custom_markers) ? loc.custom_markers : [];
+    const primary = markers.find(m => m && m.primary && Number.isFinite(m.lat) && Number.isFinite(m.lng));
+    if (primary) return { lat: primary.lat, lng: primary.lng };
+    if (Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) return { lat: loc.latitude, lng: loc.longitude };
+    const any = markers.find(m => m && Number.isFinite(m.lat) && Number.isFinite(m.lng));
+    return any ? { lat: any.lat, lng: any.lng } : null;
+  }
+
+  function haversineKm(a, b) {
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 6371 * 2 * Math.asin(Math.sqrt(h));
+  }
+
+  function distanceLabel(name) {
+    const km = distanceKm.get(name);
+    if (!Number.isFinite(km)) return '';
+    const parts = [km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`];
+    const minutes = driveMinutes.get(name);
+    if (Number.isFinite(minutes)) parts.push(minutes >= 90 ? `~${(minutes / 60).toFixed(1)} h drive` : `~${Math.round(minutes)} min drive`);
+    return parts.join(' · ');
+  }
+
+  function updateDistanceBadges() {
+    container.querySelectorAll('[data-location-section]').forEach(section => {
+      const badge = section.querySelector('[data-role="distance"]');
+      if (badge) badge.textContent = distanceLabel(section.getAttribute('data-name') || '');
+    });
+  }
+
+  // Reorder existing sections in place (keeps their maps alive): by distance when known, else by album count
+  function reorderSections() {
+    const sections = Array.from(container.querySelectorAll('[data-location-section]'));
+    const key = section => {
+      const name = section.getAttribute('data-name') || '';
+      const km = distanceKm.get(name);
+      return userPosition ? (Number.isFinite(km) ? km : Infinity) : -(albumsByLocation.get(name) || []).length;
+    };
+    sections.sort((a, b) => key(a) - key(b) || String(a.getAttribute('data-name')).localeCompare(String(b.getAttribute('data-name'))));
+    sections.forEach(section => container.appendChild(section));
+  }
+
+  // The starting view covers the region that holds most locations (median centre, 400 km radius)
+  function mainClusterBounds(points) {
+    if (!points.length) return null;
+    const sorted = arr => arr.slice().sort((x, y) => x - y);
+    const lats = sorted(points.map(p => p.lat)), lngs = sorted(points.map(p => p.lng));
+    const median = { lat: lats[Math.floor(lats.length / 2)], lng: lngs[Math.floor(lngs.length / 2)] };
+    const near = points.filter(p => haversineKm(p, median) <= 400);
+    return L.latLngBounds((near.length ? near : points).map(p => [p.lat, p.lng]));
+  }
+
+  function setOverviewFilter(names, statusText) {
+    overviewFilter = names;
+    const clearBtn = document.getElementById('overview-clear');
+    const status = document.getElementById('overview-status');
+    if (clearBtn) clearBtn.style.display = names ? '' : 'none';
+    if (status) status.textContent = names ? statusText || `${names.size} location${names.size === 1 ? '' : 's'} selected` : '';
+    if (overview) {
+      overview.pins.forEach((marker, name) => {
+        const el = marker.getElement && marker.getElement();
+        const pin = el && el.querySelector('.overview-pin');
+        if (!pin) return;
+        pin.classList.toggle('dimmed', !!names && !names.has(name));
+        pin.classList.toggle('selected', !!names && names.has(name));
+      });
+    }
+    applyFilters();
+  }
+
+  function initOverviewMap() {
+    const mapEl = document.getElementById('overview-map');
+    const section = document.getElementById('locations-overview');
+    if (!mapEl || !section || typeof L === 'undefined') return;
+    const points = locations.map(loc => ({ loc, ...(locationCoords(loc) || {}) })).filter(p => Number.isFinite(p.lat));
+    if (!points.length) { section.style.display = 'none'; return; }
+
+    const map = L.map(mapEl, { zoomControl: true, attributionControl: false, minZoom: 2, maxZoom: 18, scrollWheelZoom: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxNativeZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    const pins = new Map();
+    points.forEach(({ loc, lat, lng }) => {
+      const icon = L.divIcon({ className: '', html: '<div class="overview-pin">📍</div>', iconSize: [22, 22], iconAnchor: [11, 22] });
+      const marker = L.marker([lat, lng], { icon, riseOnHover: true, title: loc.name }).addTo(map);
+      marker.bindTooltip(loc.name, { direction: 'top', offset: [0, -18] });
+      marker.on('click', () => {
+        const only = overviewFilter && overviewFilter.size === 1 && overviewFilter.has(loc.name);
+        setOverviewFilter(only ? null : new Set([loc.name]), loc.name);
+      });
+      pins.set(loc.name, marker);
+    });
+    map.fitBounds(mainClusterBounds(points), { padding: [24, 24], maxZoom: 9 });
+    overview = { map, pins, points };
+
+    document.getElementById('overview-clear')?.addEventListener('click', () => setOverviewFilter(null));
+    document.getElementById('overview-select-area')?.addEventListener('click', toggleAreaSelection);
+    document.getElementById('overview-locate')?.addEventListener('click', locateVisitor);
+    setTimeout(() => map.invalidateSize(), 200);
+  }
+
+  // Drag a rectangle on the map; everything inside becomes the filter
+  function toggleAreaSelection() {
+    if (!overview) return;
+    const { map } = overview;
+    const btn = document.getElementById('overview-select-area');
+    const mapEl = document.getElementById('overview-map');
+    if (overview.selecting) { stopAreaSelection(); return; }
+    overview.selecting = true;
+    btn?.classList.add('active');
+    mapEl.classList.add('selecting');
+    map.dragging.disable();
+    map.touchZoom.disable();
+    mapEl.style.touchAction = 'none';
+    let start = null, rect = null;
+    const latLngOf = e => map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
+    const onDown = e => { if (e.button !== undefined && e.button !== 0) return; e.preventDefault(); start = latLngOf(e); rect = L.rectangle(L.latLngBounds(start, start), { color: '#03dac6', weight: 2, fillOpacity: 0.15 }).addTo(map); mapEl.setPointerCapture?.(e.pointerId); };
+    const onMove = e => { if (!start || !rect) return; rect.setBounds(L.latLngBounds(start, latLngOf(e))); };
+    const onUp = e => {
+      if (!start || !rect) return;
+      const bounds = L.latLngBounds(start, latLngOf(e));
+      const inside = new Set(overview.points.filter(p => bounds.contains([p.lat, p.lng])).map(p => p.loc.name));
+      map.removeLayer(rect); start = null; rect = null;
+      stopAreaSelection();
+      setOverviewFilter(inside.size ? inside : null, inside.size ? `${inside.size} location${inside.size === 1 ? '' : 's'} in the selected area` : '');
+      if (!inside.size && document.getElementById('overview-status')) document.getElementById('overview-status').textContent = 'No locations in that area';
+    };
+    mapEl.addEventListener('pointerdown', onDown);
+    mapEl.addEventListener('pointermove', onMove);
+    mapEl.addEventListener('pointerup', onUp);
+    overview.stopSelecting = () => {
+      mapEl.removeEventListener('pointerdown', onDown);
+      mapEl.removeEventListener('pointermove', onMove);
+      mapEl.removeEventListener('pointerup', onUp);
+      if (rect) { map.removeLayer(rect); rect = null; }
+    };
+    const status = document.getElementById('overview-status');
+    if (status) status.textContent = 'Drag a rectangle on the map';
+  }
+
+  function stopAreaSelection() {
+    if (!overview || !overview.selecting) return;
+    overview.selecting = false;
+    overview.stopSelecting?.();
+    document.getElementById('overview-select-area')?.classList.remove('active');
+    const mapEl = document.getElementById('overview-map');
+    mapEl.classList.remove('selecting');
+    mapEl.style.touchAction = '';
+    overview.map.dragging.enable();
+    overview.map.touchZoom.enable();
+  }
+
+  function locateVisitor() {
+    if (!overview) return;
+    const btn = document.getElementById('overview-locate');
+    const status = document.getElementById('overview-status');
+    if (!navigator.geolocation) { showToast('Your browser does not share location', { type: 'error' }); return; }
+    if (btn) { btn.disabled = true; btn.textContent = '📍 Locating…'; }
+    navigator.geolocation.getCurrentPosition(pos => {
+      userPosition = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      const { map, points } = overview;
+      if (overview.userMarker) map.removeLayer(overview.userMarker);
+      overview.userMarker = L.marker([userPosition.lat, userPosition.lng], { icon: L.divIcon({ className: '', html: '<div class="overview-user"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }), zIndexOffset: 1000 }).addTo(map);
+      distanceKm.clear();
+      points.forEach(p => distanceKm.set(p.loc.name, haversineKm(userPosition, p)));
+      // Frame the visitor together with the nearest crags
+      const nearest = points.slice().sort((a, b) => distanceKm.get(a.loc.name) - distanceKm.get(b.loc.name)).slice(0, 5);
+      map.fitBounds(L.latLngBounds([[userPosition.lat, userPosition.lng], ...nearest.map(p => [p.lat, p.lng])]), { padding: [30, 30], maxZoom: 11 });
+      reorderSections();
+      updateDistanceBadges();
+      if (btn) { btn.disabled = false; btn.textContent = '📍 Near me'; btn.classList.add('active'); }
+      if (status && !overviewFilter) status.textContent = 'Sorted by distance from you';
+      loadDriveTimes(points);
+    }, err => {
+      if (btn) { btn.disabled = false; btn.textContent = '📍 Near me'; }
+      showToast(err.code === 1 ? 'Location access was denied' : 'Could not get your location', { type: 'error' });
+    }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 5 * 60 * 1000 });
+  }
+
+  // Drive times from the public OSRM demo server, one request for every crag within driving range.
+  // Best effort: when it fails the list simply keeps straight-line distances.
+  async function loadDriveTimes(points) {
+    if (!userPosition) return;
+    const reachable = points.filter(p => distanceKm.get(p.loc.name) <= 1500);
+    if (!reachable.length) return;
+    const coords = [userPosition, ...reachable].map(p => `${p.lng},${p.lat}`).join(';');
+    try {
+      const res = await fetch(`https://router.project-osrm.org/table/v1/driving/${coords}?sources=0&annotations=duration`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const durations = (data.durations && data.durations[0]) || [];
+      reachable.forEach((p, i) => {
+        const seconds = durations[i + 1];
+        if (Number.isFinite(seconds)) driveMinutes.set(p.loc.name, seconds / 60);
+      });
+      updateDistanceBadges();
+    } catch (_) {}
+  }
 
   function escapeHtml(str) {
     return String(str || '')
