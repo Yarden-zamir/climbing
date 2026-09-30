@@ -302,6 +302,8 @@ class AuthManager {
         const nav = document.querySelector('nav');
         if (!nav) return;
 
+        // Render into the reserved slot so the tabs never move when the control appears
+        const slot = nav.querySelector('.auth-slot') || nav;
         const existingDropdown = nav.querySelector('.user-profile-dropdown.auth-element');
         const existingLogin = nav.querySelector('.login-btn.auth-element');
 
@@ -314,12 +316,12 @@ class AuthManager {
                 if (existingLogin) existingLogin.remove();
                 // Create and append dropdown once
                 const dropdown = this.createUserProfileDropdown();
-                nav.appendChild(dropdown);
+                slot.appendChild(dropdown);
             }
         } else {
             // Not authenticated: ensure dropdown removed and login button present
             if (existingDropdown) existingDropdown.remove();
-            if (!existingLogin) this.addLoginButton(nav);
+            if (!existingLogin) this.addLoginButton(slot);
         }
     }
 
@@ -342,7 +344,7 @@ class AuthManager {
 
     addUserProfileDropdown(nav) {
         const dropdown = this.createUserProfileDropdown();
-        nav.appendChild(dropdown);
+        (nav.querySelector('.auth-slot') || nav).appendChild(dropdown);
     }
 
     createUserProfileDropdown() {

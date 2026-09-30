@@ -1,3 +1,14 @@
+/* Fallback with Poppins-like metrics: text keeps almost the same width while the webfont loads,
+   so the nav does not jump on a cold first visit. */
+@font-face {
+	font-family: "Poppins Fallback";
+	src: local("Helvetica Neue"), local("Arial"), local("Roboto");
+	size-adjust: 112%;
+	ascent-override: 93%;
+	descent-override: 31%;
+	line-gap-override: 9%;
+}
+
 /* Ensure horizontal scrollers work well on mobile */
 .albums-scroller {
   -webkit-overflow-scrolling: touch;
@@ -8,7 +19,7 @@
 
 /* General Body & Typography */
 body {
-	font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI",
+	font-family: "Poppins", "Poppins Fallback", -apple-system, BlinkMacSystemFont, "Segoe UI",
 		Roboto, Helvetica, Arial, sans-serif;
 	margin: 0;
 	background-color: #121212;
@@ -2724,6 +2735,45 @@ a.address:hover { text-decoration: underline; }
 }
 
 /* ============= OAuth Authentication Styles ============= */
+
+/* Fixed slot for the sign-in button or the user avatar. Its width never changes, so the tabs
+   stay put from the first paint on; the user name (desktop) overflows to the right. It shows the
+   cached avatar until auth.js renders the real control into it. */
+.auth-slot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 44px;
+    width: 44px;
+    min-height: 34px;
+    margin: 0 0.2em;
+    overflow: visible;
+}
+.auth-slot > * {
+    margin: 0 !important;
+    flex-shrink: 0;
+}
+html.has-user .auth-slot:empty::before {
+    content: "";
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    background: var(--auth-avatar) center / cover no-repeat, #333;
+}
+/* The placeholder already showed the avatar: the real control must not fade in after it */
+html.has-user .auth-slot .auth-element {
+    animation: none;
+    opacity: 1;
+}
+@media (max-width: 900px) {
+    .auth-slot { margin: 0 0.1em; min-height: 30px; }
+    html.has-user .auth-slot:empty::before { width: 22px; height: 22px; }
+}
+@media (max-width: 600px) {
+    .auth-slot { margin: 0 0.05em; min-height: 26px; }
+    html.has-user .auth-slot:empty::before { width: 20px; height: 20px; }
+}
 
 /* Login Button - Tab Style */
 .login-btn {

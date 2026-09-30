@@ -1,7 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
 	<head>
-	<script>if (document.referrer.startsWith(location.origin)) document.documentElement.classList.add("quick-nav");</script>
+	<script>
+	(function () {
+		var root = document.documentElement;
+		if (document.referrer.startsWith(location.origin)) root.classList.add("quick-nav");
+		// Paint the signed-in avatar from the cached snapshot before any script loads, so the nav never shifts
+		try {
+			var cached = JSON.parse(localStorage.getItem("auth_user_cache_v1") || "null");
+			var user = cached && cached.authenticated && cached.user;
+			if (user && user.id) {
+				var picture = user.picture && (user.picture.indexOf("/redis-image/") === 0 || user.picture.indexOf("/api/profile-picture/") === 0) ? user.picture : "/api/profile-picture/" + user.id;
+				root.style.setProperty("--auth-avatar", "url(\"" + picture.replace(/"/g, "") + "\")");
+				root.classList.add("has-user");
+			}
+		} catch (_) {}
+	})();
+	</script>
         <link id="favicon" rel="icon" type="image/x-icon" href="/static/favicon/favicon.ico">
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -323,6 +338,7 @@
 		<a href="/locations">Locations</a>
 		<a href="/knowledge">Knowledge</a>
 		<a href="/memes" class="active">Memes</a>
+			<span class="auth-slot"></span>
 		</nav>
 		
 			<main class="page-fade">
