@@ -1087,6 +1087,8 @@ function enableMobileCardHighlight() {
 
 	// Make both functions available globally for error buttons
 	window.autoRefreshAlbums = autoRefreshAlbumsWithParticles;
+	// Cached list was stale: pull the fresh one and animate the differences
+	if (window.onListUpdated) window.onListUpdated('/api/albums/enriched', () => autoRefreshAlbumsWithParticles(false, true));
 	window.albumParticleSystem = albumParticleSystem;
 	
 	// Initial load (store initial data for comparison)

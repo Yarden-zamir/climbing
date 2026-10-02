@@ -3,7 +3,9 @@
  * No version tracking, just smart caching strategies
  */
 
-const CACHE_NAME = 'climbing-app-cache-v2';
+const CACHE_NAME = 'climbing-app-cache-v3';
+// Read-only list endpoints that are safe to show from cache while a fresh copy loads
+const LIST_API_PATHS = ['/api/crew', '/api/albums/enriched', '/api/locations', '/api/skills', '/api/achievements', '/api/memes', '/api/location-attributes'];
 const NOTIFICATION_TAG = 'climbing-notification';
 
 // Resources to cache on install (static assets only)
@@ -89,8 +91,15 @@ self.addEventListener('fetch', (event) => {
 
     // Determine caching strategy based on request type
     if (url.pathname.startsWith('/api/')) {
-        // API: Network-first (always try to get fresh data)
-        event.respondWith(networkFirst(request));
+        // Public lists render from cache at once (and offline) and refresh in the background;
+        // the page is told when the fresh copy differs. A request that asks for fresh data
+        // (cache: 'no-store'/'reload' or a _t cache-buster) and everything else goes to the network first.
+        const wantsFresh = request.cache === 'no-store' || request.cache === 'reload' || url.searchParams.has('_t');
+        if (request.method === 'GET' && !wantsFresh && LIST_API_PATHS.includes(url.pathname)) {
+            event.respondWith(staleWhileRevalidate(request));
+        } else {
+            event.respondWith(networkFirst(request));
+        }
     } else if (url.pathname.endsWith('.html') || url.pathname === '/' || 
                ['/crew', '/albums', '/locations', '/memes', '/knowledge', '/admin'].includes(url.pathname)) {
         // HTML pages: Stale-while-revalidate (instant load + background update)
@@ -171,7 +180,16 @@ async function staleWhileRevalidate(request) {
  * Network-First strategy
  * Try network, fall back to cache if offline
  */
+// Cache key without the _t cache-buster, so a fresh fetch and a cached read share one entry
+function cacheKeyFor(request) {
+    const url = new URL(request.url);
+    if (!url.searchParams.has('_t')) return request;
+    url.searchParams.delete('_t');
+    return new Request(url.toString(), { method: request.method, headers: request.headers });
+}
+
 async function networkFirst(request) {
+    const key = request.method === 'GET' ? cacheKeyFor(request) : request;
     try {
         const networkResponse = await fetch(request);
         
@@ -180,13 +198,13 @@ async function networkFirst(request) {
             !request.url.includes('/auth/') && 
             !request.url.includes('/login')) {
             const cache = await caches.open(CACHE_NAME);
-            await cache.put(request, networkResponse.clone());
+            await cache.put(key, networkResponse.clone());
         }
         
         return networkResponse;
     } catch (error) {
         // Network failed, try cache
-        const cachedResponse = await caches.match(request);
+        const cachedResponse = await caches.match(key);
         if (cachedResponse) {
             console.log('SW: Served from cache (offline):', request.url);
             return cachedResponse;

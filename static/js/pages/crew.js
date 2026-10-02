@@ -968,7 +968,7 @@ document.querySelectorAll('.level-badge').forEach(badge => {
                     container.innerHTML = loadingHTML;
                 }
                 
-                const newData = await apiGetShared("/api/crew");
+                const newData = await apiGetShared("/api/crew", 15000, { fresh: detectChanges });
                 
                 // Update global data
                 crewData = newData;
@@ -1156,6 +1156,8 @@ document.querySelectorAll('.level-badge').forEach(badge => {
          }
 
          initializePage();
+         // Cached list was stale: pull the fresh one and animate the differences
+         if (window.onListUpdated) window.onListUpdated('/api/crew', () => autoRefreshCrewWithParticles(false, true));
 
          // Retry a callback until crew data is loaded (used to replay a pending action after login)
          function withCrewMember(crewName, callback, attempt = 0) {

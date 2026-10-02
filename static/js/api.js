@@ -133,16 +133,31 @@ function showToast(message, { type = 'info', action = null, duration } = {}) {
 // Several scripts on one page ask for the same lists at load. Share the in-flight request and
 // keep the answer briefly, so the page issues one request per URL instead of two or three.
 const sharedGets = new Map();
-function apiGetShared(url, ttlMs = 15000) {
+function apiGetShared(url, ttlMs = 15000, { fresh = false } = {}) {
     const now = Date.now();
     const hit = sharedGets.get(url);
-    if (hit && now - hit.at < ttlMs) return hit.promise;
-    const promise = apiFetch(url).catch((error) => { sharedGets.delete(url); throw error; });
+    if (!fresh && hit && now - hit.at < ttlMs) return hit.promise;
+    // fresh: skip the service worker cache too (it serves list endpoints stale-while-revalidate)
+    const promise = apiFetch(url, fresh ? { cache: 'no-store' } : {}).catch((error) => { sharedGets.delete(url); throw error; });
     sharedGets.set(url, { at: now, promise });
     return promise;
 }
 
 window.apiGetShared = apiGetShared;
+
+// The service worker reports when a cached list it served has changed on the server.
+// Pages register a refresh per endpoint; see albums.js and pages/crew.js.
+const listRefreshers = new Map();
+window.onListUpdated = (apiPath, refresh) => listRefreshers.set(apiPath, refresh);
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (!event.data || event.data.type !== 'CONTENT_UPDATED') return;
+        let path = '';
+        try { path = new URL(event.data.url).pathname; } catch (_) { return; }
+        const refresh = listRefreshers.get(path);
+        if (refresh) refresh();
+    });
+}
 // Move the active underline to the pressed tab immediately, before the navigation happens
 function markPressedTabActive(event) {
     const link = event.target.closest('nav > a[href^="/"]');

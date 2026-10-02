@@ -43,13 +43,14 @@ document.addEventListener('DOMContentLoaded', () => {
   async function init() {
     try {
       // Load canonical locations and enriched albums
+      // The lists come from the service worker cache when offline; the auth check may simply fail then
       const [userRes, locRes, albumsRes, attrsRes] = await Promise.all([
-        fetch('/api/auth/user?_t=' + Date.now()),
-        fetch('/api/locations?_t=' + Date.now()),
-        fetch('/api/albums/enriched?_t=' + Date.now()),
-        fetch('/api/location-attributes?_t=' + Date.now()),
+        fetch('/api/auth/user', { cache: 'no-store' }).catch(() => null),
+        fetch('/api/locations'),
+        fetch('/api/albums/enriched'),
+        fetch('/api/location-attributes'),
       ]);
-      if (userRes.ok) {
+      if (userRes && userRes.ok) {
         const u = await userRes.json();
         currentUser = u && u.authenticated ? (u.user || null) : null;
       }
