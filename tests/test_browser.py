@@ -5,7 +5,6 @@ write buttons prompt for sign-in, the learned-items picker, nav stability, the l
 overview map and offline rendering. Skipped when Playwright's browser is not installed.
 """
 
-import json
 import os
 import socket
 import subprocess
