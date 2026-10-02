@@ -35,7 +35,7 @@ jobs:
 
       - name: Syntax-check JavaScript
         run: |
-          for file in sw.js static/js/*.js; do
+          for file in sw.js static/js/*.js static/js/pages/*.js; do
             case "$file" in *.min.js) continue ;; esac
             node --check "$file"
           done
