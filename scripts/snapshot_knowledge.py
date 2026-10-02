@@ -40,13 +40,41 @@ def capture() -> Image.Image:
     return Image.open(io.BytesIO(png)).convert("RGB")
 
 
-def crop_to_content(image: Image.Image, pad: int = 60) -> Image.Image:
-    background = Image.new("RGB", image.size, (255, 255, 255))
-    box = ImageChops.difference(image, background).getbbox()
-    if not box:
+def dense_span(ink_per_line: list[int], smooth: int = 60, gap: int = 150, floor: float = 0.12) -> tuple[int, int]:
+    """Start and end of the main content along one axis.
+
+    A line counts as content when its smoothed ink is above `floor` times the busy level
+    (90th percentile). Stray notes far from the boards are sparse and fall below the floor;
+    runs separated by less than `gap` pixels are joined.
+    """
+    n = len(ink_per_line)
+    smoothed = [sum(ink_per_line[max(0, i - smooth):i + smooth]) / (2 * smooth) for i in range(n)]
+    busy = sorted(smoothed)[int(n * 0.9)]
+    threshold = busy * floor
+    runs: list[list[int]] = []
+    for i, value in enumerate(smoothed):
+        if value < threshold:
+            continue
+        if runs and i - runs[-1][1] <= gap:
+            runs[-1][1] = i
+        else:
+            runs.append([i, i])
+    if not runs:
         raise SystemExit("captured an empty page; Excalidraw did not render")
-    left, top, right, bottom = box
-    return image.crop((max(0, left - pad), max(0, top - pad), min(image.width, right + pad), min(image.height, bottom + pad)))
+    start, end = max(runs, key=lambda r: sum(ink_per_line[r[0]:r[1] + 1]))
+    return start, end
+
+
+def crop_to_content(image: Image.Image, pad: int = 50) -> Image.Image:
+    """Crop to the main boards, leaving out sparse notes drifting far from them."""
+    grey = image.convert("L")
+    width, height = grey.size
+    pixels = grey.load()
+    rows = [sum(1 for x in range(0, width, 2) if pixels[x, y] < 235) for y in range(height)]
+    top, bottom = dense_span(rows)
+    cols = [sum(1 for y in range(top, bottom, 2) if pixels[x, y] < 235) for x in range(width)]
+    left, right = dense_span(cols)
+    return image.crop((max(0, left - pad), max(0, top - pad), min(width, right + pad), min(height, bottom + pad)))
 
 
 def differs(new: Image.Image, path: Path) -> bool:

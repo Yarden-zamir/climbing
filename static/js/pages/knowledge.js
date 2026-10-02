@@ -11,7 +11,14 @@
 	const MIN_SCALE_FACTOR = 0.5; // relative to "fit"
 	const MAX_SCALE = 6;
 	let scale = 1, x = 0, y = 0, fitScale = 1;
-	const width = Number(image.getAttribute('width')), height = Number(image.getAttribute('height'));
+	// Real pixel size of whatever image is shown; the preview and the lossless image share an aspect ratio
+	let width = Number(image.getAttribute('width')), height = Number(image.getAttribute('height'));
+	const adoptImageSize = () => {
+		if (!image.naturalWidth) return;
+		const ratio = image.naturalWidth / width;
+		width = image.naturalWidth; height = image.naturalHeight;
+		scale /= ratio; fitScale /= ratio;  // same on-screen size, new pixel grid
+	};
 
 	const render = () => { canvas.style.transform = `translate(${x}px, ${y}px) scale(${scale})`; };
 	const clampScale = (s) => Math.min(MAX_SCALE, Math.max(fitScale * MIN_SCALE_FACTOR, s));
@@ -127,9 +134,10 @@
 
 	// Swap the small preview for the lossless image once it has loaded
 	const full = new Image();
-	full.onload = () => { image.src = full.src; };
+	full.onload = () => { image.src = full.src; image.onload = () => { adoptImageSize(); render(); }; };
 	full.src = '/static/knowledge-full.webp';
 
 	new ResizeObserver(() => { if (scale === fitScale) fit(); else { keepInView(); render(); } }).observe(stage);
+	if (image.complete && image.naturalWidth) adoptImageSize(); else image.addEventListener('load', () => { adoptImageSize(); fit(); }, { once: true });
 	fit();
 })();
