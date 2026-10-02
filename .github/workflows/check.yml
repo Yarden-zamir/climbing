@@ -30,7 +30,10 @@ jobs:
       - name: Lint
         run: uvx ruff check --select F --exclude .venv .
 
-      - name: End-to-end tests
+      - name: Install the browser for the browser tests
+        run: uv run playwright install --with-deps chromium
+
+      - name: End-to-end tests (API and browser)
         run: uv run pytest -q
 
       - name: Syntax-check JavaScript

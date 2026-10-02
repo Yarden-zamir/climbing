@@ -20,6 +20,7 @@ requires-python = ">=3.13"
 
 [dependency-groups]
 dev = [
+    "playwright>=1.50",
     "pytest>=8",
     "pytest-asyncio>=1",
 ]
