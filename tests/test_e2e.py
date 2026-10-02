@@ -65,7 +65,7 @@ def test_writes_require_login(client):
 
 def test_image_proxy_only_google(client):
     assert client.get("/get-image", params={"url": "https://example.com/x.png"}).status_code == 400
-    assert client.get("/redis-image/climber/Nobody/face").status_code == 404
+    assert client.get("/images/climber/Nobody/face").status_code == 404
 
 
 # ----------------------------------------------------------------------------- crew
@@ -93,7 +93,7 @@ def test_admin_creates_crew_with_image_and_reads_it_back(client, admin):
     assert alice["location"] == ["Haifa"]
     assert alice["climbs"] == 0 and alice["is_new"] is False and alice["first_climb_date"] is None
     assert alice["level"] == 1 + 2 + 1  # base + skills + achievements
-    assert client.get("/redis-image/climber/Alice%20Climber/face").status_code == 200
+    assert client.get("/images/climber/Alice%20Climber/face").status_code == 200
     assert client.post("/api/crew/submit", data=crew_form("Alice Climber")).status_code == 409
 
 
@@ -268,7 +268,7 @@ def test_meme_upload_list_and_owner_only_delete(client, admin, member, pending):
     memes = client.get("/api/memes").json()
     assert len(memes) == 1
     meme = memes[0]
-    image_path = f"/redis-image/meme/{meme['id']}"
+    image_path = f"/images/meme/{meme['id']}"
     assert client.get(image_path).status_code == 200
     login(client, pending)
     assert client.delete(f"/api/memes/{meme['id']}").status_code == 403
@@ -422,7 +422,7 @@ def test_faces_are_stored_small_and_served_as_webp(client, admin):
     big = png_bytes((1200, 1200))
     assert len(big) > 5000
     assert client.post("/api/crew/submit", data=crew_form("Big Face"), files={"image": ("face.png", big, "image/png")}).status_code == 200
-    response = client.get("/redis-image/climber/Big%20Face/face")
+    response = client.get("/images/climber/Big%20Face/face")
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/webp"
     assert len(response.content) < 20_000
@@ -453,10 +453,10 @@ def test_cover_proxy_requests_a_sized_variant_and_caches_it(client, monkeypatch)
 def test_face_thumbnail_variant(client, admin):
     login(client, admin)
     assert client.post("/api/crew/submit", data=crew_form("Thumb Face"), files={"image": ("face.png", png_bytes((900, 900)), "image/png")}).status_code == 200
-    full = client.get("/redis-image/climber/Thumb%20Face/face")
-    small = client.get("/redis-image/climber/Thumb%20Face/face", params={"s": 64})
+    full = client.get("/images/climber/Thumb%20Face/face")
+    small = client.get("/images/climber/Thumb%20Face/face", params={"s": 64})
     assert full.status_code == small.status_code == 200
     assert small.headers["content-type"] == "image/webp"
     assert len(small.content) < len(full.content)
-    assert client.get("/redis-image/climber/Thumb%20Face/face", params={"s": 9999}).status_code == 422
+    assert client.get("/images/climber/Thumb%20Face/face", params={"s": 9999}).status_code == 422
     assert client.delete("/api/crew/delete", params={"crew_name": "Thumb Face"}).status_code == 200

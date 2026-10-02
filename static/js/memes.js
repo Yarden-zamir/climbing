@@ -273,7 +273,7 @@ class MemesManager {
 		if (!this.currentContextMeme) return;
 		
 		try {
-			const imageUrl = `/redis-image/meme/${this.currentContextMeme.id}`;
+			const imageUrl = `/images/meme/${this.currentContextMeme.id}`;
 			const response = await fetch(imageUrl);
 			const blob = await response.blob();
 			
@@ -300,7 +300,7 @@ class MemesManager {
 		
 		try {
 			// Fetch the image file
-			const imageUrl = `/redis-image/meme/${this.currentContextMeme.id}`;
+			const imageUrl = `/images/meme/${this.currentContextMeme.id}`;
 			const response = await fetch(imageUrl);
 			
 			if (!response.ok) {
@@ -345,7 +345,7 @@ class MemesManager {
 
 	fallbackUrlShare() {
 		// Share URL instead of file when file sharing isn't supported
-		const memeUrl = `${window.location.origin}/redis-image/meme/${this.currentContextMeme.id}`;
+		const memeUrl = `${window.location.origin}/images/meme/${this.currentContextMeme.id}`;
 		const shareText = 'Check out this climbing meme!';
 		
 		if (navigator.share) {
@@ -369,7 +369,7 @@ class MemesManager {
 	fallbackShare(url, text) {
 		// If no URL provided, use the current meme URL
 		if (!url && this.currentContextMeme) {
-			url = `${window.location.origin}/redis-image/meme/${this.currentContextMeme.id}`;
+			url = `${window.location.origin}/images/meme/${this.currentContextMeme.id}`;
 			text = 'Check out this climbing meme!';
 		}
 		
@@ -519,7 +519,7 @@ class MemesManager {
 	}
 
 	createMemeCard(meme) {
-		const imageUrl = `/redis-image/meme/${meme.id}`;
+		const imageUrl = `/images/meme/${meme.id}`;
 		const createdDate = this.formatDate(meme.created_at);
 		
 		return `

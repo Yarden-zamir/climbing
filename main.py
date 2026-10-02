@@ -176,8 +176,8 @@ async def get_image(
 # === Redis Image Serving ===
 
 
-@app.get("/redis-image/{image_type}/{identifier:path}", tags=["utilities"])
-async def get_redis_image(
+@app.get("/images/{image_type}/{identifier:path}", tags=["utilities"])
+async def get_stored_image(
     image_type: str = PathParam(..., description="Type of image (climber, profile, meme)"),
     identifier: str = PathParam(..., description="Image identifier or path"),
     s: int | None = Query(None, ge=16, le=512, description="Square thumbnail size for faces"),

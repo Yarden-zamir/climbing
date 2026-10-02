@@ -34,7 +34,7 @@ DEFAULT_NOTIFICATION_PREFERENCES = {
     "meme_uploaded": True,
     "system_announcements": True,
 }
-IMAGE_URL_PREFIX = "/redis-image"  # kept: every stored image_url and the frontend use this path
+IMAGE_URL_PREFIX = "/images"
 FACE_KINDS = ("climber", "profile", "temp")  # small avatars: stored as 256px WebP
 
 
@@ -179,6 +179,8 @@ class SyncStore:
         self.db = Database(path)
         self._metadata_cache: Dict[str, tuple[datetime, Dict]] = {}
         self.purge_expired_images()
+        # Profile pictures were stored under the old /redis-image path (renamed 2026-10-02)
+        self.db.run("UPDATE users SET picture = replace(picture, '/redis-image/', '/images/') WHERE picture LIKE '/redis-image/%'")
 
     # ------------------------------------------------------------------ levels
 

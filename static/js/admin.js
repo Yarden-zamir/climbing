@@ -239,9 +239,9 @@ class AdminPanel {
     getProfilePictureUrl(user) {
         if (!user || !user.id) return '/static/favicon/favicon-32x32.png';
         
-        // If picture starts with /redis-image/ or /api/profile-picture/, use it as is
+        // If picture starts with /images/ or /api/profile-picture/, use it as is
         if (user.picture && (
-            user.picture.startsWith('/redis-image/') || 
+            user.picture.startsWith('/images/') || 
             user.picture.startsWith('/api/profile-picture/')
         )) {
             return user.picture;

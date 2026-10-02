@@ -141,7 +141,7 @@ document.addEventListener("DOMContentLoaded", () => {
 			faceLink.tabIndex = 0;
 			
 			const faceImg = document.createElement('img');
-			faceImg.src = climber.image_url || `/redis-image/climber/${encodeURIComponent(climberName)}/face`;
+			faceImg.src = climber.image_url || `/images/climber/${encodeURIComponent(climberName)}/face`;
 			faceImg.alt = climberName;
 			faceImg.className = `album-crew-face${isNew ? ' new-climber' : ''}`;
 			

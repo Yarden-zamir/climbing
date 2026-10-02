@@ -290,7 +290,7 @@ const populateCard = async (card, meta) => {
 			faceLink.tabIndex = 0;
 			
 			const faceImg = document.createElement('img');
-			faceImg.src = `${climber.image_url || `/redis-image/climber/${encodeURIComponent(climberName)}/face`}?s=64`;
+			faceImg.src = `${climber.image_url || `/images/climber/${encodeURIComponent(climberName)}/face`}?s=64`;
 			faceImg.width = 32;
 			faceImg.height = 32;
 			faceImg.alt = climberName;
@@ -467,7 +467,7 @@ function enableMobileCardHighlight() {
 		filtersContainer.innerHTML = sortedPeople.map(person => `
 			<div class="person-filter">
 				<input type="checkbox" value="${person}" onchange="handleFilterChange()">
-				<img src="/redis-image/climber/${encodeURIComponent(person)}/face" alt="${person}" class="person-face" onerror="this.style.display='none'">
+				<img src="/images/climber/${encodeURIComponent(person)}/face" alt="${person}" class="person-face" onerror="this.style.display='none'">
 				<span>${person}</span>
 			</div>
 		`).join('');

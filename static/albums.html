@@ -11,7 +11,7 @@
 			var cached = JSON.parse(localStorage.getItem("auth_user_cache_v1") || "null");
 			var user = cached && cached.authenticated && cached.user;
 			if (user && user.id) {
-				var picture = user.picture && (user.picture.indexOf("/redis-image/") === 0 || user.picture.indexOf("/api/profile-picture/") === 0) ? user.picture : "/api/profile-picture/" + user.id;
+				var picture = user.picture && (user.picture.indexOf("/images/") === 0 || user.picture.indexOf("/api/profile-picture/") === 0) ? user.picture : "/api/profile-picture/" + user.id;
 				root.style.setProperty("--auth-avatar", "url(\"" + picture.replace(/"/g, "") + "\")");
 				root.style.setProperty("--auth-name", JSON.stringify(String(user.name || "").slice(0, 24)));
 				root.classList.add("has-user");
