@@ -39,16 +39,16 @@
 		<link rel="stylesheet" href="/static/css/styles.css" />
 		<link rel="preload" href="/static/js/auth.js" as="script">
 			<style>
-			.knowledge-stage { position: relative; width: 100%; height: calc(100vh - 70px); background: #fff; overflow: hidden; }
-			.knowledge-stage .knowledge-preview { display: block; width: 100%; height: 100%; object-fit: contain; object-position: top center; }
-			.knowledge-stage .main-iframe { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; opacity: 0; transition: opacity 0.4s ease; }
-			.knowledge-stage.live .main-iframe { opacity: 1; }
-			.knowledge-stage.live .knowledge-preview, .knowledge-stage.live .knowledge-open, .knowledge-stage.live .knowledge-link { visibility: hidden; }
-			.knowledge-open { position: absolute; left: 50%; bottom: 2rem; transform: translateX(-50%); background: #03dac6; color: #111; border: 0; border-radius: 999px; padding: 0.8rem 1.4rem; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
-			.knowledge-stage.loading .knowledge-open::after { content: " loading…"; font-weight: 400; }
-			.knowledge-link { position: absolute; right: 1rem; bottom: 2.4rem; color: #555; font-size: 0.85rem; text-decoration: none; }
-			.knowledge-link:hover { text-decoration: underline; color: #222; }
-			@media (max-width: 600px) { .knowledge-stage { height: calc(100vh - 70px); } }
+			.knowledge-stage { position: relative; width: 100%; height: calc(100vh - 70px); background: #fff; overflow: hidden; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; outline: none; }
+			.knowledge-stage.dragging { cursor: grabbing; }
+			.knowledge-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+			.knowledge-image { display: block; pointer-events: none; }
+			.knowledge-controls { position: absolute; right: 0.75rem; bottom: 0.75rem; display: flex; gap: 0.35rem; align-items: center; background: rgba(18,18,18,0.85); border-radius: 999px; padding: 0.3rem; }
+			.knowledge-controls button { width: 38px; height: 38px; border-radius: 50%; border: 0; background: #2a2a2a; color: #fff; font: inherit; font-size: 1.1rem; cursor: pointer; }
+			.knowledge-controls button[data-zoom="fit"] { width: auto; padding: 0 0.8rem; border-radius: 999px; font-size: 0.85rem; }
+			.knowledge-controls button:hover { background: #03dac6; color: #111; }
+			.knowledge-link { color: #ccc; font-size: 0.8rem; text-decoration: none; padding: 0 0.6rem; }
+			.knowledge-link:hover { color: #fff; text-decoration: underline; }
 		</style>
 	</head>
 	<body>
@@ -60,25 +60,20 @@
 			<a href="/memes">Memes</a>
 			<span class="auth-slot"><span class="user-profile-btn auth-placeholder" aria-hidden="true"><span class="user-avatar"></span><span class="user-name"></span><span class="dropdown-arrow">▼</span></span></span>
 		</nav>
-		<!-- Excalidraw takes many seconds to boot; show a static preview at once and load the live
-		     diagram only when someone wants to interact with it. -->
-		<div class="knowledge-stage" id="knowledge-stage">
-			<img class="knowledge-preview" src="/static/knowledge-preview.webp" alt="Climbing knowledge diagram: sport climbing procedures, partner checks, knots, belay devices and self belay" width="1760" height="1314" decoding="async" fetchpriority="high">
-			<button class="knowledge-open" id="knowledge-open" type="button">Open interactive diagram</button>
-			<a class="knowledge-link" href="https://link.excalidraw.com/readonly/AtAowLIPvMThzN3XHsEf" target="_blank" rel="noopener">Open in Excalidraw ↗</a>
+		<!-- The diagram is a pre-rendered image (scripts/snapshot_knowledge.py keeps it current):
+		     it shows at once and pans and zooms like a diagram. Excalidraw itself opens on request. -->
+		<div class="knowledge-stage" id="knowledge-stage" tabindex="0" aria-label="Climbing knowledge diagram. Drag to pan, scroll or pinch to zoom.">
+			<div class="knowledge-canvas" id="knowledge-canvas">
+				<img class="knowledge-image" id="knowledge-image" src="/static/knowledge-preview.webp" width="2565" height="3100" alt="Climbing knowledge diagram: sport climbing procedures, partner checks, knots, belay devices and self belay" draggable="false" decoding="async" fetchpriority="high">
+			</div>
+			<div class="knowledge-controls">
+				<button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+				<button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+				<button type="button" data-zoom="fit" aria-label="Fit to screen">Fit</button>
+				<a class="knowledge-link" href="https://link.excalidraw.com/readonly/AtAowLIPvMThzN3XHsEf" target="_blank" rel="noopener" title="Open the live diagram in Excalidraw">Excalidraw ↗</a>
+			</div>
 		</div>
-		<script>
-			document.getElementById('knowledge-open').addEventListener('click', () => {
-				const stage = document.getElementById('knowledge-stage');
-				const frame = document.createElement('iframe');
-				frame.src = 'https://link.excalidraw.com/readonly/AtAowLIPvMThzN3XHsEf';
-				frame.className = 'main-iframe';
-				frame.title = 'Interactive climbing knowledge diagram';
-				stage.classList.add('loading');
-				frame.addEventListener('load', () => stage.classList.add('live'));
-				stage.appendChild(frame);
-			});
-		</script>
+		<script src="/static/js/pages/knowledge.js"></script>
 		<!-- PWA and Notification Management -->
 		<script src="/static/js/api.js"></script>
 		<script src="/static/js/pwa-manager.js" defer></script>
