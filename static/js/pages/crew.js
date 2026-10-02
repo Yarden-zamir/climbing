@@ -1,4 +1,16 @@
-// Page script for /static/crew.html, moved out of the HTML unchanged.
+// Page script for /static/crew.html.
+
+// A skill or achievement badge; when the item was learned in a known album it links to that album
+function learnedBadge(className, label, source) {
+    const text = escapeText(label);
+    if (!source || !source.url) return `<span class="${className}">${text}</span>`;
+    const when = source.date ? ` (${escapeText(source.date)})` : '';
+    const title = `Learned at ${escapeText(source.title || 'an album')}${when} – open the album`;
+    return `<a class="${className} learned-badge" href="/albums?album=${encodeURIComponent(source.url)}" title="${title}">${text}<span class="learned-mark" aria-hidden="true">⚡</span></a>`;
+}
+function escapeText(value) {
+    return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+}
         // Level calculation utilities (matches backend logic)
         const LevelCalculator = {
             CLIMBS_PER_LEVEL: 5,
@@ -401,7 +413,7 @@
                 ${[
                     ...skillOrder.map(skill =>
                         c.skills.includes(skill)
-                            ? `<span class="skill-badge">${skill}</span>`
+                            ? learnedBadge('skill-badge', skill, c.skill_sources && c.skill_sources[skill])
                             : ""
                     ),
                     ...tagOrder.map(tag =>
@@ -411,7 +423,7 @@
                     ),
                     ...achievementOrder.map(achievement =>
                         c.achievements && c.achievements.includes(achievement)
-                            ? `<span class="achievement-badge">${achievement}</span>`
+                            ? learnedBadge('achievement-badge', achievement, c.achievement_sources && c.achievement_sources[achievement])
                             : ""
                     ),
                     ...(Array.isArray(c.locations_visited) && c.locations_visited.length > 0 ?

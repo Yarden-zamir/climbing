@@ -284,6 +284,12 @@ class SyncStore:
             "SELECT climber, tag AS item, NULL AS learned_in FROM climber_tags WHERE climber IN (SELECT unnest(?::TEXT[])) ORDER BY tag",
             selected,
         )
+        # Where items were learned: album url -> title and date, for links on the crew page
+        source_urls = sorted({x["learned_in"] for group in (skills, achievements) for items in group.values() for x in items if x["learned_in"]})
+        albums_by_url = {
+            a["url"]: {"url": a["url"], "title": a["title"], "date": a["date_text"]}
+            for a in self.db.rows("SELECT url, title, date_text FROM albums WHERE url IN (SELECT unnest(?::TEXT[]))", [source_urls])
+        } if source_urls else {}
         result = []
         for r in rows:
             name = r["name"]
@@ -301,9 +307,9 @@ class SyncStore:
                     "skills": [s["item"] for s in skill_rows],
                     "achievements": [a["item"] for a in achievement_rows],
                     "tags": [t["item"] for t in tags.get(name, [])],
-                    "skill_sources": {s["item"]: s["learned_in"] for s in skill_rows if s["learned_in"]},
+                    "skill_sources": {s["item"]: albums_by_url[s["learned_in"]] for s in skill_rows if s["learned_in"] in albums_by_url},
                     "achievement_sources": {
-                        a["item"]: a["learned_in"] for a in achievement_rows if a["learned_in"]
+                        a["item"]: albums_by_url[a["learned_in"]] for a in achievement_rows if a["learned_in"] in albums_by_url
                     },
                     "climbs": r["climbs"],
                     "is_new": bool(first_seen and first_seen >= cutoff),

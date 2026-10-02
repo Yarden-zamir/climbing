@@ -1,4 +1,16 @@
 const NEW_ALBUM_WINDOW_DAYS = 7;
+// ?album=<url> (from a "learned at" badge on the crew page): scroll to that card and light it up
+let spotlightAlbum = null;
+function spotlightAlbumCard() {
+	if (!spotlightAlbum) return;
+	const card = document.querySelector(`[data-album-url="${CSS.escape(spotlightAlbum)}"]`);
+	if (!card) return;
+	spotlightAlbum = null;
+	card.classList.add('spotlight');
+	card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	setTimeout(() => card.classList.remove('spotlight'), 6000);
+	try { const url = new URL(window.location); url.searchParams.delete('album'); history.replaceState({}, '', url); } catch (_) {}
+}
 
 // The server resolves the climb date (with year) into metadata.date_iso; never re-parse the display string.
 function isRecentAlbum(meta) {
@@ -355,6 +367,7 @@ function enableMobileCardHighlight() {
     selectedPeople.clear();
     selectedLocations.clear();
 		const params = new URLSearchParams(window.location.search);
+		spotlightAlbum = params.get('album') || null;
 		const peopleParam = params.get('people');
 		if (peopleParam) {
 			const peopleFromUrl = peopleParam.split(',').map(p => p.trim()).filter(p => p);
@@ -677,6 +690,7 @@ function enableMobileCardHighlight() {
 		syncFiltersWithUI();
 		
 		enableMobileCardHighlight();
+		setTimeout(spotlightAlbumCard, 150);
 	}
 
 	async function processEnrichedAlbums(enrichedAlbums) {
@@ -726,6 +740,7 @@ function enableMobileCardHighlight() {
 		syncFiltersWithUI();
 		
 		enableMobileCardHighlight();
+		setTimeout(spotlightAlbumCard, 150);
 	}
 
 	// Auto-refresh function for albums data

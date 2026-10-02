@@ -166,8 +166,8 @@ def test_album_submit_with_new_person_and_learned_items(client, admin):
     assert sorted(c["name"] for c in album["metadata"]["crew"]) == ["Alice Climber", "Newbie Person"]
 
     crew = {c["name"]: c for c in client.get("/api/crew").json()}
-    assert crew["Alice Climber"]["skill_sources"] == {"rope coiler": ALBUM_1}
-    assert crew["Alice Climber"]["achievement_sources"] == {"first outdoor": ALBUM_1}
+    assert crew["Alice Climber"]["skill_sources"] == {"rope coiler": {"url": ALBUM_1, "title": "Test Album", "date": "Sep 27, 2025"}}
+    assert crew["Alice Climber"]["achievement_sources"] == {"first outdoor": {"url": ALBUM_1, "title": "Test Album", "date": "Sep 27, 2025"}}
     assert crew["Alice Climber"]["climbs"] == 1
     assert crew["Alice Climber"]["locations_visited"] == ["Gita"]
     assert crew["Alice Climber"]["first_climb_date"] == "Sep 27, 2025"

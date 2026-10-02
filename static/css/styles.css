@@ -37,6 +37,28 @@ html {
 	overflow-x: hidden;
 }
 
+/* Badges that link to the album where the skill or achievement was learned */
+.learned-badge {
+	text-decoration: none;
+	cursor: pointer;
+}
+.learned-badge .learned-mark {
+	font-size: 0.7em;
+	margin-left: 0.25em;
+	opacity: 0.8;
+}
+.learned-badge:hover {
+	filter: brightness(1.2);
+	text-decoration: underline;
+}
+/* Card opened from a "learned at" link */
+.album-card.spotlight {
+	outline: 3px solid #ffd166;
+	outline-offset: 4px;
+	box-shadow: 0 0 32px rgba(255, 209, 102, 0.6);
+	transition: outline-color 0.6s ease, box-shadow 0.6s ease;
+}
+
 /* Footer: the privacy link lives at the very bottom of the page, out of the way */
 .site-footer {
 	text-align: center;
