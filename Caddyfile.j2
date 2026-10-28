@@ -1,4 +1,0 @@
-{{ host("climbing.yarden-zamir.com") }}{% if environment == "prod" %}, onion-climbers.com, www.onion-climbers.com{% endif %} {
-    encode zstd gzip
-    reverse_proxy unix//{{ paths.default_socket }}
-}

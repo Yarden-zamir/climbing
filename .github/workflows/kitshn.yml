@@ -1,17 +1,18 @@
+name: kitshn
+
+# kitshn 2 (https://kit.yarden-zamir.com) builds and runs compose.yml on a machine with the label deploy. Only main
+# deploys (kitshn.config.ts); the KITSHN_* secrets of the GitHub Environment "prod" reach the app as before.
 on:
   push:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+  # kitshn 2 agent keys start a build of one branch (K-718).
   workflow_dispatch:
-    inputs:
-      environment: { required: true, type: string }
-      ref: { required: false, type: string }
 
 permissions:
   contents: read
-  deployments: write
+  id-token: write
 
 jobs:
-  call:
-    uses: Yarden-zamir/kitshn/.github/workflows/deploy.yml@main
+  kitshn:
+    uses: Yarden-zamir/kitshn/.github/workflows/kitshn2-deploy.yml@main
     secrets: inherit
